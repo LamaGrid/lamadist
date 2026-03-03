@@ -1,0 +1,217 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'BSP target to build'
+        required: false
+        default: 'x86_64'
+        type: choice
+        options:
+          - x86_64
+          - rk1
+          - soquartz
+          - orin-nx
+          - all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  SSTATE_DIR: /__w/_sstate
+  LAMADIST_HOST_SSTATE_DIR: /__w/_sstate
+  LAMADIST_CONTAINER_IMAGE: lamadist-builder:latest
+  CONTAINER_REGISTRY: registry.local:5000
+  BUILDER_UID: '1001'
+  # Use overlay storage driver — pods have kernel overlay permissions
+  STORAGE_DRIVER: overlay
+
+jobs:
+  build-container:
+    name: Build Container
+    runs-on: container-build-set
+    container:
+      image: quay.io/podman/stable
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'push' && 2 || 1 }}
+
+      - name: Check if rebuild needed
+        id: check
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          BUILD_NEEDED=false
+
+          # Only rebuild if container/ files changed
+          CHANGES=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+              git fetch --depth=1 origin "${{ github.base_ref }}"
+              CHANGES=$(git diff --name-only FETCH_HEAD -- container/)
+          elif [ "${{ github.event_name }}" = "push" ]; then
+              CHANGES=$(git diff --name-only HEAD~1 -- container/ 2>/dev/null || echo "initial push")
+          fi
+
+          if [ -n "${CHANGES}" ]; then
+              echo "Container files changed:"
+              echo "${CHANGES}"
+              BUILD_NEEDED=true
+          else
+              echo "No container/ changes, skipping rebuild"
+          fi
+
+          echo "build_needed=${BUILD_NEEDED}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure container storage
+        if: steps.check.outputs.build_needed == 'true'
+        run: |
+          cat > /etc/containers/storage.conf <<'EOF'
+          [storage]
+          driver = "overlay"
+          [storage.options.overlay]
+          mount_program = ""
+          EOF
+          sed -i 's/^ *//' /etc/containers/storage.conf
+
+      - name: Install mise
+        if: steps.check.outputs.build_needed == 'true'
+        uses: jdx/mise-action@v2
+
+      - name: Build and push container image
+        if: steps.check.outputs.build_needed == 'true'
+        run: mise run container --ci
+
+  build-x86-64:
+    name: Build x86_64
+    needs: build-container
+    runs-on: yocto-runner-set
+    container:
+      image: registry.local/lamagrid/lamadist-builder:latest
+    env:
+      KAS_WORK_DIR: ${{ github.workspace }}
+    timeout-minutes: 480
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Clean workspace (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          rm -rf "${GITHUB_WORKSPACE}/build/tmp"
+          echo "Cleaned build/tmp directory"
+
+      - name: Build
+        run: mise run build --bsp x86_64 --ci
+
+      # TODO: Upload build artifacts when ready
+      # - name: Upload artifacts
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: build-artifacts-x86_64-${{ github.sha }}
+      #     path: deploy/images/
+      #     retention-days: 7
+
+  build-rk1:
+    name: Build RK1
+    needs: build-container
+    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'rk1' || inputs.target == 'all')
+    runs-on: yocto-runner-set
+    container:
+      image: registry.local/lamagrid/lamadist-builder:latest
+    env:
+      KAS_WORK_DIR: ${{ github.workspace }}
+    timeout-minutes: 480
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Clean workspace (main only)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          rm -rf "${GITHUB_WORKSPACE}/build/tmp"
+          echo "Cleaned build/tmp directory"
+
+      - name: Build
+        run: mise run build --bsp rk1 --ci
+
+  build-soquartz:
+    name: Build SOQuartz
+    needs: build-container
+    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'soquartz' || inputs.target == 'all')
+    runs-on: yocto-runner-set
+    container:
+      image: registry.local/lamagrid/lamadist-builder:latest
+    env:
+      KAS_WORK_DIR: ${{ github.workspace }}
+    timeout-minutes: 480
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Clean workspace (main only)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          rm -rf "${GITHUB_WORKSPACE}/build/tmp"
+          echo "Cleaned build/tmp directory"
+
+      - name: Build
+        run: mise run build --bsp soquartz --ci
+
+  build-orin-nx:
+    name: Build Orin NX
+    needs: build-container
+    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'orin-nx' || inputs.target == 'all')
+    runs-on: yocto-runner-set
+    container:
+      image: registry.local/lamagrid/lamadist-builder:latest
+    env:
+      KAS_WORK_DIR: ${{ github.workspace }}
+    timeout-minutes: 480
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Clean workspace (main only)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          rm -rf "${GITHUB_WORKSPACE}/build/tmp"
+          echo "Cleaned build/tmp directory"
+
+      - name: Build
+        run: mise run build --bsp orin-nx --ci
+
+  upload-artifacts:
+    name: Upload Artifacts
+    needs: build-x86-64
+    runs-on: yocto-runner-set
+    container:
+      image: registry.local/lamagrid/lamadist-builder:latest
+    timeout-minutes: 5
+    steps:
+      - name: Placeholder
+        run: echo "TODO - Upload build artifacts"

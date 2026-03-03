@@ -29,14 +29,16 @@ RUN --mount=type=cache,target=/var/lib/apt \
     # Use Bash as the default /bin/sh
     ln -sf /bin/bash /bin/sh &&\
 
-    # Create a non-root user that will perform the actual build
-    id builder 2> /dev/null || useradd --uid 1000 --shell /bin/bash --create-home builder &&\
-    echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers.d/builder &&\
-    chmod 0660 /etc/sudoers.d/builder &&\
-
     # Cleanup
     apt-get autoclean &&\
     rm -rf /tmp/* /var/tmp/*
+
+# Create a non-root user that will perform the actual build.
+# BUILDER_UID should match the host UID to avoid permission issues.
+ARG BUILDER_UID=1000
+RUN id builder 2>/dev/null || useradd --uid ${BUILDER_UID} --shell /bin/bash --create-home builder && \
+    echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers.d/builder && \
+    chmod 0660 /etc/sudoers.d/builder
 
 # We need these for consistent sorting, formating, etc., but they cannnot
 # be set until after the locales are generated.  Yocto also requires them.
