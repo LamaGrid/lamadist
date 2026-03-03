@@ -46,6 +46,7 @@ iproute2
 openssh-client
 
 # Extra packages for interactive work
+curl
 less
 sudo
 tmux
