@@ -22,9 +22,9 @@ defaults:
 repos:
   # Package layers
   meta-openembedded:
-    url: 'https://github.com/openembedded/meta-openembedded.git'
-    path: 'ext/meta-openembedded'
-    layers :
+    url: "https://github.com/openembedded/meta-openembedded.git"
+    path: "ext/meta-openembedded"
+    layers:
       meta-oe:
       meta-filesystems:
       meta-networking:
@@ -32,60 +32,59 @@ repos:
       meta-python:
 
   meta-clang:
-    url: 'https://github.com/kraj/meta-clang.git'
-    path: 'ext/meta-clang'
-    branch: master
+    url: "https://github.com/kraj/meta-clang.git"
+    path: "ext/meta-clang"
+    branch: scarthgap
 
   # Distro layers
   poky:
-    url: 'https://git.yoctoproject.org/poky'
-    path: 'ext/poky'
-    layers :
+    url: "https://git.yoctoproject.org/poky"
+    path: "ext/poky"
+    layers:
       meta:
       meta-poky:
       meta-yocto-bsp:
 
   # TODO: Create custom distro layer
   meta-lamadist:
-    #url: 'https://github.com/lamawithonel/meta-lamadist.git'
-    path: 'meta-lamadist'
+    #url: 'https://github.com/LamaGrid/meta-lamadist.git'
+    path: "meta-lamadist"
     #branch: main
 
   # Security layers
   meta-secure-core:
-    url: 'https://github.com/Wind-River/meta-secure-core.git'
-    path: 'ext/meta-secure-core'
-    layers :
+    url: "https://github.com/Wind-River/meta-secure-core.git"
+    path: "ext/meta-secure-core"
+    layers:
       meta-secure-core-common:
       meta-encrypted-storage:
       meta-integrity:
       meta-signing-key:
-#      meta-efi-secure-boot:
+  #      meta-efi-secure-boot:
 
   meta-selinux:
-    url: 'https://git.yoctoproject.org/meta-selinux'
-    path: 'ext/meta-selinux'
+    url: "https://git.yoctoproject.org/meta-selinux"
+    path: "ext/meta-selinux"
 
   meta-security:
-    url: 'https://git.yoctoproject.org/meta-security'
-    path: 'ext/meta-security'
+    url: "https://git.yoctoproject.org/meta-security"
+    path: "ext/meta-security"
 
   # Common feature layers
   meta-virtualization:
-    url: 'https://git.yoctoproject.org/meta-virtualization'
-    path: 'ext/meta-virtualization'
+    url: "https://git.yoctoproject.org/meta-virtualization"
+    path: "ext/meta-virtualization"
 
   meta-rauc:
-    url: 'https://github.com/rauc/meta-rauc.git'
-    path: 'ext/meta-rauc'
+    url: "https://github.com/rauc/meta-rauc.git"
+    path: "ext/meta-rauc"
 
 # TODO: Move board-specific settings into machine.conf Kas layers (e.g., TPM, UEFI, etc.)
 # TODO: Figure out which local.conf options belong in a custom distro or image
 local_conf_header:
-
-#  Users: |
-#    # FIXME: Figure out how to disable root using meta-secure-core
-#    #EXTRA_USERS_PARAMS:append = " usermod -P P@$$w0rD root;"
+  #  Users: |
+  #    # FIXME: Figure out how to disable root using meta-secure-core
+  #    #EXTRA_USERS_PARAMS:append = " usermod -P P@$$w0rD root;"
 
   # meta-secure-core README example:
   #
@@ -120,57 +119,57 @@ local_conf_header:
   #  IMAGE_INSTALL:append = ' kernel-image-bzimage'
 
   #meta-secure-core/meta-secure-core-common: |
-    #INITRAMFS_IMAGE                     = 'secure-core-image-initramfs'
+  #INITRAMFS_IMAGE                     = 'secure-core-image-initramfs'
 
-#   # TODO: Create custom signing keys and stash/retrieve them securely,
-#   #       then uncomment and fill in meta-secure-core/meta-signing_keys
-#   #       configuration.
-#
-#   # Prohibit using the sample keys for signing the images.
-#   SIGNING_MODEL := 'user'
-#
-#   # UEFI Machine Owner Keys
-#   MOK_SB_KEYS_DIR := ''
-#
-#   # Standard UEFI keys
-#   UEFI_SB_KEYS_DIR := ''
-#
-#   # Kernel module signing keys
-#   MODSIGN_KEYS_DIR := ''
-#
-#   # Integrity Measurement Architecture signing keys for use by RPM
-#   IMA_KEYS_DIR := ''
-#   SYSTEM_TRUSTED_KEYS_DIR := ''
-#   SECONDARY_TRUSTED_KEYS_DIR := ''
-#
-#   # RPM package signing keys
-#   RPM_KEYS_DIR := ''
-#   RPM_GPG_NAME := ''
-#
-#   # Grub and SELoader keys
-#   BOOT_KEYS_DIR := ''
-#   GRUB_PUB_KEY := ''
+  #   # TODO: Create custom signing keys and stash/retrieve them securely,
+  #   #       then uncomment and fill in meta-secure-core/meta-signing_keys
+  #   #       configuration.
+  #
+  #   # Prohibit using the sample keys for signing the images.
+  #   SIGNING_MODEL := 'user'
+  #
+  #   # UEFI Machine Owner Keys
+  #   MOK_SB_KEYS_DIR := ''
+  #
+  #   # Standard UEFI keys
+  #   UEFI_SB_KEYS_DIR := ''
+  #
+  #   # Kernel module signing keys
+  #   MODSIGN_KEYS_DIR := ''
+  #
+  #   # Integrity Measurement Architecture signing keys for use by RPM
+  #   IMA_KEYS_DIR := ''
+  #   SYSTEM_TRUSTED_KEYS_DIR := ''
+  #   SECONDARY_TRUSTED_KEYS_DIR := ''
+  #
+  #   # RPM package signing keys
+  #   RPM_KEYS_DIR := ''
+  #   RPM_GPG_NAME := ''
+  #
+  #   # Grub and SELoader keys
+  #   BOOT_KEYS_DIR := ''
+  #   GRUB_PUB_KEY := ''
 
-#  meta-secure-core/meta-efi-secure-boot: |
-#    DISTRO_FEATURES_NATIVE:append    = ' efi-secure-boot'
-#    DISTRO_FEATURES:append           = ' efi-secure-boot modsign'
-#    MACHINE_FEATURES_NATIVE:append   = ' efi'
-#    MACHINE_FEATURES:append          = ' efi'
-#    #SECURE_CORE_IMAGE_EXTRA_INSTALL += 'packagegroup-efi-secure-boot'
+  #  meta-secure-core/meta-efi-secure-boot: |
+  #    DISTRO_FEATURES_NATIVE:append    = ' efi-secure-boot'
+  #    DISTRO_FEATURES:append           = ' efi-secure-boot modsign'
+  #    MACHINE_FEATURES_NATIVE:append   = ' efi'
+  #    MACHINE_FEATURES:append          = ' efi'
+  #    #SECURE_CORE_IMAGE_EXTRA_INSTALL += 'packagegroup-efi-secure-boot'
 
-# TODO: Mark rootfs as read-only and implement dm-verity
-# See meta-security comment above
-#  dm-verity base: |
-    # meta-intel
-#    DISTRO_FEATURES:append                = ' security integrity'
-#    DM_VERITY_IMAGE_TYPE                  = 'ext4'
-#    IMAGE_TYPEDEP_wic                     = 'ext4'
-#    IMAGE_CLASSES                        += 'dm-verity-img'
-#    #IMAGE_FEATURES                       += 'read-only-rootfs'
-#    #INITRAMFS_IMAGE_BUNDLE                = '1'
-#    INITRAMFS_IMAGE                       = 'dm-verity-image-initramfs'
-#    INITRAMFS_FSTYPES                     = 'cpio'
-#    IMAGE_FSTYPES                        += 'ext4'
+  # TODO: Mark rootfs as read-only and implement dm-verity
+  # See meta-security comment above
+  #  dm-verity base: |
+  # meta-intel
+  #    DISTRO_FEATURES:append                = ' security integrity'
+  #    DM_VERITY_IMAGE_TYPE                  = 'ext4'
+  #    IMAGE_TYPEDEP_wic                     = 'ext4'
+  #    IMAGE_CLASSES                        += 'dm-verity-img'
+  #    #IMAGE_FEATURES                       += 'read-only-rootfs'
+  #    #INITRAMFS_IMAGE_BUNDLE                = '1'
+  #    INITRAMFS_IMAGE                       = 'dm-verity-image-initramfs'
+  #    INITRAMFS_FSTYPES                     = 'cpio'
+  #    IMAGE_FSTYPES                        += 'ext4'
 
   Disk monitor: |
     BB_DISKMON_DIRS                     ??= " \
@@ -193,6 +192,12 @@ local_conf_header:
     INHERIT                              += 'icecc'
     ICECC_DISABLED                      ??= '1'
     ICECC_PARALLEL_MAKE                 ??= '-j 24'
+
+  Deploy: |
+    DEPLOY_DIR = "${TOPDIR}/../deploy"
+
+  serial-console: |
+    APPEND:append = " console=ttyS0,115200"
 
   # FIXME: Create a private sstate-cache and hashserv server.  Trusting public servers is insecure.
   Cache: |
