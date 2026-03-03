@@ -216,7 +216,7 @@ flowchart LR
 
 ### Build Container
 
-**Image**: `lamawithonel/lamadist-builder:latest`  
+**Image**: `lamagrid/lamadist-builder:latest`  
 **Base**: Ubuntu 22.04  
 **Purpose**: Provide consistent, reproducible build environment
 

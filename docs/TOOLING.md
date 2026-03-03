@@ -9,7 +9,7 @@ This document describes the tools required for LamaDist development, how to set 
 - [Required Tools](#required-tools)
 - [Developer Environment Setup](#developer-environment-setup)
 - [mise Task Reference](#mise-task-reference)
-- [mise Paranoid Mode](#mise-paranoid-mode)
+- [GitHub Actions CI](#github-actions-ci)
 - [Container Python Dependencies](#container-python-dependencies)
 - [KAS Configuration](#kas-configuration)
 - [Troubleshooting](#troubleshooting)
@@ -126,7 +126,7 @@ sudo apt-get install -y \
 
 ```bash
 # Clone the repository
-git clone https://github.com/lamawithonel/lamadist.git
+git clone https://github.com/LamaGrid/lamadist.git
 cd lamadist
 
 # Trust the mise config (required for MISE_PARANOID=1 users)
@@ -211,15 +211,18 @@ build/
 
 ## mise Task Reference
 
-mise is the single CLI entrypoint for all LamaDist development tasks. Tasks use [`usage`](https://usage.jdx.dev/) specs for shell autocompletion of flags and arguments.
+mise is the single CLI entrypoint for all LamaDist development tasks. Tasks are
+defined as file tasks in `.mise/tasks/` and use [`usage`](https://usage.jdx.dev/)
+specs for shell autocompletion of flags and arguments.
 
 ### Build Tasks
 
 | Task | Description |
 |------|-------------|
 | `mise run build --bsp <bsp>` | Build images for specified BSP (default: x86_64) |
-| `mise run ci-build` | Build with CI settings (force checkout, update) |
+| `mise run build --bsp <bsp> --ci` | Build in CI mode (force checkout, no debug) |
 | `mise run container` | Build the KAS build container image |
+| `mise run container --ci` | Build container with podman (rootless, for CI) |
 
 **Available BSPs**: `x86_64`, `orin-nx`, `rk1`, `soquartz`
 
@@ -227,8 +230,26 @@ mise is the single CLI entrypoint for all LamaDist development tasks. Tasks use 
 ```bash
 mise run build --bsp x86_64    # Build x86_64
 mise run build --bsp rk1       # Build for RK1
-mise run ci-build              # CI-style build
+mise run build --bsp x86_64 --ci  # CI-style build
 mise run container             # Rebuild container
+```
+
+### Validation & Testing Tasks
+
+| Task | Description |
+|------|-------------|
+| `mise run lint --bsp <bsp>` | Validate KAS configuration without building |
+| `mise run test --bsp <bsp>` | Validate build artifacts exist and are well-formed |
+| `mise run qemu --bsp <bsp>` | Boot test build artifacts with QEMU |
+
+All validation and testing tasks accept the `--ci` flag for non-interactive
+operation in CI environments.
+
+**Examples**:
+```bash
+mise run lint --bsp x86_64     # Validate KAS config
+mise run test --bsp x86_64     # Check build artifacts
+mise run qemu --bsp x86_64     # QEMU boot test
 ```
 
 ### Development Tasks
@@ -264,7 +285,6 @@ bitbake-layers show-recipes         # List recipes
 |------|-------------|
 | `mise run clean` | Remove build output artifacts |
 | `mise run clean:all` | Remove entire build directory (with confirmation) |
-| `mise run clean:sstate` | Clean shared state cache (with confirmation) |
 | `mise run clean:container` | Remove container image |
 
 **Examples**:
@@ -274,9 +294,6 @@ mise run clean
 
 # Full clean (will prompt for confirmation)
 mise run clean:all
-
-# Clean sstate cache
-mise run clean:sstate
 ```
 
 ### Utility Tasks
@@ -297,69 +314,35 @@ mise tasks
 
 ---
 
-## mise Paranoid Mode
+## GitHub Actions CI
 
-LamaDist's `.mise.toml` is fully compatible with
-[mise paranoid mode](https://mise.jdx.dev/paranoid.html) (`MISE_PARANOID=1`).
+CI uses a multi-stage GitHub Actions workflow on ARC (Actions Runner Controller)
+scaling sets. The workflow is defined in `.github/workflows/ci.yml`.
 
-### What is Paranoid Mode?
+### Runner Sets
 
-Paranoid mode is an optional mise security setting that tightens how config
-files are handled:
+| Runner | Purpose |
+|--------|---------|
+| `container-build-set` | Build the KAS build container image |
+| `yocto-runner-set` | Run Yocto/KAS builds (persistent workspace + sstate) |
 
-- **All** config files must be explicitly trusted before mise will load them
-  (not just files that set env vars or use templates).
-- Config files are **hashed** — any edit requires re-trusting.
-- Community plugins cannot be installed by short-name; a full Git URL is
-  required.
+### Workflow Stages
 
-Enable it globally:
+1. **Build Container** (`container-build-set`): Conditionally builds the KAS
+   build container with `mise run container --ci` (uses podman) when files in
+   `container/` have changed. Pushes the image to the in-cluster OCI registry
+   for downstream jobs to pull as their workspace container.
+2. **Build x86_64** (`yocto-runner-set`): Uses the builder image from the
+   registry as its workspace container and runs
+   `mise run build --bsp x86_64 --ci`. Runs automatically on push to `main`
+   and on pull requests.
+3. **Build other targets** (`yocto-runner-set`): Same pattern for `rk1`,
+   `soquartz`, and `orin-nx`, but only triggered via `workflow_dispatch`.
 
-```bash
-# via environment variable (add to your shell profile)
-export MISE_PARANOID=1
+### Workspace Management
 
-# or via mise setting
-mise settings set paranoid 1
-```
-
-### Paranoid Mode Requirements for `.mise.toml`
-
-To avoid errors when users run mise in paranoid mode, LamaDist follows these
-rules for `.mise.toml`:
-
-1. **`mise trust` must be run** after cloning the repository and after every
-   edit to `.mise.toml` (or `.mise.local.toml`). In paranoid mode the file
-   contents are hashed, so any change requires re-trusting.
-
-2. **A `min_version` is set** at the top of `.mise.toml` to guarantee that
-   the running mise version supports all features used in the config.
-
-3. **Non-standard env vars are prefixed with `LAMADIST_`** to avoid
-   collisions with other tools or the user's environment. Standard
-   ecosystem variables consumed by KAS or Yocto/BitBake (e.g.,
-   `KAS_WORK_DIR`, `SSTATE_DIR`) keep their canonical names.
-
-4. **Override env vars** via `.mise.local.toml` (git-ignored) or your shell
-   environment. For example, to use Docker instead of Podman:
-
-   ```toml
-   # .mise.local.toml
-   [env]
-   LAMADIST_CONTAINER_CMD = "docker"
-   ```
-
-### Quick Setup for Paranoid Mode Users
-
-```bash
-# After cloning
-cd lamadist
-mise trust               # trust the config file
-mise install             # install any managed tools
-
-# After editing .mise.toml
-mise trust               # re-trust after changes
-```
+- **Sstate cache** (`/__w/_sstate`): Always preserved across builds.
+- **Build directory**: Cleaned on merges to `main`; reused on PR builds.
 
 ---
 
@@ -611,8 +594,8 @@ df -h
 # Clean old build artifacts
 mise run clean
 
-# Clean sstate cache (will rebuild on next build)
-mise run clean:sstate
+# Clean sstate cache (will cause full rebuild)
+rm -rf .cache/sstate/
 
 # Prune container images
 podman system prune -a   # or: docker system prune -a
@@ -660,8 +643,8 @@ ERROR: Layer 'meta-xxx' is not in the collection
 
 **Solution**:
 ```bash
-# Update kas configuration to fetch all layers
-mise run ci-build
+# Force checkout and rebuild all layers
+mise run build --bsp x86_64
 
 # Or manually in kas shell
 mise run shell --bsp x86_64
