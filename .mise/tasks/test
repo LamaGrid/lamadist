@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Validate build artifacts"
+#USAGE flag "-b --bsp <bsp>" help="BSP target to validate" default="x86_64" {
+#USAGE   choices "x86_64" "orin-nx" "rk1" "soquartz"
+#USAGE }
+#USAGE flag "-c --ci" help="CI mode"
+# TODO: Implement CI mode behavior (e.g., machine-readable output, stricter validation)
+set -euo pipefail
+
+BSP="${usage_bsp:-x86_64}"
+
+source "${LAMADIST_PROJECT_DIR}/.mise/tasks/_lib.sh"
+MACHINE=$(bsp_to_machine "${BSP}")
+DEPLOY_DIR="${LAMADIST_HOST_DEPLOY_DIR}/images/${MACHINE}"
+
+echo "==> Checking build artifact directory: ${DEPLOY_DIR}"
+if [ ! -d "${DEPLOY_DIR}" ]; then
+    echo "ERROR: Deploy directory does not exist: ${DEPLOY_DIR}"
+    exit 1
+fi
+
+echo "==> Listing build artifacts:"
+ls -lh "${DEPLOY_DIR}/"
+
+# Check for WIC image (prefer uncompressed, then newest compressed)
+WIC_IMAGE=$(find "${DEPLOY_DIR}" -maxdepth 1 -name "*.wic" ! -name "*.wic.*" | sort | tail -1)
+if [ -z "${WIC_IMAGE}" ]; then
+    WIC_IMAGE=$(find "${DEPLOY_DIR}" -maxdepth 1 \( -name "*.wic.zst" -o -name "*.wic.xz" -o -name "*.wic.gz" -o -name "*.wic.bz2" \) | sort | tail -1)
+fi
+if [ -z "${WIC_IMAGE}" ]; then
+    echo "ERROR: No WIC image found in ${DEPLOY_DIR}"
+    exit 1
+fi
+echo "==> Found WIC image: ${WIC_IMAGE}"
+echo "==> Size: $(du -h "${WIC_IMAGE}" | cut -f1)"
+
+# Check for kernel image
+KERNEL_IMAGE=$(find "${DEPLOY_DIR}" -maxdepth 1 -name "bzImage*" | head -1)
+if [ -z "${KERNEL_IMAGE}" ]; then
+    echo "WARNING: No kernel image (bzImage) found in ${DEPLOY_DIR}"
+else
+    echo "==> Found kernel image: ${KERNEL_IMAGE}"
+fi
+
+echo "==> Build artifact validation passed"

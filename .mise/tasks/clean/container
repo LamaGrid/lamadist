@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Remove container image"
+set -euo pipefail
+${LAMADIST_CONTAINER_CMD} rmi "${LAMADIST_CONTAINER_IMAGE}" || true
+echo "Removed container image."

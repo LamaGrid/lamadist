@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Shell in container (without KAS)"
+set -euo pipefail
+
+source "${LAMADIST_PROJECT_DIR}/.mise/tasks/_lib.sh"
+run_in_container --entrypoint /bin/dumb-init -- /bin/bash
