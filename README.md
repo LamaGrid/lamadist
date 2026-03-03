@@ -27,7 +27,7 @@ LamaDist provides a hardened Linux distribution built with Yocto Project for hom
 
 ```bash
 # Clone the repository
-git clone https://github.com/lamawithonel/lamadist.git
+git clone https://github.com/LamaGrid/lamadist.git
 cd lamadist
 
 # Trust the mise config (required for MISE_PARANOID=1 users)
@@ -44,8 +44,7 @@ mise run build --bsp x86_64
 
 > **Paranoid mode**: LamaDist's `.mise.toml` is compatible with
 > `MISE_PARANOID=1`. After cloning (or after any `.mise.toml` change), run
-> `mise trust` to approve the config. See
-> [`docs/TOOLING.md`](docs/TOOLING.md#mise-paranoid-mode) for details.
+> `mise trust` to approve the config.
 
 ### Supported Hardware (BSPs)
 
@@ -111,8 +110,8 @@ Contributions are welcome! Please read [`docs/CONTRIBUTING.md`](docs/CONTRIBUTIN
 
 ## Community & Support
 
-- **Issues**: [GitHub Issues](https://github.com/lamawithonel/lamadist/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/lamawithonel/lamadist/discussions)
+- **Issues**: [GitHub Issues](https://github.com/LamaGrid/lamadist/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/LamaGrid/lamadist/discussions)
 - **Documentation**: [`docs/`](docs/) directory
 
 ## Legal Notice

@@ -48,7 +48,7 @@ See [TOOLING.md](TOOLING.md) for detailed setup instructions.
 
 1. **Fork the Repository**
    ```bash
-   # Fork lamawithonel/lamadist on GitHub
+   # Fork LamaGrid/lamadist on GitHub
    # Then clone your fork
    git clone https://github.com/YOUR_USERNAME/lamadist.git
    cd lamadist
@@ -56,7 +56,7 @@ See [TOOLING.md](TOOLING.md) for detailed setup instructions.
 
 2. **Add Upstream Remote**
    ```bash
-   git remote add upstream https://github.com/lamawithonel/lamadist.git
+   git remote add upstream https://github.com/LamaGrid/lamadist.git
    git fetch upstream
    ```
 
