@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Show build version (via GitVersion)"
+set -euo pipefail
+
+USERNS_ARGS=""
+if [[ "${LAMADIST_CONTAINER_CMD}" == "podman" ]]; then
+    USERNS_ARGS="--userns=keep-id --group-add keep-groups"
+fi
+
+${LAMADIST_CONTAINER_CMD} run --rm ${USERNS_ARGS} \
+    -v "${LAMADIST_PROJECT_DIR}:/repo:ro" \
+    gittools/gitversion:6.6.0 /repo /showvariable FullSemVer

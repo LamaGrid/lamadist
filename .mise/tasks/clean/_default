@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Remove build output artifacts"
+set -euo pipefail
+if [ -t 0 ]; then
+    read -p "Remove all deploy artifacts in ${LAMADIST_HOST_DEPLOY_DIR}? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Aborted."
+        exit 1
+    fi
+fi
+rm -rf "${LAMADIST_HOST_DEPLOY_DIR:?}"/* "${LAMADIST_HOST_DEPLOY_DIR}"/.??* 2>/dev/null || true
+echo "Cleaned deploy artifacts."

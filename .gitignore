@@ -4,8 +4,7 @@
 *.local.toml
 build/
 build_installer/
+deploy/
 ext/
-
-container/requirements.txt
 
 *key.rsa
