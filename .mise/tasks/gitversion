@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Compute build version from GitVersion"
+set -euo pipefail
+
+# Write version variables to an env file for dependent tasks to source.
+# In CI, the GitVersion GitHub Action pre-sets GITVERSION_INFO_VERSION
+# and GITVERSION_FULL_SEM_VER. When those are present, skip invoking
+# the gitversion CLI (it may not be installed or have full git history).
+ENV_FILE="${LAMADIST_PROJECT_DIR}/.cache/gitversion.env"
+mkdir -p "$(dirname "${ENV_FILE}")"
+
+INFO_VERSION="${GITVERSION_INFO_VERSION:-}"
+FULL_SEM_VER="${GITVERSION_FULL_SEM_VER:-}"
+
+if [ -z "${INFO_VERSION}" ] && command -v gitversion >/dev/null 2>&1; then
+	GV_JSON=$(gitversion 2>/dev/null || true)
+	if [ -n "${GV_JSON}" ]; then
+		INFO_VERSION=$(printf '%s' "${GV_JSON}" | grep -o '"InformationalVersion": *"[^"]*"' \
+			| cut -d'"' -f4 || true)
+		FULL_SEM_VER=$(printf '%s' "${GV_JSON}" | grep -o '"FullSemVer": *"[^"]*"' \
+			| cut -d'"' -f4 || true)
+	fi
+fi
+
+BUILDNAME=""
+DISTRO_VERSION=""
+
+if [ -n "${INFO_VERSION}" ]; then
+	BUILD_DATETIME=$(date -u '+%Y-%m-%dT%H%M%SZ')
+	BUILDNAME="${INFO_VERSION}.BuildDateTime.${BUILD_DATETIME}"
+
+	BRANCH=$(git -C "${LAMADIST_PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+	if [ "${BRANCH}" = "main" ] && [ -n "${FULL_SEM_VER}" ]; then
+		DISTRO_VERSION="${FULL_SEM_VER}"
+	else
+		DISTRO_VERSION="${INFO_VERSION}"
+	fi
+fi
+
+cat > "${ENV_FILE}" <<-EOF
+	export BUILDNAME='${BUILDNAME}'
+	export DISTRO_VERSION='${DISTRO_VERSION}'
+EOF

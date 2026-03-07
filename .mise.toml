@@ -6,6 +6,9 @@
 
 min_version = "2024.9.0"
 
+[tools]
+gitversion = "6.6.0"
+
 [env]
 # Project root (resolved at runtime)
 LAMADIST_PROJECT_DIR = "{{config_root}}"
