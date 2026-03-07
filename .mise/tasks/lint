@@ -15,13 +15,13 @@ KAS_CONFIG="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${BSP}.kas.
 echo "==> Validating KAS configuration for BSP: ${BSP}"
 
 if [ "${CI}" = "true" ]; then
-    # CI mode: run kas directly (already inside builder container)
-    mkdir -p "${SSTATE_DIR}"
-    kas dump "${KAS_CONFIG}"
+	# CI mode: run kas directly (already inside builder container)
+	mkdir -p "${SSTATE_DIR}"
+	kas dump "${KAS_CONFIG}"
 else
-    # Local dev: run kas inside container via podman/docker
-    source "${LAMADIST_PROJECT_DIR}/.mise/tasks/_lib.sh"
-    run_in_container dump "${KAS_CONFIG}"
+	# Local dev: run kas inside container via podman/docker
+	source "${LAMADIST_PROJECT_DIR}/.mise/tasks/_lib.sh"
+	run_in_container dump "${KAS_CONFIG}"
 fi
 
 echo "==> KAS configuration validation passed"

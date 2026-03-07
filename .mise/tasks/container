@@ -8,25 +8,25 @@ CI="${usage_ci:-false}"
 CONTAINER_REGISTRY="${CONTAINER_REGISTRY:-}"
 
 if [ "${CI}" = "true" ]; then
-    VERSION_TAG="$(date -u +"%Y-%m-%dT%H%M%SZ")"
-    LOCAL_IMAGE="${LAMADIST_CONTAINER_IMAGE}"
-    BUILD_UID="${BUILDER_UID:-$(id -u)}"
+	VERSION_TAG="$(date -u +"%Y-%m-%dT%H%M%SZ")"
+	LOCAL_IMAGE="${LAMADIST_CONTAINER_IMAGE}"
+	BUILD_UID="${BUILDER_UID:-$(id -u)}"
 
-    podman build --format docker --net=host --dns=8.8.8.8 \
-        --build-arg BUILDER_UID="${BUILD_UID}" \
-        -t "${LOCAL_IMAGE}" "${LAMADIST_PROJECT_DIR}/container/"
+	podman build --format docker --net=host --dns=8.8.8.8 \
+		--build-arg BUILDER_UID="${BUILD_UID}" \
+		-t "${LOCAL_IMAGE}" "${LAMADIST_PROJECT_DIR}/container/"
 
-    if [ -n "${CONTAINER_REGISTRY}" ]; then
-        REGISTRY_IMAGE="${CONTAINER_REGISTRY}/lamagrid/lamadist-builder"
-        podman tag "${LOCAL_IMAGE}" "${REGISTRY_IMAGE}:${VERSION_TAG}"
-        podman tag "${LOCAL_IMAGE}" "${REGISTRY_IMAGE}:latest"
-        podman push --tls-verify=false "${REGISTRY_IMAGE}:${VERSION_TAG}"
-        podman push --tls-verify=false "${REGISTRY_IMAGE}:latest"
-        echo "Pushed ${REGISTRY_IMAGE}:${VERSION_TAG}"
-        echo "Pushed ${REGISTRY_IMAGE}:latest"
-    fi
+	if [ -n "${CONTAINER_REGISTRY}" ]; then
+		REGISTRY_IMAGE="${CONTAINER_REGISTRY}/lamagrid/lamadist-builder"
+		podman tag "${LOCAL_IMAGE}" "${REGISTRY_IMAGE}:${VERSION_TAG}"
+		podman tag "${LOCAL_IMAGE}" "${REGISTRY_IMAGE}:latest"
+		podman push --tls-verify=false "${REGISTRY_IMAGE}:${VERSION_TAG}"
+		podman push --tls-verify=false "${REGISTRY_IMAGE}:latest"
+		echo "Pushed ${REGISTRY_IMAGE}:${VERSION_TAG}"
+		echo "Pushed ${REGISTRY_IMAGE}:latest"
+	fi
 else
-    ${LAMADIST_CONTAINER_CMD} build --format docker \
-        --build-arg BUILDER_UID="$(id -u)" \
-        -t "${LAMADIST_CONTAINER_IMAGE}" "${LAMADIST_PROJECT_DIR}/container/"
+	${LAMADIST_CONTAINER_CMD} build --format docker \
+		--build-arg BUILDER_UID="$(id -u)" \
+		-t "${LAMADIST_CONTAINER_IMAGE}" "${LAMADIST_PROJECT_DIR}/container/"
 fi
