@@ -51,7 +51,7 @@ local_conf_header:
 
 
   meta-security/dm-verity: |
-    WKS_FILE = 'systemd-bootdisk-dmverity-hash.wks.in'
+    WKS_FILE = 'lamadist-dmverity-bootdisk.wks.in'
 
     DM_VERITY_IMAGE = 'core-image-minimal'
     DM_VERITY_IMAGE_TYPE = 'ext4'
