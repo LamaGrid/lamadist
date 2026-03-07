@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Show build timing summary for a saved snapshot"
+#USAGE arg "[label]" help="Snapshot label (default: most recent)"
+#USAGE complete "label" run="mise run buildstats:_labels"
+#USAGE flag "-s --sort <sort>" help="Sort order" default="duration" {
+#USAGE   choices "start" "duration"
+#USAGE }
+#USAGE flag "-m --min <secs>" help="Hide tasks shorter than N seconds" default="1"
+set -euo pipefail
+
+BUILDSTATS_BASE_DIR="${LAMADIST_HOST_BUILDSTATS_BASE}"
+SCRIPT="${LAMADIST_PROJECT_DIR}/ext/poky/scripts/buildstats-summary"
+
+if [ ! -x "${SCRIPT}" ]; then
+	echo "ERROR: buildstats-summary script not found at ${SCRIPT}"
+	exit 1
+fi
+
+# Resolve snapshot path
+if [ -n "${usage_label:-}" ]; then
+	SNAPSHOT="${BUILDSTATS_BASE_DIR}/${usage_label}"
+	if [ ! -d "${SNAPSHOT}" ]; then
+		echo "ERROR: Snapshot '${usage_label}' not found"
+		echo "Run 'mise run buildstats list' to see available snapshots."
+		exit 1
+	fi
+else
+	# Use most recent snapshot
+	SNAPSHOT=$(find "${BUILDSTATS_BASE_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
+		| sort -n | tail -1 | cut -d' ' -f2-)
+	if [ -z "${SNAPSHOT}" ]; then
+		echo "ERROR: No saved snapshots found. Run 'mise run buildstats' first."
+		exit 1
+	fi
+fi
+
+LABEL=$(basename "${SNAPSHOT}")
+echo "==> Build timing summary for: ${LABEL}"
+echo ""
+
+"${SCRIPT}" \
+	--sort "${usage_sort:-duration}" \
+	--shortest "${usage_min:-1}" \
+	"${SNAPSHOT}"

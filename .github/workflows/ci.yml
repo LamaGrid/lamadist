@@ -29,7 +29,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  BUILDSTATS_BASE: /__w/_buildstats
   SSTATE_DIR: /__w/_sstate
+  LAMADIST_HOST_BUILDSTATS_BASE: /__w/_buildstats
   LAMADIST_HOST_SSTATE_DIR: /__w/_sstate
   LAMADIST_CONTAINER_IMAGE: lamadist-builder:latest
   CONTAINER_REGISTRY: registry.local:5000

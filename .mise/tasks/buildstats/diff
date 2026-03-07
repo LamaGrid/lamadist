@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Compare buildstats between two saved snapshots"
+#USAGE arg "<from>" help="Baseline snapshot label" required
+#USAGE arg "<to>" help="Comparison snapshot label" required
+#USAGE complete "from" run="mise run buildstats:_labels"
+#USAGE complete "to" run="mise run buildstats:_labels"
+#USAGE flag "-a --attr <attr>" help="Attribute to compare" default="walltime" {
+#USAGE   choices "walltime" "cputime" "read_bytes" "write_bytes" "read_ops" "write_ops"
+#USAGE }
+set -euo pipefail
+
+BUILDSTATS_BASE_DIR="${LAMADIST_HOST_BUILDSTATS_BASE}"
+SCRIPT="${LAMADIST_PROJECT_DIR}/ext/poky/scripts/buildstats-diff"
+
+if [ ! -x "${SCRIPT}" ]; then
+	echo "ERROR: buildstats-diff script not found at ${SCRIPT}"
+	exit 1
+fi
+
+FROM_PATH="${BUILDSTATS_BASE_DIR}/${usage_from:-}"
+TO_PATH="${BUILDSTATS_BASE_DIR}/${usage_to:-}"
+
+if [ ! -d "${FROM_PATH}" ]; then
+	echo "ERROR: Snapshot '${usage_from}' not found"
+	echo "Run 'mise run buildstats list' to see available snapshots."
+	exit 1
+fi
+
+if [ ! -d "${TO_PATH}" ]; then
+	echo "ERROR: Snapshot '${usage_to}' not found"
+	echo "Run 'mise run buildstats list' to see available snapshots."
+	exit 1
+fi
+
+echo "==> Comparing buildstats: ${usage_from} → ${usage_to}"
+echo "    Attribute: ${usage_attr:-walltime}"
+echo ""
+
+"${SCRIPT}" \
+	--diff-attr "${usage_attr:-walltime}" \
+	"${FROM_PATH}" "${TO_PATH}"

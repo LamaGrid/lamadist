@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Remove saved buildstats snapshots"
+#USAGE flag "-k --keep <n>" help="Keep the N most recent snapshots (default: remove all)"
+set -euo pipefail
+
+BUILDSTATS_BASE_DIR="${LAMADIST_HOST_BUILDSTATS_BASE}"
+
+if [ ! -d "${BUILDSTATS_BASE_DIR}" ]; then
+	echo "No saved buildstats snapshots to clean."
+	exit 0
+fi
+
+snapshots=()
+while IFS= read -r dir; do
+	snapshots+=("${dir}")
+done < <(find "${BUILDSTATS_BASE_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
+	| sort -n | cut -d' ' -f2-)
+
+if [ ${#snapshots[@]} -eq 0 ]; then
+	echo "No saved buildstats snapshots to clean."
+	exit 0
+fi
+
+KEEP="${usage_keep:-0}"
+
+if [ "${KEEP}" -ge "${#snapshots[@]}" ]; then
+	echo "Nothing to remove (${#snapshots[@]} snapshots, keeping ${KEEP})."
+	exit 0
+fi
+
+if [ "${KEEP}" -gt 0 ]; then
+	REMOVE_COUNT=$(( ${#snapshots[@]} - KEEP ))
+	to_remove=("${snapshots[@]:0:${REMOVE_COUNT}}")
+else
+	to_remove=("${snapshots[@]}")
+fi
+
+echo "Snapshots to remove:"
+for dir in "${to_remove[@]}"; do
+	echo "  $(basename "${dir}")"
+done
+
+if [ -t 0 ]; then
+	read -p "Remove ${#to_remove[@]} snapshot(s)? [y/N] " -n 1 -r
+	echo
+	if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+		echo "Aborted."
+		exit 1
+	fi
+fi
+
+for dir in "${to_remove[@]}"; do
+	rm -rf "${dir}"
+done
+
+echo "Removed ${#to_remove[@]} snapshot(s)."
