@@ -1,0 +1,17 @@
+# short-description: Create an EFI disk image with systemd-boot, separate initramfs, and dm-verity
+# Based on meta-security's systemd-bootdisk-dmverity-hash.wks.in, modified to
+# load the dm-verity initramfs separately (not bundled into the kernel image).
+# This avoids a kernel recompile every build caused by the upstream initramfs
+# recipe's do_image[nostamp] = "1" flag combined with INITRAMFS_IMAGE_BUNDLE=1.
+#
+# This .wks only works with the dm-verity-img class and separate hash data (DM_VERITY_SEPARATE_HASH).
+
+part /boot --source bootimg-efi --sourceparams="loader=systemd-boot,initrd=microcode.cpio;${INITRAMFS_IMAGE}-${MACHINE}.${INITRAMFS_FSTYPES}" --ondisk sda --label msdos --active --align 1024 --use-uuid
+
+# include the root+hash part with the dynamic hash/UUIDs from the build.
+include ${STAGING_VERITY_DIR}/${IMAGE_BASENAME}.${DM_VERITY_IMAGE_TYPE}.wks.in
+
+# add "console=ttyS0,115200" or whatever you need to the --append="..."
+bootloader --ptable gpt --timeout=5 --append="root=/dev/mapper/rootfs"
+
+part swap --ondisk sda --size 44 --label swap1 --fstype=swap --use-uuid
