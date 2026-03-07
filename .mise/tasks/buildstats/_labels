@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE hide=true
+#MISE quiet=true
+#MISE description="List buildstats snapshot labels for tab completion"
+set -euo pipefail
+
+# Sort snapshots by their BuildDateTime suffix (or by full name for legacy
+# timestamp-only directories).
+for d in "${LAMADIST_HOST_BUILDSTATS_BASE}"/*/; do
+	[ -d "$d" ] || continue
+	name=$(basename "$d")
+	if [[ "$name" == *".BuildDateTime."* ]]; then
+		key="${name##*.BuildDateTime.}"
+	else
+		key="$name"
+	fi
+	printf '%s\t%s\n' "$key" "$name"
+done | sort -k1 | cut -f2

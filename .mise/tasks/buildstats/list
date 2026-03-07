@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="List saved buildstats snapshots"
+set -euo pipefail
+
+BUILDSTATS_BASE_DIR="${LAMADIST_HOST_BUILDSTATS_BASE}"
+
+if [ ! -d "${BUILDSTATS_BASE_DIR}" ]; then
+	echo "No saved buildstats snapshots."
+	exit 0
+fi
+
+snapshots=()
+while IFS= read -r dir; do
+	snapshots+=("${dir}")
+done < <(find "${BUILDSTATS_BASE_DIR}" -mindepth 1 -maxdepth 1 -type d | sort)
+
+if [ ${#snapshots[@]} -eq 0 ]; then
+	echo "No saved buildstats snapshots."
+	exit 0
+fi
+
+printf "%-40s  %-20s  %s\n" "LABEL" "DATE" "TASKS"
+printf "%-40s  %-20s  %s\n" "-----" "----" "-----"
+
+for dir in "${snapshots[@]}"; do
+	label=$(basename "${dir}")
+	date=$(date -r "${dir}" '+%Y-%m-%d %H:%M:%S')
+	tasks=$(find "${dir}" -maxdepth 2 -name 'do_*' -type f | wc -l)
+	printf "%-40s  %-20s  %d\n" "${label}" "${date}" "${tasks}"
+done
+
+echo ""
+echo "${#snapshots[@]} snapshot(s) in ${BUILDSTATS_BASE_DIR}"
