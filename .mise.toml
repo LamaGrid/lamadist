@@ -8,6 +8,7 @@ min_version = "2024.9.0"
 
 [tools]
 gitversion = "6.6.0"
+prek = "latest"
 
 [env]
 # Project root (resolved at runtime)

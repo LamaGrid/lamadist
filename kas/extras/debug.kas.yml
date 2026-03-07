@@ -13,3 +13,8 @@ local_conf_header:
 
     # Debug output for meta-secure-core/meta-signing-key
     USER_KEY_SHOW_VERBOSE                 = '1'
+
+    # Fast compression for local dev builds
+    IMAGE_FSTYPES                         = 'ext4 wic'
+    XZ_INTEGRITY_CHECK                    = 'crc32'
+    XZ_COMPRESSION_LEVEL                  = '-0'

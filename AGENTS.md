@@ -40,17 +40,24 @@ container image and build tooling that CI uses.
 
 ### Key mise Tasks
 
-| Task                | Description                              |
-| ------------------- | ---------------------------------------- |
-| `mise run container`| Build the builder container image        |
-| `mise run build`    | Run the Yocto/KAS build                 |
-| `mise run lint`     | Validate KAS configuration              |
-| `mise run shell`    | Interactive KAS shell in container       |
-| `mise run clean`    | Clean deploy artifacts                  |
-| `mise run clean:all`| Clean entire build directory             |
+| Task                          | Description                              |
+| ----------------------------- | ---------------------------------------- |
+| `mise run container`          | Build the builder container image        |
+| `mise run build`              | Run the Yocto/KAS build                  |
+| `mise run lint`               | Validate KAS configuration               |
+| `mise run shell`              | Interactive KAS shell in container       |
+| `mise run clean`              | Clean deploy artifacts                   |
+| `mise run clean:all`          | Clean entire build directory             |
+| `mise run clean:buildstats`   | Remove buildstats snapshots              |
+| `mise run buildstats:list`    | List buildstats snapshots                |
+| `mise run buildstats:summary` | Show build timing summary                |
+| `mise run buildstats:diff`    | Compare two buildstats snapshots         |
 
 All tasks support `--help` for usage details. Build tasks accept `--bsp`
-to select target (x86_64, orin-nx, rk1, soquartz) and `--ci` for CI mode.
+to select target (x86_64, orin-nx, rk1, soquartz), `--ci` for CI mode,
+`--qa` for QA/PR builds (zstd compression), `--release` for release builds
+(machine-default xz compression + CVE scans), and `--include-scans` to
+enable security scans independently.
 
 ### Environment Variables
 
