@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+header:
+  version: 15
+local_conf_header:
+  Security scan options: |
+    CVE_CHECK_CREATE_MANIFEST = '1'

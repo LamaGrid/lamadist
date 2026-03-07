@@ -40,15 +40,16 @@ env:
   STORAGE_DRIVER: overlay
 
 jobs:
-  build-container:
-    name: Build Container
+  version:
+    name: Version
     runs-on: container-build-set
     container:
-      image: quay.io/podman/stable
-    timeout-minutes: 30
+      image: mcr.microsoft.com/dotnet/sdk:10.0
+    timeout-minutes: 10
     outputs:
       informationalVersion: ${{ steps.gitversion.outputs.informationalVersion }}
       fullSemVer: ${{ steps.gitversion.outputs.fullSemVer }}
+      container_build_needed: ${{ steps.check.outputs.build_needed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,12 +68,11 @@ jobs:
         id: gitversion
         uses: gittools/actions/gitversion/execute@v4.3.3
 
-      - name: Check if rebuild needed
+      - name: Check if container rebuild needed
         id: check
         run: |
           BUILD_NEEDED=false
 
-          # Only rebuild if container/ files changed
           CHANGES=""
           if [ "${{ github.event_name }}" = "pull_request" ]; then
               git fetch --depth=1 origin "${{ github.base_ref }}"
@@ -91,8 +91,19 @@ jobs:
 
           echo "build_needed=${BUILD_NEEDED}" >> "$GITHUB_OUTPUT"
 
+  build-container:
+    name: Build Container
+    needs: version
+    if: needs.version.outputs.container_build_needed == 'true'
+    runs-on: container-build-set
+    container:
+      image: quay.io/podman/stable
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Configure container storage
-        if: steps.check.outputs.build_needed == 'true'
         run: |
           cat > /etc/containers/storage.conf <<'EOF'
           [storage]
@@ -103,16 +114,15 @@ jobs:
           sed -i 's/^ *//' /etc/containers/storage.conf
 
       - name: Install mise
-        if: steps.check.outputs.build_needed == 'true'
         uses: jdx/mise-action@v2
 
       - name: Build and push container image
-        if: steps.check.outputs.build_needed == 'true'
         run: mise run container --ci
 
   build-x86-64:
     name: Build x86_64
-    needs: build-container
+    needs: [version, build-container]
+    if: ${{ !cancelled() && (needs.build-container.result == 'success' || needs.build-container.result == 'skipped') }}
     runs-on: yocto-runner-set
     container:
       image: registry.local/lamagrid/lamadist-builder:latest
@@ -133,10 +143,15 @@ jobs:
           echo "Cleaned build/tmp directory"
 
       - name: Build
-        run: mise run build --bsp x86_64 --ci
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" = "push" ]; then
+            mise run build --bsp x86_64 --ci --release
+          else
+            mise run build --bsp x86_64 --ci --qa --include-scans
+          fi
         env:
-          GITVERSION_INFO_VERSION: ${{ needs.build-container.outputs.informationalVersion }}
-          GITVERSION_FULL_SEM_VER: ${{ needs.build-container.outputs.fullSemVer }}
+          GITVERSION_INFO_VERSION: ${{ needs.version.outputs.informationalVersion }}
+          GITVERSION_FULL_SEM_VER: ${{ needs.version.outputs.fullSemVer }}
 
       # TODO: Upload build artifacts when ready
       # - name: Upload artifacts
@@ -148,8 +163,12 @@ jobs:
 
   build-rk1:
     name: Build RK1
-    needs: build-container
-    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'rk1' || inputs.target == 'all')
+    needs: [version, build-container]
+    if: >-
+      !cancelled()
+      && (needs.build-container.result == 'success' || needs.build-container.result == 'skipped')
+      && github.event_name == 'workflow_dispatch'
+      && (inputs.target == 'rk1' || inputs.target == 'all')
     runs-on: yocto-runner-set
     container:
       image: registry.local/lamagrid/lamadist-builder:latest
@@ -172,13 +191,17 @@ jobs:
       - name: Build
         run: mise run build --bsp rk1 --ci
         env:
-          GITVERSION_INFO_VERSION: ${{ needs.build-container.outputs.informationalVersion }}
-          GITVERSION_FULL_SEM_VER: ${{ needs.build-container.outputs.fullSemVer }}
+          GITVERSION_INFO_VERSION: ${{ needs.version.outputs.informationalVersion }}
+          GITVERSION_FULL_SEM_VER: ${{ needs.version.outputs.fullSemVer }}
 
   build-soquartz:
     name: Build SOQuartz
-    needs: build-container
-    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'soquartz' || inputs.target == 'all')
+    needs: [version, build-container]
+    if: >-
+      !cancelled()
+      && (needs.build-container.result == 'success' || needs.build-container.result == 'skipped')
+      && github.event_name == 'workflow_dispatch'
+      && (inputs.target == 'soquartz' || inputs.target == 'all')
     runs-on: yocto-runner-set
     container:
       image: registry.local/lamagrid/lamadist-builder:latest
@@ -201,13 +224,17 @@ jobs:
       - name: Build
         run: mise run build --bsp soquartz --ci
         env:
-          GITVERSION_INFO_VERSION: ${{ needs.build-container.outputs.informationalVersion }}
-          GITVERSION_FULL_SEM_VER: ${{ needs.build-container.outputs.fullSemVer }}
+          GITVERSION_INFO_VERSION: ${{ needs.version.outputs.informationalVersion }}
+          GITVERSION_FULL_SEM_VER: ${{ needs.version.outputs.fullSemVer }}
 
   build-orin-nx:
     name: Build Orin NX
-    needs: build-container
-    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'orin-nx' || inputs.target == 'all')
+    needs: [version, build-container]
+    if: >-
+      !cancelled()
+      && (needs.build-container.result == 'success' || needs.build-container.result == 'skipped')
+      && github.event_name == 'workflow_dispatch'
+      && (inputs.target == 'orin-nx' || inputs.target == 'all')
     runs-on: yocto-runner-set
     container:
       image: registry.local/lamagrid/lamadist-builder:latest
@@ -230,8 +257,8 @@ jobs:
       - name: Build
         run: mise run build --bsp orin-nx --ci
         env:
-          GITVERSION_INFO_VERSION: ${{ needs.build-container.outputs.informationalVersion }}
-          GITVERSION_FULL_SEM_VER: ${{ needs.build-container.outputs.fullSemVer }}
+          GITVERSION_INFO_VERSION: ${{ needs.version.outputs.informationalVersion }}
+          GITVERSION_FULL_SEM_VER: ${{ needs.version.outputs.fullSemVer }}
 
   upload-artifacts:
     name: Upload Artifacts

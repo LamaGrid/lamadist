@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+header:
+  version: 15
+local_conf_header:
+  QA build options: |
+    IMAGE_FSTYPES = 'ext4 wic.zst wic.bmap'
+    XZ_INTEGRITY_CHECK = 'crc32'
+    XZ_COMPRESSION_LEVEL = '-0'

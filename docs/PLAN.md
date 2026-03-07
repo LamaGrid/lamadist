@@ -453,9 +453,11 @@ The development is organized into phases, with each phase building upon the prev
 #### 5.2 Release Process
 - [ ] Define release criteria and checklist
 - [ ] Create release branch strategy
-- [ ] Automate release artifact generation
+- [ ] Automate release artifact generation via tag-triggered CI workflow
 - [ ] Generate release notes automatically
 - [ ] Create release announcement templates
+- [ ] Build all platforms on tag push (x86_64, orin-nx, rk1, soquartz)
+- [ ] Upload artifacts as GitHub Release
 
 **Acceptance Criteria:**
 - Release process is documented

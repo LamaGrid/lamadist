@@ -365,9 +365,27 @@ Bad commit messages:
 - [ ] All commits have clear, descriptive messages with scopes
 - [ ] Branch is up to date with `upstream/main`
 - [ ] Changes have been tested locally
+- [ ] Security scans have been run (`mise run build --include-scans`)
 - [ ] Documentation has been updated
 - [ ] No sensitive information (keys, passwords) in commits
 - [ ] Commit messages follow Conventional Commits with git trailers
+
+### Pre-push Hook
+
+A [prek](https://github.com/j178/prek) pre-push hook checks whether
+security scans have been run on the current commit. If not, it prompts you
+to confirm before pushing. To install the hook:
+
+```bash
+mise install        # installs prek
+prek install        # installs git hooks
+```
+
+You can run scans at any time with:
+
+```bash
+mise run build --include-scans
+```
 
 ### PR Template
 
@@ -391,6 +409,21 @@ Maintainers will add labels to categorize PRs:
 - `needs-review` - Awaiting review
 - `work-in-progress` - Not ready for merge
 - `blocked` - Blocked by another issue/PR
+
+### Release Workflow (Planned)
+
+Releases follow the [JIT Flow](#branching-strategy-jit-flow) tag-based
+model. When a release is ready:
+
+1. Ensure `main` is in a releasable state (all PRs merged, CI green)
+2. Tag the release commit: `git tag v<version>`
+3. Push the tag: `git push origin v<version>`
+4. A CI workflow (planned) will build all platforms and publish artifacts as
+   a GitHub Release
+
+> **Note:** The automated release workflow is not yet implemented. For now,
+> releases are tagged manually and built with
+> `mise run build --ci --release`.
 
 ---
 
