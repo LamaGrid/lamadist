@@ -74,7 +74,7 @@ flowchart TD
 
 #### 3. Container Runtime
 - **k3s**: Lightweight Kubernetes distribution for edge/IoT
-- **Features**: 
+- **Features**:
   - Full Kubernetes API compatibility
   - Embedded container runtime (containerd)
   - Built-in networking (Flannel/Calico support)
@@ -88,35 +88,35 @@ flowchart TD
 
 k3s integrates with LamaDist's existing security architecture:
 
-- **SELinux Integration**: 
+- **SELinux Integration**:
   - k3s containers run under SELinux confinement
   - Container processes inherit SELinux context
   - Pod Security Standards enforcement
   - Mandatory Access Control for container isolation
   - k3s SELinux policy provided by @k3s-io organization
   - **Note**: SELinux is mandatory; AppArmor is NOT used (incompatible with SELinux)
-  
+
 - **Network Security**:
   - Kubernetes Network Policies for pod-to-pod communication control
   - Built-in support for encrypted inter-node communication
   - Service mesh compatible (Istio, Linkerd)
-  
+
 - **Image Security**:
   - Integration with RPM-signed container images
   - Image pull policies enforcement
   - Private registry support with authentication
-  
+
 - **Runtime Security**:
   - Seccomp profiles for syscall filtering
   - Pod Security Admission for security policy enforcement
   - Read-only root filesystems for containers
   - SELinux enforced for all container processes
-  
+
 - **Audit and Compliance**:
   - Kubernetes audit logging
   - Integration with IMA/EVM for container image verification
   - RBAC (Role-Based Access Control) for API access
-  
+
 - **Resource Isolation**:
   - Control groups (cgroups) for resource limits
   - Namespace isolation for processes, network, and filesystem
@@ -216,8 +216,8 @@ flowchart LR
 
 ### Build Container
 
-**Image**: `lamagrid/lamadist-builder:latest`  
-**Base**: Ubuntu 22.04  
+**Image**: `lamagrid/lamadist-builder:latest`
+**Base**: Ubuntu 22.04
 **Purpose**: Provide consistent, reproducible build environment
 
 The build container includes:
@@ -314,9 +314,9 @@ LamaDist supports multiple hardware platforms:
 
 ### x86_64 Intel Systems
 
-**Machine**: `genericx86-64` (with Intel optimizations available)  
-**Bootloader**: UKI direct boot (UEFI) or systemd-boot (fallback)  
-**Boot Integrity**: Full suite (Secure Boot + Measured Boot + Trusted Boot)  
+**Machine**: `genericx86-64` (with Intel optimizations available)
+**Bootloader**: UKI direct boot (UEFI) or systemd-boot (fallback)
+**Boot Integrity**: Full suite (Secure Boot + Measured Boot + Trusted Boot)
 **Features**:
 - UEFI boot
 - UKI (Unified Kernel Image) with direct boot support
@@ -331,22 +331,22 @@ LamaDist supports multiple hardware platforms:
 ### ARM64 Platforms
 
 #### NVIDIA Jetson Orin NX
-**Machine**: `orin-nx` (Tegra platform)  
-**Bootloader**: U-Boot / UEFI  
+**Machine**: `orin-nx` (Tegra platform)
+**Bootloader**: U-Boot / UEFI
 **Features**:
 - ARM Cortex-A78AE cores
 - GPU acceleration
 - High-performance AI/ML workloads
 
 #### Radxa RK1
-**Machine**: `rk1` (Rockchip RK3588)  
+**Machine**: `rk1` (Rockchip RK3588)
 **Features**:
 - ARM Cortex-A76/A55 cores
 - Mali GPU
 - PCIe, NVMe, SATA support
 
 #### Pine64 SOQuartz
-**Machine**: `soquartz` (Rockchip RK3566)  
+**Machine**: `soquartz` (Rockchip RK3566)
 **Features**:
 - Raspberry Pi CM4 form factor
 - Low power consumption
@@ -394,7 +394,7 @@ LamaDist uses kernel command line arguments for host-specific configuration, mai
 - **Network Settings**: Network configuration via kernel parameters
   - IP address, gateway, DNS via `ip=` parameter
   - Network interface configuration
-  
+
 **Benefits of Kernel Command Line Configuration:**
 
 - **Immutable Root**: No need to modify root filesystem for host-specific settings
@@ -502,20 +502,20 @@ LamaDist employs comprehensive boot integrity protection using the fullest set o
   - Signed boot binaries on supported platforms
   - Chain of trust from firmware through kernel
   - Prevents execution of unsigned/tampered boot code
-  
+
 - **Measured Boot**: Hardware-based boot measurement and attestation
   - TPM PCR (Platform Configuration Register) measurements
   - Boot components measured into TPM before execution
   - Creates cryptographic log of boot process
   - Enables remote attestation of system state
   - Available on systems with TPM 1.2 or TPM 2.0
-  
+
 - **Trusted Boot**: Extended boot integrity verification
   - Kernel and initramfs integrity verification
   - IMA (Integrity Measurement Architecture) integration
   - Boot-time policy enforcement
   - Extends trust chain into runtime
-  
+
 **Platform-Specific Implementation:**
 
 - **x86_64 UEFI Systems**:
@@ -523,13 +523,13 @@ LamaDist employs comprehensive boot integrity protection using the fullest set o
   - TPM 2.0 Measured Boot (PCR measurements)
   - UKI with embedded signatures
   - IMA/EVM for runtime integrity
-  
+
 - **ARM64 Systems**:
   - Platform-specific secure boot mechanisms
   - Trusted Boot where available
   - Hardware-backed key storage
   - Boot integrity verification per platform capabilities
-  
+
 **Defense in Depth Approach:**
 
 The boot integrity protection is layered:
@@ -632,13 +632,13 @@ On systems that support it (x86_64 UEFI), boot artifacts are packaged into a UKI
   - GPG-signed RPM packages
   - Signature verification on installation
   - Chain of trust from build to deployment
-  
+
 - **Hardware Root of Trust Integration**:
   - Package signing keys can be stored in TPM 2.0 (where available)
   - TPM-backed signing provides hardware-protected key storage
   - Verification keys distributed securely
   - Integration with secure boot chain
-  
+
 - **Package Verification Process**:
   - RPM database verifies signatures before installation
   - IMA/EVM verifies package integrity at runtime
@@ -778,4 +778,3 @@ See [PARTITIONING.md](PARTITIONING.md) for per-platform GPT layouts, FDE strateg
 - [Unified Kernel Image (UKI)](https://uapi-group.org/specifications/specs/unified_kernel_image/)
 - [systemd-boot](https://www.freedesktop.org/software/systemd/man/systemd-boot.html)
 - [Discoverable Partitions Specification (DPS)](https://uapi-group.org/specifications/specs/discoverable_partitions_specification/)
-

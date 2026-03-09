@@ -7,12 +7,33 @@
 min_version = "2024.9.0"
 
 [tools]
+"pipx:check-jsonschema" = "latest"
+actionlint = "latest"
 gitversion = "6.6.0"
-prek = "latest"
+hadolint = "latest"
+hk = "latest"
+pkl = "latest"
+shellcheck = "latest"
+uv = "latest"
+yamllint = "latest"
+
+[settings]
+experimental = true  # Needd for hooks
+lockfile = true
+locked = true
+
+[settings.pipx]
+uvx = true
+
+[hooks]
+postinstall = """
+  if [ "$CI" != 'true' ] && [ -d .git ]; then
+    hk install
+  fi
+"""
 
 [env]
-# Project root (resolved at runtime)
-LAMADIST_PROJECT_DIR = "{{config_root}}"
+HK_MISE = "1"
 LAMADIST_CONTAINER_IMAGE = "lamagrid/lamadist-builder:latest"
 LAMADIST_HOST_SSTATE_DIR = "{{config_root}}/.cache/sstate"
 LAMADIST_HOST_BUILD_DIR = "{{config_root}}/build"

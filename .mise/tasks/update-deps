@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#MISE description="Update all dependency lockfiles (APT, Python, Mise)"
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+echo "Updating APT dependencies..."
+mise run _update_apt_lock
+
+echo "Updating Python dependencies..."
+mise run _update_python_lock
+
+echo "Updating Mise dependencies..."
+mise upgrade
+mise lock  # ensure cross-platform lockfile is updated
+
+echo "All dependencies updated."

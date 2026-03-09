@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#MISE description="Update the packages.lock file for the container"
+#MISE hide=true
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+CONTAINER_CMD="${LAMADIST_CONTAINER_CMD:-podman}"
+if ! command -v "$CONTAINER_CMD" &> /dev/null; then
+	if command -v docker &> /dev/null; then
+		CONTAINER_CMD="docker"
+	else
+		echo "Error: Neither podman nor docker found." >&2
+		exit 1
+	fi
+fi
+
+echo "Updating APT lockfile using $CONTAINER_CMD..."
+
+# Run the update script inside a container
+"$CONTAINER_CMD" run --rm \
+	--volume "$(pwd)/container:/mnt" \
+	--workdir /mnt \
+	ubuntu:22.04 \
+	bash -c "apt-get update >/dev/null &&
+	echo '# Auto-generated lockfile. Do not edit.' > packages.lock &&
+	echo \"# Generated at \$(date -u +'%Y-%m-%dT%H:%M:%SZ')\" >> packages.lock &&
+	grep -vE '^[[:blank:]]*(#|$)' packages.txt | sort -u | while read -r pkg; do
+		version=\$(apt-cache policy \"\$pkg\" | grep 'Candidate:' | awk '{print \$2}')
+		if [ -z \"\$version\" ] || [ \"\$version\" = \"(none)\" ]; then
+			echo \"Error: Package '\$pkg' not found in repositories.\" >&2
+			exit 1
+		fi
+		echo \"\$pkg=\$version\" >> packages.lock
+	done &&
+	echo \"Successfully generated packages.lock with \$(wc -l < packages.lock) packages.\""
+
+echo "Done."

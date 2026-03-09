@@ -10,7 +10,7 @@
 set -euo pipefail
 
 BUILDSTATS_BASE_DIR="${LAMADIST_HOST_BUILDSTATS_BASE}"
-SCRIPT="${LAMADIST_PROJECT_DIR}/ext/poky/scripts/buildstats-summary"
+SCRIPT="${MISE_CONFIG_ROOT}/ext/poky/scripts/buildstats-summary"
 
 if [ ! -x "${SCRIPT}" ]; then
 	echo "ERROR: buildstats-summary script not found at ${SCRIPT}"

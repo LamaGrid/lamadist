@@ -14,7 +14,7 @@ if [ "${CI}" = "true" ]; then
 
 	podman build --format docker --net=host --dns=8.8.8.8 \
 		--build-arg BUILDER_UID="${BUILD_UID}" \
-		-t "${LOCAL_IMAGE}" "${LAMADIST_PROJECT_DIR}/container/"
+		-t "${LOCAL_IMAGE}" "${MISE_CONFIG_ROOT}/container/"
 
 	if [ -n "${CONTAINER_REGISTRY}" ]; then
 		REGISTRY_IMAGE="${CONTAINER_REGISTRY}/lamagrid/lamadist-builder"
@@ -28,5 +28,5 @@ if [ "${CI}" = "true" ]; then
 else
 	${LAMADIST_CONTAINER_CMD} build --format docker \
 		--build-arg BUILDER_UID="$(id -u)" \
-		-t "${LAMADIST_CONTAINER_IMAGE}" "${LAMADIST_PROJECT_DIR}/container/"
+		-t "${LAMADIST_CONTAINER_IMAGE}" "${MISE_CONFIG_ROOT}/container/"
 fi

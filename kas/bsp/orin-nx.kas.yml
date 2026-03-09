@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 ---
 header:
-  version : 15
+  version: 15
 
 machine: jetson-orin-nano-devkit-nvme
-#machine: p3768-0000-p3767-0000.conf
+# machine: p3768-0000-p3767-0000.conf
 
 repos:
   meta-arm:
@@ -23,4 +23,3 @@ local_conf_header:
   meta-security: |
     DM_VERITY_ROOT_GUID ?= 'b921b045-1df0-41c3-af44-4c6f280d3fae'
     DM_VERITY_RHASH_GUID ?= 'df3300ce-d69f-4c92-978c-9bfb0f38d820'
-

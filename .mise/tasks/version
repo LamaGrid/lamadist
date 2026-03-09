@@ -7,7 +7,7 @@ set -euo pipefail
 # In CI, the GitVersion GitHub Action pre-sets GITVERSION_INFO_VERSION
 # and GITVERSION_FULL_SEM_VER. When those are present, skip invoking
 # the gitversion CLI (it may not be installed or have full git history).
-ENV_FILE="${LAMADIST_PROJECT_DIR}/.cache/gitversion.env"
+ENV_FILE="${MISE_CONFIG_ROOT}/.cache/gitversion.env"
 mkdir -p "$(dirname "${ENV_FILE}")"
 
 INFO_VERSION="${GITVERSION_INFO_VERSION:-}"
@@ -30,7 +30,7 @@ if [ -n "${INFO_VERSION}" ]; then
 	BUILD_DATETIME=$(date -u '+%Y-%m-%dT%H%M%SZ')
 	BUILDNAME="${INFO_VERSION}.BuildDateTime.${BUILD_DATETIME}"
 
-	BRANCH=$(git -C "${LAMADIST_PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+	BRANCH=$(git -C "${MISE_CONFIG_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 	if [ "${BRANCH}" = "main" ] && [ -n "${FULL_SEM_VER}" ]; then
 		DISTRO_VERSION="${FULL_SEM_VER}"
 	else

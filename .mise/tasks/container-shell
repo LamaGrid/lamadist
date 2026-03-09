@@ -3,5 +3,6 @@
 #MISE description="Shell in container (without KAS)"
 set -euo pipefail
 
-source "${LAMADIST_PROJECT_DIR}/.mise/tasks/_lib.sh"
+# shellcheck source=.mise/tasks/_lib.sh
+source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 run_in_container --entrypoint /bin/dumb-init -- /bin/bash

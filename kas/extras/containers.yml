@@ -1,11 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 ---
 header:
-    version: 15
+  version: 15
 
 repos:
   meta-virtualization:
     url: 'https://git.yoctoproject.org/git/meta-virtualization'
     path: 'ext/meta-virtualization'
-
-local_conf_header:

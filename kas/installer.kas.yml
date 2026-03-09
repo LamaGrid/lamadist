@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 ---
 header:
-  version : 15
+  version: 15
   includes:
     - main.kas.yml
 
@@ -18,7 +18,7 @@ repos:
     url: 'https://git.yoctoproject.org/meta-anaconda'
 
   meta-openembedded:
-    layers :
+    layers:
       meta-filesystems:
       meta-gnome:
       meta-initramfs:

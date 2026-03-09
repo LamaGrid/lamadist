@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Hadolint configuration
+# Only fail on errors; warnings are informational.
+# See: https://github.com/hadolint/hadolint#configure
+
+failure-threshold: error

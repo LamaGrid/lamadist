@@ -3,13 +3,13 @@
 #
 # Shared functions for mise tasks that run commands inside the builder container.
 # Source this file from any task that needs to invoke the build container:
-#   source "${LAMADIST_PROJECT_DIR}/.mise/tasks/_lib.sh"
+#   source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 
 # Resolve the Yocto MACHINE name from a LamaDist BSP name.
 # Reads the machine: field from the BSP's KAS YAML file.
 bsp_to_machine() {
 	local bsp="$1"
-	local kas_bsp="${LAMADIST_PROJECT_DIR}/kas/bsp/${bsp}.kas.yml"
+	local kas_bsp="${MISE_CONFIG_ROOT}/kas/bsp/${bsp}.kas.yml"
 	if [[ -f "${kas_bsp}" ]]; then
 		grep '^machine:' "${kas_bsp}" | head -1 | awk '{print $2}'
 	else
@@ -63,8 +63,8 @@ run_in_container() {
 
 	# Optional local env file
 	local env_local_args=()
-	if [[ -f "${LAMADIST_PROJECT_DIR}/.kas.env.local" ]]; then
-		env_local_args=(--env-file "${LAMADIST_PROJECT_DIR}/.kas.env.local")
+	if [[ -f "${MISE_CONFIG_ROOT}/.kas.env.local" ]]; then
+		env_local_args=(--env-file "${MISE_CONFIG_ROOT}/.kas.env.local")
 	fi
 
 	# Build and deploy directory mounts
@@ -79,11 +79,11 @@ run_in_container() {
 		-v "${LAMADIST_HOST_SSTATE_DIR}:${SSTATE_DIR}" \
 		-e "SSTATE_DIR=${SSTATE_DIR}" \
 		-v "${LAMADIST_HOST_BUILDSTATS_BASE}:${BUILDSTATS_BASE}" \
-		-v "${LAMADIST_PROJECT_DIR}:${KAS_WORK_DIR}" \
+		-v "${MISE_CONFIG_ROOT}:${KAS_WORK_DIR}" \
 		-e "KAS_WORK_DIR=${KAS_WORK_DIR}" \
 		-v "${LAMADIST_HOST_BUILD_DIR}:${KAS_WORK_DIR}/build" \
 		-v "${LAMADIST_HOST_DEPLOY_DIR}:${KAS_WORK_DIR}/deploy" \
-		--env-file "${LAMADIST_PROJECT_DIR}/.kas.env" \
+		--env-file "${MISE_CONFIG_ROOT}/.kas.env" \
 		"${env_local_args[@]}" \
 		"${entrypoint_args[@]}" \
 		"${LAMADIST_CONTAINER_IMAGE}" \

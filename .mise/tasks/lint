@@ -20,7 +20,8 @@ if [ "${CI}" = "true" ]; then
 	kas dump "${KAS_CONFIG}"
 else
 	# Local dev: run kas inside container via podman/docker
-	source "${LAMADIST_PROJECT_DIR}/.mise/tasks/_lib.sh"
+	# shellcheck source=.mise/tasks/_lib.sh
+	source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 	run_in_container dump "${KAS_CONFIG}"
 fi
 

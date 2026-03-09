@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 ---
 header:
-    version: 15
+  version: 15
 repos:
   meta-browser:
     url: 'https://github.com/OSSystems/meta-browser.git'
@@ -11,11 +11,11 @@ repos:
       meta-chromium:
 
 local_conf_header:
-  #Demo features:
+  # Demo features:
   #  CORE_IMAGE_EXTRA_INSTALL             += 'gtk+3-demo'
 
   Graphical features: |
-    IMAGE_FEATURES                  += 'hwcodecs weston'
+    IMAGE_FEATURES                   += 'hwcodecs weston'
     # TODO: Do I need these, or is IMAGE_FEATURES enough?
     DISTRO_FEATURES:append           = ' wayland'
     CORE_IMAGE_EXTRA_INSTALL:append  = ' wayland weston'

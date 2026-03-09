@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 ---
 header:
-    version: 15
+  version: 15
 
 repos:
   meta-aws:
