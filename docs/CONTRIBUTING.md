@@ -372,14 +372,15 @@ Bad commit messages:
 
 ### Pre-push Hook
 
-A [prek](https://github.com/j178/prek) pre-push hook checks whether
-security scans have been run on the current commit. If not, it prompts you
-to confirm before pushing. To install the hook:
+An [hk](https://hk.jdx.dev/) pre-push hook checks whether security scans
+have been run on the current commit. If not, it prompts you to confirm
+before pushing. Hooks are installed automatically when you run:
 
 ```bash
-mise install        # installs prek
-prek install        # installs git hooks
+mise install        # installs hk and configures git hooks
 ```
+
+To manually reinstall hooks: `hk install`
 
 You can run scans at any time with:
 
@@ -616,4 +617,3 @@ Contributors will be recognized in:
 Thank you for contributing to LamaDist!
 
 > **Note:** For the last modification date of any document, consult the Git commit history: `git log --format='%ai' -1 -- <filepath>`
-

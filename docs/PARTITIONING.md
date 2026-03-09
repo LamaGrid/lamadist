@@ -225,7 +225,7 @@ console=ttyS0,115200 rootwait roothash=
 Includes the `/greengrass` overlay.
 
 ```
-#                                                                                                       
+#
 PARTLABEL=var      /var            ext4     defaults,x-systemd.requires=/dev/mapper/data                                                       0       2
 overlay            /greengrass     overlay  lowerdir=/greengrass,upperdir=/var/overlay/green/upper,workdir=/var/overlay/green/work,x-systemd.requires=/var  0       0
 ```
@@ -289,7 +289,7 @@ console=ttyTCU0,115200 rootwait roothash=
 **/etc/fstab:**
 
 ```
-#                                                                                                       
+#
 PARTLABEL=var      /var            ext4     defaults,x-systemd.requires=/dev/mapper/data                                                       0       2
 overlay            /greengrass     overlay  lowerdir=/greengrass,upperdir=/var/overlay/green/upper,workdir=/var/overlay/green/work,x-systemd.requires=/var  0       0
 ```
@@ -337,7 +337,7 @@ console=ttyFIQ0,1500000 rootwait roothash=
 **/etc/fstab:**
 
 ```
-#                                                                                                       
+#
 PARTLABEL=var      /var            ext4     defaults,x-systemd.requires=/dev/mapper/data                                                       0       2
 overlay            /greengrass     overlay  lowerdir=/greengrass,upperdir=/var/overlay/green/upper,workdir=/var/overlay/green/work,x-systemd.requires=/var  0       0
 ```

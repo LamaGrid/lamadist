@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Update all dependencies and rebuild container"
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+echo "Updating dependencies..."
+mise run update-deps
+
+echo "Rebuilding container..."
+mise run container

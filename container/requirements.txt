@@ -1,0 +1,30 @@
+attrs==25.4.0
+    # via
+    #   jsonschema
+    #   referencing
+distro==1.9.0
+    # via kas
+gitdb==4.0.12
+    # via gitpython
+gitpython==3.1.46
+    # via kas
+jsonschema==4.26.0
+    # via kas
+jsonschema-specifications==2025.9.1
+    # via jsonschema
+kas==5.2
+    # via lamadist-builder (pyproject.toml)
+pyyaml==6.0.3
+    # via kas
+referencing==0.37.0
+    # via
+    #   jsonschema
+    #   jsonschema-specifications
+rpds-py==0.30.0
+    # via
+    #   jsonschema
+    #   referencing
+smmap==5.0.2
+    # via gitdb
+typing-extensions==4.15.0
+    # via referencing

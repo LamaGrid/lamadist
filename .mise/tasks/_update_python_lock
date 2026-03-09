@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#MISE description="Update the requirements.txt file for the container"
+#MISE hide=true
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+CONTAINER_CMD="${LAMADIST_CONTAINER_CMD:-podman}"
+
+echo "Updating Python lockfile using $CONTAINER_CMD..."
+
+"$CONTAINER_CMD" run --rm \
+	--volume "$(pwd)/container:/mnt" \
+	--workdir /mnt \
+	docker.io/python:3.10-slim \
+	bash -c "pip install --no-cache-dir uv && uv pip compile --no-header pyproject.toml -o requirements.txt"
+
+echo "Done."

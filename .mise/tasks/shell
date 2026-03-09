@@ -11,5 +11,6 @@ BSP="${usage_bsp:-x86_64}"
 KAS_CONFIG="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${BSP}.kas.yml"
 KAS_DEBUG="${KAS_WORK_DIR}/kas/extras/debug.kas.yml"
 
-source "${LAMADIST_PROJECT_DIR}/.mise/tasks/_lib.sh"
+# shellcheck source=.mise/tasks/_lib.sh
+source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 run_in_container shell "${KAS_CONFIG}:${KAS_DEBUG}"

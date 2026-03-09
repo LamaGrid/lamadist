@@ -12,7 +12,8 @@ BSP="${usage_bsp:-x86_64}"
 TIMEOUT="${usage_timeout:-300}"
 CI="${usage_ci:-false}"
 
-source "${LAMADIST_PROJECT_DIR}/.mise/tasks/_lib.sh"
+# shellcheck source=.mise/tasks/_lib.sh
+source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 MACHINE=$(bsp_to_machine "${BSP}")
 DEPLOY_DIR="${LAMADIST_HOST_DEPLOY_DIR}/images/${MACHINE}"
 

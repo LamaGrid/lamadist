@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# actionlint configuration
+# See https://github.com/rhysd/actionlint/blob/main/docs/config.md
+
+self-hosted-runner:
+  labels:
+    - container-build-set
+    - yocto-runner-set

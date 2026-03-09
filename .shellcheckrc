@@ -1,0 +1,2 @@
+# Follow sourced files (resolves SC1091 for _lib.sh includes)
+external-sources=true

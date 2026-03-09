@@ -50,9 +50,9 @@ repos:
 
   # TODO: Create custom distro layer
   meta-lamadist:
-    #url: 'https://github.com/LamaGrid/meta-lamadist.git'
+    # url: 'https://github.com/LamaGrid/meta-lamadist.git'
     path: "meta-lamadist"
-    #branch: main
+    # branch: main
 
   # Security layers
   meta-secure-core:
@@ -121,8 +121,8 @@ local_conf_header:
   #  DEBUG_FLAGS:forcevariable = ''
   #  IMAGE_INSTALL:append = ' kernel-image-bzimage'
 
-  #meta-secure-core/meta-secure-core-common: |
-  #INITRAMFS_IMAGE                     = 'secure-core-image-initramfs'
+  # meta-secure-core/meta-secure-core-common: |
+  # INITRAMFS_IMAGE                     = 'secure-core-image-initramfs'
 
   #   # TODO: Create custom signing keys and stash/retrieve them securely,
   #   #       then uncomment and fill in meta-secure-core/meta-signing_keys

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 ---
 header:
-  version : 15
+  version: 15
 local_conf_header:
   # Debug options should only be included for pre-QA builds
   Debug options: |

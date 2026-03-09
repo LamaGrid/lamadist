@@ -1,0 +1,66 @@
+// vi:ft=pkl
+// SPDX-License-Identifier: Apache-2.0
+amends "package://github.com/jdx/hk/releases/download/v1.38.0/hk@1.38.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.38.0/hk@1.38.0#/Builtins.pkl"
+
+exclude = List("ext", "build", "deploy", ".cache")
+
+local linters = new Mapping<String, Step> {
+  ["trailing-whitespace"] = Builtins.trailing_whitespace
+  ["newlines"] = Builtins.newlines
+  ["check-merge-conflict"] = Builtins.check_merge_conflict
+  ["shellcheck"] = (Builtins.shellcheck) {
+    glob = List(
+      "**/*.sh",
+      "**/*.bash",
+      ".mise/tasks/*",
+      ".mise/tasks/**/*",
+      ".mise/hooks/*"
+    )
+  }
+  ["yamllint"] = (Builtins.yamllint) {
+    glob = List(
+      "kas/**/*.yml",
+      "kas/**/*.yaml",
+      ".github/workflows/*.yml"
+    )
+  }
+  ["actionlint"] = Builtins.actionlint
+  ["hadolint"] = Builtins.hadolint
+  ["kas-schema"] {
+    glob = List("kas/**/*.yml", "kas/**/*.yaml")
+    check = ".mise/hooks/kas-schema-check.sh {{ files }}"
+  }
+}
+
+hooks {
+  ["commit-msg"] {
+    steps {
+      ["check-conventional-commit"] = Builtins.check_conventional_commit
+    }
+  }
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = linters
+  }
+  ["pre-push"] {
+    steps {
+      ["check-scans"] {
+        check = ".mise/hooks/check-scans.sh"
+        interactive = true
+      }
+      ["check-deps"] {
+        check = ".mise/hooks/check-deps-pre-push.sh"
+        interactive = true
+      }
+    }
+  }
+  ["fix"] {
+    fix = true
+    steps = linters
+  }
+  ["check"] {
+    steps = linters
+  }
+}

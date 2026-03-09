@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND noninteractive
 
 # Required Packages for the Host Development System
 # http://www.yoctoproject.org/docs/latest/mega-manual/mega-manual.html#required-packages-for-the-host-development-system
-COPY packages.txt /root/packages.txt
+COPY packages.lock /root/packages.lock
 RUN --mount=type=cache,target=/var/lib/apt \
     --mount=type=cache,target=/var/cache/apt \
 
@@ -23,8 +23,8 @@ RUN --mount=type=cache,target=/var/lib/apt \
     update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 LANGUAGE=en_US:en &&\
     export LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 LANGUAGE=en_US:en &&\
 
-    # Install base Yocto Poky requirements
-    grep -vE '^[[:blank:]]*(#|$)' /root/packages.txt | xargs apt-get install --no-install-recommends -y &&\
+    # Install base Yocto Poky requirements from lockfile
+    grep -vE '^[[:blank:]]*(#|$)' /root/packages.lock | xargs apt-get install --no-install-recommends -y &&\
 
     # Use Bash as the default /bin/sh
     ln -sf /bin/bash /bin/sh &&\
@@ -50,11 +50,10 @@ ENV LC_ALL   en_US.UTF-8
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Install kas and other Python packages via uv
-COPY pyproject.toml /root/pyproject.toml
+COPY requirements.txt /root/requirements.txt
 RUN --mount=type=cache,target=/root/.cache \
 
-    # Compile locked requirements and install
-    uv pip compile /root/pyproject.toml -o /root/requirements.txt --system &&\
+    # Install locked requirements
     uv pip install --system -r /root/requirements.txt &&\
 
     # Cleanup
