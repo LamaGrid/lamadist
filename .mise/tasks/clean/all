@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #MISE description="Remove entire build and deploy directories (with confirmation)"
-set -euo pipefail
+#MISE raw=true
+set -o errexit
+set -o nounset
+set -o pipefail
 if [ -t 0 ]; then
 	read -p "Remove all build and deploy contents? [y/N] " -n 1 -r
 	echo
-	if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+	if [[ ! $REPLY =~ ^[Yy] ]]; then
 		echo "Aborted."
 		exit 1
 	fi
 fi
+echo 'Removing build and deploy contents...'
 rm -rf "${LAMADIST_HOST_BUILD_DIR:?}"/* "${LAMADIST_HOST_BUILD_DIR}"/.??* 2>/dev/null || true
 rm -rf "${LAMADIST_HOST_DEPLOY_DIR:?}"/* "${LAMADIST_HOST_DEPLOY_DIR}"/.??* 2>/dev/null || true
 echo "Cleaned build and deploy directories."

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Compute and (optionally) print build version information from GitVersion"
+#MISE quiet=true
+#USAGE flag "-j --json" help="Output the full GitVersion JSON instead of just the InformationalVersion"
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# Write version variables to an env file for dependent tasks to source.
+# In CI, the GitVersion GitHub Action pre-sets GITVERSION_INFO_VERSION
+# and GITVERSION_FULL_SEM_VER. When those are present, skip invoking
+# the gitversion CLI (it may not be installed or have full git history).
+_env_file="${MISE_CONFIG_ROOT}/.cache/gitversion.env"
+mkdir -p "$(dirname "${_env_file}")"
+
+_info_version="${GITVERSION_INFO_VERSION:-}"
+_full_sem_ver="${GITVERSION_FULL_SEM_VER:-}"
+
+if [ -z "${_info_version}" ] && command -v gitversion >/dev/null 2>&1; then
+	_gv_json=$(gitversion 2>/dev/null || true)
+	if [ -n "${_gv_json}" ]; then
+		_info_version=$(printf '%s' "${_gv_json}" | grep -o '"InformationalVersion": *"[^"]*"' \
+			| cut -d'"' -f4 || true)
+		_full_sem_ver=$(printf '%s' "${_gv_json}" | grep -o '"FullSemVer": *"[^"]*"' \
+			| cut -d'"' -f4 || true)
+	fi
+fi
+
+_buildname=""
+_distro_version=""
+
+if [ -n "${_info_version}" ]; then
+	_build_datetime=$(date -u '+%Y-%m-%dT%H%M%SZ')
+	_buildname="${_build_datetime}-${_info_version}"
+
+	_branch=$(git -C "${MISE_CONFIG_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+	if [ "${_branch}" = "main" ] && [ -n "${_full_sem_ver}" ]; then
+		_distro_version="${_full_sem_ver}"
+	else
+		_distro_version="${_info_version}"
+	fi
+fi
+
+cat > "${_env_file}" <<-EOF
+	export BUILDNAME='${_buildname}'
+	export DISTRO_VERSION='${_distro_version}'
+EOF
+
+if [ "${usage_json:-}" = true ]; then
+	echo "$_gv_json"
+else
+	echo "${_info_version}"
+fi

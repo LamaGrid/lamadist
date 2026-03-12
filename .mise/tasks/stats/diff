@@ -3,33 +3,35 @@
 #MISE description="Compare buildstats between two saved snapshots"
 #USAGE arg "<from>" help="Baseline snapshot label" required
 #USAGE arg "<to>" help="Comparison snapshot label" required
-#USAGE complete "from" run="mise run buildstats:_labels"
-#USAGE complete "to" run="mise run buildstats:_labels"
+#USAGE complete "from" run="mise run stats:_labels"
+#USAGE complete "to" run="mise run stats:_labels"
 #USAGE flag "-a --attr <attr>" help="Attribute to compare" default="walltime" {
 #USAGE   choices "walltime" "cputime" "read_bytes" "write_bytes" "read_ops" "write_ops"
 #USAGE }
-set -euo pipefail
+set -o errexit
+set -o nounset
+set -o pipefail
 
-BUILDSTATS_BASE_DIR="${LAMADIST_HOST_BUILDSTATS_BASE}"
-SCRIPT="${MISE_CONFIG_ROOT}/ext/poky/scripts/buildstats-diff"
+_buildstats_base_dir="${LAMADIST_HOST_BUILDSTATS_BASE}"
+_script="${MISE_CONFIG_ROOT}/ext/poky/scripts/buildstats-diff"
 
-if [ ! -x "${SCRIPT}" ]; then
-	echo "ERROR: buildstats-diff script not found at ${SCRIPT}"
+if [ ! -x "${_script}" ]; then
+	echo "ERROR: buildstats-diff script not found at ${_script}"
 	exit 1
 fi
 
-FROM_PATH="${BUILDSTATS_BASE_DIR}/${usage_from:-}"
-TO_PATH="${BUILDSTATS_BASE_DIR}/${usage_to:-}"
+_from_path="${_buildstats_base_dir}/${usage_from:-}"
+_to_path="${_buildstats_base_dir}/${usage_to:-}"
 
-if [ ! -d "${FROM_PATH}" ]; then
+if [ ! -d "${_from_path}" ]; then
 	echo "ERROR: Snapshot '${usage_from}' not found"
-	echo "Run 'mise run buildstats list' to see available snapshots."
+	echo "Run 'mise run stats:list' to see available snapshots."
 	exit 1
 fi
 
-if [ ! -d "${TO_PATH}" ]; then
+if [ ! -d "${_to_path}" ]; then
 	echo "ERROR: Snapshot '${usage_to}' not found"
-	echo "Run 'mise run buildstats list' to see available snapshots."
+	echo "Run 'mise run stats:list' to see available snapshots."
 	exit 1
 fi
 
@@ -37,6 +39,6 @@ echo "==> Comparing buildstats: ${usage_from} → ${usage_to}"
 echo "    Attribute: ${usage_attr:-walltime}"
 echo ""
 
-"${SCRIPT}" \
+"${_script}" \
 	--diff-attr "${usage_attr:-walltime}" \
-	"${FROM_PATH}" "${TO_PATH}"
+	"${_from_path}" "${_to_path}"

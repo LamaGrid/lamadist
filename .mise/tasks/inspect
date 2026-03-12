@@ -4,13 +4,15 @@
 #USAGE flag "-b --bsp <bsp>" help="BSP target" default="x86_64" {
 #USAGE   choices "x86_64" "orin-nx" "rk1" "soquartz"
 #USAGE }
-set -euo pipefail
+set -o errexit
+set -o nounset
+set -o pipefail
 
-BSP="${usage_bsp:-x86_64}"
+_bsp="${usage_bsp:-x86_64}"
 
-KAS_CONFIG="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${BSP}.kas.yml"
-KAS_DEBUG="${KAS_WORK_DIR}/kas/extras/debug.kas.yml"
+_kas_config="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${_bsp}.kas.yml"
+_kas_debug="${KAS_WORK_DIR}/kas/extras/debug.kas.yml"
 
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
-run_in_container dump "${KAS_CONFIG}:${KAS_DEBUG}"
+run_in_container dump "${_kas_config}:${_kas_debug}"

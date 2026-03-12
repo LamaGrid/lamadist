@@ -71,6 +71,7 @@ jobs:
       - name: Check if container rebuild needed
         id: check
         run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
           BUILD_NEEDED=false
 
           CHANGES=""
@@ -78,7 +79,13 @@ jobs:
               git fetch --depth=1 origin "${{ github.base_ref }}"
               CHANGES=$(git diff --name-only FETCH_HEAD -- container/)
           elif [ "${{ github.event_name }}" = "push" ]; then
-              CHANGES=$(git diff --name-only HEAD~1 -- container/ 2>/dev/null || echo "initial push")
+              if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+                  CHANGES=$(git diff --name-only HEAD~1 -- container/ 2>/dev/null || echo "initial push")
+              else
+                  # On feature branches, compare against main to detect any divergence
+                  git fetch origin main
+                  CHANGES=$(git diff --name-only origin/main...HEAD -- container/ 2>/dev/null || echo "new branch")
+              fi
           fi
 
           if [ -n "${CHANGES}" ]; then
@@ -117,7 +124,7 @@ jobs:
         uses: jdx/mise-action@v2
 
       - name: Build and push container image
-        run: mise run container --ci
+        run: mise run container:builder:build --ci
 
   build-x86-64:
     name: Build x86_64

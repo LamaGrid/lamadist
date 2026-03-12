@@ -291,7 +291,7 @@ The `mise` task runner provides convenient tasks for common operations (replacin
 - `mise run clean`: Remove build artifacts
 - `mise run clean:all`: Remove entire build directory (with confirmation)
 - `mise run clean:sstate`: Clean shared state cache
-- `mise run clean:container`: Remove container image
+- `mise run clean:builder`: Remove container image
 
 #### Utility Tasks
 - `mise run version`: Display build version (via GitVersion)

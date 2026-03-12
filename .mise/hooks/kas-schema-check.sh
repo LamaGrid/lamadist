@@ -5,7 +5,9 @@
 # Resolves the KAS JSON schema (from local install or cached
 # download) and validates the provided YAML files against it.
 
-set -euo pipefail
+set -o errexit
+set -o nounset
+set -o pipefail
 
 _cache_dir="${LAMADIST_PROJECT_DIR:-.}/.cache/kas-schema"
 _schema_file=""

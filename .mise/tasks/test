@@ -6,42 +6,44 @@
 #USAGE }
 #USAGE flag "-c --ci" help="CI mode"
 # TODO: Implement CI mode behavior (e.g., machine-readable output, stricter validation)
-set -euo pipefail
+set -o errexit
+set -o nounset
+set -o pipefail
 
-BSP="${usage_bsp:-x86_64}"
+_bsp="${usage_bsp:-x86_64}"
 
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
-MACHINE=$(bsp_to_machine "${BSP}")
-DEPLOY_DIR="${LAMADIST_HOST_DEPLOY_DIR}/images/${MACHINE}"
+_machine=$(bsp_to_machine "${_bsp}")
+_deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
 
-echo "==> Checking build artifact directory: ${DEPLOY_DIR}"
-if [ ! -d "${DEPLOY_DIR}" ]; then
-	echo "ERROR: Deploy directory does not exist: ${DEPLOY_DIR}"
+echo "==> Checking build artifact directory: ${_deploy_dir}"
+if [ ! -d "${_deploy_dir}" ]; then
+	echo "ERROR: Deploy directory does not exist: ${_deploy_dir}"
 	exit 1
 fi
 
 echo "==> Listing build artifacts:"
-ls -lh "${DEPLOY_DIR}/"
+ls -lh "${_deploy_dir}/"
 
 # Check for WIC image (prefer uncompressed, then newest compressed)
-WIC_IMAGE=$(find "${DEPLOY_DIR}" -maxdepth 1 -name "*.wic" ! -name "*.wic.*" | sort | tail -1)
-if [ -z "${WIC_IMAGE}" ]; then
-	WIC_IMAGE=$(find "${DEPLOY_DIR}" -maxdepth 1 \( -name "*.wic.zst" -o -name "*.wic.xz" -o -name "*.wic.gz" -o -name "*.wic.bz2" \) | sort | tail -1)
+_wic_image=$(find "${_deploy_dir}" -maxdepth 1 -name "*.wic" ! -name "*.wic.*" | sort | tail -1)
+if [ -z "${_wic_image}" ]; then
+	_wic_image=$(find "${_deploy_dir}" -maxdepth 1 \( -name "*.wic.zst" -o -name "*.wic.xz" -o -name "*.wic.gz" -o -name "*.wic.bz2" \) | sort | tail -1)
 fi
-if [ -z "${WIC_IMAGE}" ]; then
-	echo "ERROR: No WIC image found in ${DEPLOY_DIR}"
+if [ -z "${_wic_image}" ]; then
+	echo "ERROR: No WIC image found in ${_deploy_dir}"
 	exit 1
 fi
-echo "==> Found WIC image: ${WIC_IMAGE}"
-echo "==> Size: $(du -h "${WIC_IMAGE}" | cut -f1)"
+echo "==> Found WIC image: ${_wic_image}"
+echo "==> Size: $(du -h "${_wic_image}" | cut -f1)"
 
 # Check for kernel image
-KERNEL_IMAGE=$(find "${DEPLOY_DIR}" -maxdepth 1 -name "bzImage*" | head -1)
-if [ -z "${KERNEL_IMAGE}" ]; then
-	echo "WARNING: No kernel image (bzImage) found in ${DEPLOY_DIR}"
+_kernel_image=$(find "${_deploy_dir}" -maxdepth 1 -name "bzImage*" | head -1)
+if [ -z "${_kernel_image}" ]; then
+	echo "WARNING: No kernel image (bzImage) found in ${_deploy_dir}"
 else
-	echo "==> Found kernel image: ${KERNEL_IMAGE}"
+	echo "==> Found kernel image: ${_kernel_image}"
 fi
 
 echo "==> Build artifact validation passed"

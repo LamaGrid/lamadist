@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Launch QEMU VM with SPICE display"
+#USAGE flag "-b --bsp <bsp>" help="BSP target to boot" default="x86_64" {
+#USAGE   choices "x86_64"
+#USAGE }
+#USAGE flag "-t --timeout <timeout>" help="Boot timeout in seconds (CI mode)" default="300"
+#USAGE flag "-c --ci" help="CI mode (headless boot test)"
+set -o errexit
+set -o nounset
+set -o pipefail
+
+_bsp="${usage_bsp:-x86_64}"
+_timeout="${usage_timeout:-300}"
+_ci="${usage_ci:-false}"
+
+# shellcheck source=.mise/tasks/_lib.sh
+source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
+_machine=$(bsp_to_machine "${_bsp}")
+_deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
+
+# OVMF firmware paths
+_ovmf_code="/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+_ovmf_vars_template="/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+
+# Temp directory for ephemeral state (OVMF vars, swtpm)
+_qemu_tmpdir=$(mktemp -d /tmp/qemu-lamadist.XXXXXX)
+
+cleanup() {
+	local pids=("${_spicy_pid:-}" "${_swtpm_pid:-}")
+	for pid in "${pids[@]}"; do
+		[[ -n "${pid}" ]] && kill "${pid}" 2>/dev/null || true
+	done
+	rm -rf "${_qemu_tmpdir}"
+}
+trap cleanup EXIT
+
+# --- Prerequisites ---
+
+_required_tools=(qemu-system-x86_64 swtpm)
+if [[ "${_ci}" != "true" ]]; then
+	_required_tools+=(spicy)
+fi
+for tool in "${_required_tools[@]}"; do
+	command -v "${tool}" >/dev/null || { echo "ERROR: ${tool} not found"; exit 1; }
+done
+[[ -f "${_ovmf_code}" ]] || { echo "ERROR: OVMF firmware not found at ${_ovmf_code}"; exit 1; }
+[[ -f "${_ovmf_vars_template}" ]] || { echo "ERROR: OVMF VARS template not found at ${_ovmf_vars_template}"; exit 1; }
+
+# --- Find WIC image ---
+# Prefer uncompressed, then newest compressed (.zst > .xz > .gz > .bz2)
+
+_wic_image=$(find "${_deploy_dir}" -maxdepth 1 -name "*.wic" ! -name "*.wic.*" | sort | tail -1)
+if [[ -z "${_wic_image}" ]]; then
+	_wic_compressed=$(find "${_deploy_dir}" -maxdepth 1 \( -name "*.wic.zst" -o -name "*.wic.xz" -o -name "*.wic.gz" -o -name "*.wic.bz2" \) | sort | tail -1)
+	[[ -n "${_wic_compressed}" ]] || { echo "ERROR: No WIC image found in ${_deploy_dir}"; exit 1; }
+	echo "==> Decompressing ${_wic_compressed}..."
+	case "${_wic_compressed}" in
+		*.zst) zstd -d -k "${_wic_compressed}" ;;
+		*.xz)  xz -d -k "${_wic_compressed}" ;;
+		*.gz)  gunzip -k "${_wic_compressed}" ;;
+		*.bz2) bzip2 -d -k "${_wic_compressed}" ;;
+	esac
+	_wic_image="${_wic_compressed%.*}"
+fi
+
+# --- Prepare OVMF VARS (writable copy) ---
+
+cp "${_ovmf_vars_template}" "${_qemu_tmpdir}/OVMF_VARS.fd"
+
+# --- Start swtpm (TPM 2.0 emulator) ---
+
+mkdir -p "${_qemu_tmpdir}/tpm"
+swtpm socket \
+	--tpmstate dir="${_qemu_tmpdir}/tpm" \
+	--ctrl type=unixio,path="${_qemu_tmpdir}/tpm/sock" \
+	--tpm2 \
+	--daemon \
+	--pid file="${_qemu_tmpdir}/tpm/pid"
+
+# Wait for swtpm socket
+for _ in $(seq 1 20); do
+	[[ -S "${_qemu_tmpdir}/tpm/sock" ]] && break
+	sleep 0.1
+done
+[[ -S "${_qemu_tmpdir}/tpm/sock" ]] || { echo "ERROR: swtpm failed to start"; exit 1; }
+_swtpm_pid=$(cat "${_qemu_tmpdir}/tpm/pid")
+
+# --- KVM acceleration ---
+
+_accel_args=()
+if [[ -r /dev/kvm ]]; then
+	_accel_args=(-enable-kvm -cpu host)
+else
+	echo "==> WARNING: KVM not available, using TCG (slow)"
+	_accel_args=(-cpu IvyBridge)
+fi
+
+# --- Build QEMU command ---
+
+_qemu_args=(
+	"${_accel_args[@]}"
+	-machine q35
+	-m 512 -smp 4
+	-drive "if=pflash,format=raw,readonly=on,file=${_ovmf_code}"
+	-drive "if=pflash,format=raw,file=${_qemu_tmpdir}/OVMF_VARS.fd"
+	-drive "file=${_wic_image},format=raw,if=none,id=hd0"
+	-device 'ahci,id=ahci0'
+	-device 'ide-hd,drive=hd0,bus=ahci0.0'
+	-netdev 'user,id=net0'
+	-device 'virtio-net-pci,netdev=net0'
+	-object 'rng-random,filename=/dev/urandom,id=rng0'
+	-device 'virtio-rng-pci,rng=rng0'
+	-chardev "socket,id=chrtpm,path=${_qemu_tmpdir}/tpm/sock"
+	-tpmdev 'emulator,id=tpm0,chardev=chrtpm'
+	-device 'tpm-crb,tpmdev=tpm0'
+	-usb -device usb-tablet
+	-no-reboot
+)
+
+if [[ "${_ci}" == "true" ]]; then
+	# --- CI mode: headless boot test with timeout ---
+	_serial_log="${_qemu_tmpdir}/serial.log"
+
+	echo "==> CI boot test: image=${_wic_image}"
+	echo "==> Timeout: ${_timeout}s"
+
+	timeout "${_timeout}" qemu-system-x86_64 \
+		"${_qemu_args[@]}" \
+		-display none \
+		-serial file:"${_serial_log}" &
+	_qemu_pid=$!
+
+	_boot_success=false
+	while kill -0 "${_qemu_pid}" 2>/dev/null; do
+		if grep -q "login:" "${_serial_log}" 2>/dev/null; then
+			_boot_success=true
+			kill "${_qemu_pid}" 2>/dev/null || true
+			break
+		fi
+		sleep 5
+	done
+	wait "${_qemu_pid}" 2>/dev/null || true
+
+	if [[ "${_boot_success}" == "true" ]]; then
+		echo "==> QEMU boot test PASSED — login prompt detected"
+	else
+		echo "==> QEMU boot test FAILED — no login prompt within ${_timeout}s"
+		echo "==> Last 50 lines of serial log:"
+		tail -50 "${_serial_log}" 2>/dev/null || true
+		exit 1
+	fi
+else
+	# --- Interactive mode: SPICE display + serial console ---
+	_spice_port=5930
+
+	echo "==> Image: ${_wic_image}"
+	echo "==> SPICE display on port ${_spice_port}"
+	echo "==> Keyboard release: Shift+F12"
+	echo "==> Type 'quit' in this terminal to stop QEMU"
+
+	spicy --host=localhost --port="${_spice_port}" &
+	_spicy_pid=$!
+
+	qemu-system-x86_64 \
+		"${_qemu_args[@]}" \
+		-device qxl-vga \
+		-spice port="${_spice_port}",disable-ticketing=on \
+		-serial mon:stdio
+fi

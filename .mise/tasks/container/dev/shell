@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Placeholder for DevContainer shell"
+echo "DevContainer shell not implemented yet."
+exit 0
