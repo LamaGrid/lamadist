@@ -1,6 +1,13 @@
 ---
 name: git-commit
-description: 'Execute git commit with conventional commit message analysis, intelligent staging, and message generation. Use when user asks to commit changes, create a git commit, or mentions "/commit". Supports: (1) Auto-detecting type and scope from changes, (2) Generating conventional commit messages from diff, (3) Interactive commit with optional type/scope/description overrides, (4) Intelligent file staging for logical grouping'
+description: >
+  Execute git commit with conventional commit message analysis,
+  intelligent staging, and message generation. Use when user asks to commit
+  changes, create a git commit, or mentions "/commit". Supports: (1)
+  Auto-detecting type and scope from changes, (2) Generating conventional
+  commit messages from diff, (3) Interactive commit with optional
+  type/scope/description overrides, (4) Intelligent file staging for logical
+  grouping
 license: MIT
 allowed-tools: Bash
 ---
@@ -9,7 +16,9 @@ allowed-tools: Bash
 
 ## Overview
 
-Create standardized, semantic git commits using the Conventional Commits specification. Analyze the actual diff to determine appropriate type, scope, and message.
+Create standardized, semantic git commits using the Conventional Commits
+specification. Analyze the actual diff to determine appropriate type, scope,
+and message.
 
 ## Conventional Commit Format
 
@@ -88,15 +97,19 @@ Analyze the diff to determine:
 
 - **Type**: What kind of change is this?
 - **Scope**: What area/module is affected?
-- **Description**: One-line summary of what changed (present tense, imperative mood, <72 chars)
+- **Description**: One-line summary of what changed (present tense, imperative
+  mood, <72 chars)
 
 ### 4. Examine Prompt and Context
 
 Analyze the context of the commit request to determine:
 
 - **Motivation**: Why is this change being made?
-- **Constraints**: Are there any constraints or requirements that limited the possible changes?
-- **User Intent**: What does the user want to achieve with this commit? Are they asking for a specific type of change (e.g., "fix a bug", "add a feature")?
+- **Constraints**: Are there any constraints or requirements that limited
+  the possible changes?
+- **User Intent**: What does the user want to achieve with this commit? Are
+  they asking for a specific type of change (e.g., "fix a bug", "add a
+  feature")?
 
 ### 5. Execute Commit
 
@@ -115,16 +128,19 @@ EOF
 )"
 ```
 
-## Best Practices
+## Style Guidelines
 
 - One logical change per commit
+- Use Markdown formatting for body if needed (e.g., lists, code blocks)
 - Present tense: "add" not "added"
 - Imperative mood: "fix bug" not "fixes bug"
 - Reference issues: `Closes: #123`, `Refs: #456`
 - Keep headline concise, under 50 characters if possible, no more than 72
-- The body should focus on the "why" and "how" more than the "what" (which should be in the headline)
+- The body should focus on the "why" and "how" more than the "what" (which
+  should be in the headline)
 - Wrap text at 72 characters except for URLs
-- Use Git trailers for metadata and references: `Co-authored-by:`, `See-also:`, etc.
+- Use Git trailers for metadata and references: `Co-authored-by:`, `See-also:`,
+  etc.
 
 ## Git Safety Protocol
 

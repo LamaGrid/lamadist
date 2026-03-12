@@ -100,6 +100,18 @@ meta-lamadist/          # Yocto distribution layer
 docs/                   # Documentation
 ```
 
+## Markdown and Writing Style Guide
+
+- Wrap text after the first word extended beyond 72 characters, and do not
+  exceed 80 characters.  Wrap before 72 characters if the last word would extend
+  beyond 80 characters.  Exceptions: URLs, long paths, and code examples.
+- Use two spaces after sentences for readability.  Markdown is frequently read
+  in monospace text editors where kerning is not used, and the extra spacing
+  helps visually separate sentences.
+- Use an oxford comma in lists of three or more items for clarity, e.g., "A, B,
+  and C".
+- Do not use forced line breaks (two or more spaces at the end of a line.)
+
 ## Shell Script Style Guide
 
 - Wrap comments at the first word extended beyond 72 characters, and do
@@ -136,6 +148,20 @@ docs/                   # Documentation
   - POSIX-compatible options come second (e.g. `nounset`, `noexec`).
   - Common non-POSIX options come third (e.g. `pipefail`).
   - Bash-specific options come last.
+
+## Git Commit Style Guide
+
+- One logical change per commit
+- Use Markdown formatting for body if needed (e.g., lists, code blocks)
+- Present tense: "add" not "added"
+- Imperative mood: "fix bug" not "fixes bug"
+- Reference issues: `Closes: #123`, `Refs: #456`
+- Keep headline concise, under 50 characters if possible, no more than 72
+- The body should focus on the "why" and "how" more than the "what" (which
+  should be in the headline)
+- Wrap text at 72 characters except for URLs
+- Use Git trailers for metadata and references: `Co-authored-by:`, `See-also:`,
+  etc.
 
 ## Common Issues
 
