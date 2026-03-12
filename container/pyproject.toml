@@ -11,4 +11,6 @@ description = "Python dependencies for the LamaDist KAS build container"
 requires-python = ">=3.10"
 dependencies = [
   "kas",
+  "yamllint",
+  "check-jsonschema",
 ]
