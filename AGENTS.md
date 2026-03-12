@@ -15,7 +15,7 @@ container image and build tooling that CI uses.
 1. **Build the container image** (if `container/` files changed):
 
    ```sh
-   mise run container
+   mise run container:builder:build
    ```
 
    This builds `lamagrid/lamadist-builder:latest` with Podman (or Docker).
@@ -42,16 +42,16 @@ container image and build tooling that CI uses.
 
 | Task                          | Description                              |
 | ----------------------------- | ---------------------------------------- |
-| `mise run container`          | Build the builder container image        |
+| `mise run container:builder:build`          | Build the builder container image        |
 | `mise run build`              | Run the Yocto/KAS build                  |
-| `mise run lint`               | Validate KAS configuration               |
-| `mise run shell`              | Interactive KAS shell in container       |
+| `mise run check`              | Run linters and validate KAS config      |
+| `mise run kas`              | Interactive KAS shell in container       |
 | `mise run clean`              | Clean deploy artifacts                   |
 | `mise run clean:all`          | Clean entire build directory             |
-| `mise run clean:buildstats`   | Remove buildstats snapshots              |
-| `mise run buildstats:list`    | List buildstats snapshots                |
-| `mise run buildstats:summary` | Show build timing summary                |
-| `mise run buildstats:diff`    | Compare two buildstats snapshots         |
+| `mise run clean:stats`   | Remove buildstats snapshots              |
+| `mise run stats:list`    | List buildstats snapshots                |
+| `mise run stats:summary` | Show build timing summary                |
+| `mise run stats:diff`    | Compare two buildstats snapshots         |
 
 All tasks support `--help` for usage details. Build tasks accept `--bsp`
 to select target (x86_64, orin-nx, rk1, soquartz), `--ci` for CI mode,
@@ -131,6 +131,11 @@ docs/                   # Documentation
 - Use tabs for indentation.  Spaces may be used after tabs for `<<-` heredoc
   content, e.g. to indent the output file with its native intendation, but
   the initial indentation must be tabs.
+- Always use `set -o <option>` for shell options, one per line.
+  - `errexit` must be the first option if used.
+  - POSIX-compatible options come second (e.g. `nounset`, `noexec`).
+  - Common non-POSIX options come third (e.g. `pipefail`).
+  - Bash-specific options come last.
 
 ## Common Issues
 

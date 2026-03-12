@@ -1,28 +1,33 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-#MISE description="Validate KAS configuration"
+#MISE description="Run static analysis and validate KAS configuration"
 #USAGE flag "-b --bsp <bsp>" help="BSP target to validate" default="x86_64" {
 #USAGE   choices "x86_64" "orin-nx" "rk1" "soquartz"
 #USAGE }
 #USAGE flag "-c --ci" help="CI mode: non-interactive"
-set -euo pipefail
+set -o errexit
+set -o nounset
+set -o pipefail
 
-BSP="${usage_bsp:-x86_64}"
-CI="${usage_ci:-false}"
+echo "==> Running static analysis checks..."
+hk check --all
 
-KAS_CONFIG="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${BSP}.kas.yml"
+_bsp="${usage_bsp:-x86_64}"
+_ci="${usage_ci:-false}"
 
-echo "==> Validating KAS configuration for BSP: ${BSP}"
+_kas_config="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${_bsp}.kas.yml"
 
-if [ "${CI}" = "true" ]; then
+echo "==> Validating KAS configuration for BSP: ${_bsp}"
+
+if [ "${_ci}" = "true" ]; then
 	# CI mode: run kas directly (already inside builder container)
 	mkdir -p "${SSTATE_DIR}"
-	kas dump "${KAS_CONFIG}"
+	kas dump "${_kas_config}"
 else
 	# Local dev: run kas inside container via podman/docker
 	# shellcheck source=.mise/tasks/_lib.sh
 	source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
-	run_in_container dump "${KAS_CONFIG}"
+	run_in_container dump "${_kas_config}"
 fi
 
 echo "==> KAS configuration validation passed"

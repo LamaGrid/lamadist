@@ -8,12 +8,12 @@
 # Resolve the Yocto MACHINE name from a LamaDist BSP name.
 # Reads the machine: field from the BSP's KAS YAML file.
 bsp_to_machine() {
-	local bsp="$1"
-	local kas_bsp="${MISE_CONFIG_ROOT}/kas/bsp/${bsp}.kas.yml"
-	if [[ -f "${kas_bsp}" ]]; then
-		grep '^machine:' "${kas_bsp}" | head -1 | awk '{print $2}'
+	local _bsp="$1"
+	local _kas_bsp="${MISE_CONFIG_ROOT}/kas/bsp/${_bsp}.kas.yml"
+	if [[ -f "${_kas_bsp}" ]]; then
+		grep '^machine:' "${_kas_bsp}" | head -1 | awk '{print $2}'
 	else
-		echo "${bsp}"
+		echo "${_bsp}"
 	fi
 }
 
@@ -28,43 +28,43 @@ bsp_to_machine() {
 #
 # All arguments after "--" (or after options) are passed as the container command.
 run_in_container() {
-	local interactive="-it"
-	local entrypoint_args=()
-	local cmd=()
+	local _interactive="-it"
+	local _entrypoint_args=()
+	local _cmd=()
 
 	# Parse options
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 			--no-tty)
-				interactive=""
+				_interactive=""
 				shift
 				;;
 			--entrypoint)
-				entrypoint_args=(--entrypoint "$2")
+				_entrypoint_args=(--entrypoint "$2")
 				shift 2
 				;;
 			--)
 				shift
-				cmd=("$@")
+				_cmd=("$@")
 				break
 				;;
 			*)
-				cmd=("$@")
+				_cmd=("$@")
 				break
 				;;
 		esac
 	done
 
 	# User namespace arguments (Podman-specific)
-	local userns_args=()
+	local _userns_args=()
 	if [[ "${LAMADIST_CONTAINER_CMD}" == "podman" ]]; then
-		userns_args=(--userns=keep-id --group-add keep-groups)
+		_userns_args=(--userns=keep-id --group-add keep-groups)
 	fi
 
 	# Optional local env file
-	local env_local_args=()
+	local _env_local_args=()
 	if [[ -f "${MISE_CONFIG_ROOT}/.kas.env.local" ]]; then
-		env_local_args=(--env-file "${MISE_CONFIG_ROOT}/.kas.env.local")
+		_env_local_args=(--env-file "${MISE_CONFIG_ROOT}/.kas.env.local")
 	fi
 
 	# Build and deploy directory mounts
@@ -73,9 +73,9 @@ run_in_container() {
 	mkdir -p "${LAMADIST_HOST_SSTATE_DIR}" "${LAMADIST_HOST_BUILDSTATS_BASE}"
 
 	# shellcheck disable=SC2086
-	${LAMADIST_CONTAINER_CMD} run --rm ${interactive} \
+	"${LAMADIST_CONTAINER_CMD}" run --rm ${_interactive} \
 		--privileged \
-		"${userns_args[@]}" \
+		"${_userns_args[@]}" \
 		-v "${LAMADIST_HOST_SSTATE_DIR}:${SSTATE_DIR}" \
 		-e "SSTATE_DIR=${SSTATE_DIR}" \
 		-v "${LAMADIST_HOST_BUILDSTATS_BASE}:${BUILDSTATS_BASE}" \
@@ -84,8 +84,8 @@ run_in_container() {
 		-v "${LAMADIST_HOST_BUILD_DIR}:${KAS_WORK_DIR}/build" \
 		-v "${LAMADIST_HOST_DEPLOY_DIR}:${KAS_WORK_DIR}/deploy" \
 		--env-file "${MISE_CONFIG_ROOT}/.kas.env" \
-		"${env_local_args[@]}" \
-		"${entrypoint_args[@]}" \
+		"${_env_local_args[@]}" \
+		"${_entrypoint_args[@]}" \
 		"${LAMADIST_CONTAINER_IMAGE}" \
-		"${cmd[@]}"
+		"${_cmd[@]}"
 }

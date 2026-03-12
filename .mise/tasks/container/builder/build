@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Build the KAS build container image"
+#USAGE flag "-c --ci" help="CI mode: rootless container build, push to registry"
+set -o errexit
+set -o nounset
+set -o pipefail
+
+_ci="${usage_ci:-false}"
+_container_registry="${CONTAINER_REGISTRY:-}"
+
+if [ "${_ci}" = "true" ]; then
+	_version_tag="$(date -u +"%Y-%m-%dT%H%M%SZ")"
+	_local_image="${LAMADIST_CONTAINER_IMAGE}"
+	_build_uid="${BUILDER_UID:-$(id -u)}"
+
+	podman build --format docker --net=host --dns=8.8.8.8 \
+		--build-arg BUILDER_UID="${_build_uid}" \
+		-t "${_local_image}" "${MISE_CONFIG_ROOT}/container/"
+
+	if [ -n "${_container_registry}" ]; then
+		_registry_image="${_container_registry}/lamagrid/lamadist-builder"
+		podman tag "${_local_image}" "${_registry_image}:${_version_tag}"
+		podman tag "${_local_image}" "${_registry_image}:latest"
+		podman push --tls-verify=false "${_registry_image}:${_version_tag}"
+		podman push --tls-verify=false "${_registry_image}:latest"
+		echo "Pushed ${_registry_image}:${_version_tag}"
+		echo "Pushed ${_registry_image}:latest"
+	fi
+else
+	"${LAMADIST_CONTAINER_CMD}" build --format docker \
+		--build-arg BUILDER_UID="$(id -u)" \
+		-t "${LAMADIST_CONTAINER_IMAGE}" "${MISE_CONFIG_ROOT}/container/"
+fi

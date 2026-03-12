@@ -3,17 +3,19 @@
 #MISE hide=true
 #MISE quiet=true
 #MISE description="List buildstats snapshot labels for tab completion"
-set -euo pipefail
+set -o errexit
+set -o nounset
+set -o pipefail
 
 # Sort snapshots by their BuildDateTime suffix (or by full name for legacy
 # timestamp-only directories).
-for d in "${LAMADIST_HOST_BUILDSTATS_BASE}"/*/; do
-	[ -d "$d" ] || continue
-	name=$(basename "$d")
-	if [[ "$name" == *".BuildDateTime."* ]]; then
-		key="${name##*.BuildDateTime.}"
+for _d in "${LAMADIST_HOST_BUILDSTATS_BASE}"/*/; do
+	[ -d "$_d" ] || continue
+	_name=$(basename "$_d")
+	if [[ "$_name" == *".BuildDateTime."* ]]; then
+		_key="${_name##*.BuildDateTime.}"
 	else
-		key="$name"
+		_key="$_name"
 	fi
-	printf '%s\t%s\n' "$key" "$name"
+	printf '%s\t%s\n' "$_key" "$_name"
 done | sort -k1 | cut -f2

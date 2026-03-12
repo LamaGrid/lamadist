@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Update container dependency lockfiles (APT, Python)"
+#MISE depends=["container:builder:lock:python", "container:builder:lock:apt"]

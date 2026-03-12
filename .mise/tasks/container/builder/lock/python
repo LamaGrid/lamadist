@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Update the requirements.txt file for the container"
+#MISE hide=true
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+cd "${MISE_CONFIG_ROOT}/container"
+uv pip compile --no-header --universal --upgrade --generate-hashes \
+	-o "${MISE_CONFIG_ROOT}/container/requirements.txt" \
+	"${MISE_CONFIG_ROOT}/container/pyproject.toml" &>/dev/null

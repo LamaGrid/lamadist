@@ -1,9 +1,8 @@
 # Auto-generated lockfile. Do not edit.
-# Generated at 2026-03-09T04:46:22Z
 build-essential=12.9ubuntu3
 chrpath=0.16-2
 cpio=2.13+dfsg-7ubuntu0.1
-curl=7.81.0-1ubuntu1.22
+curl=7.81.0-1ubuntu1.23
 debianutils=5.5-1ubuntu2
 diffstat=1.64-1build2
 dosfstools=4.2-1build3
