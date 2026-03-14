@@ -24,32 +24,3 @@ repos:
     path: 'ext/meta-secure-core'
     layers:
       meta-tpm2:
-
-local_conf_header:
-  # meta-intel: |
-    # UEFI signing is handled by meta-intel, so turn off conflicting
-    # features from meta-secure-core/meta-signign_keys
-    # SECURE_CORE_IMAGE_EXTRA_INSTALL:remove = 'packagegroup-efi-secure-boot'
-    # DISTRO_FEATURES:remove                 = 'kernel-initramfs'
-
-    # PREFERRED_PROVIDER_virtual/kernel     = 'linux-yocto'
-    # BBFILES_DYNAMIC += '\
-    #   intel:meta-intel/*/*/*/*/*.bbappend \
-    #   intel:meta-intel/*/*/*.bbappend \
-    # '
-    # EFI_PROVIDER                          = 'systemd-boot'
-    # PREFERRED_PROVIDER_virtual/bootloader = 'systemd-boot'
-    # IMAGE_FEATURES                       += 'secureboot'
-    # WKS_FILE                              = 'generic-bootdisk.wks.in'
-    # SECURE_BOOT_SIGNING_KEY               = "${UEFI_SB_KEYS_DIR}/DB.key"
-    # SECURE_BOOT_SIGNING_CERT              = "${UEFI_SB_KEYS_DIR}/DB.crt"
-    # IMAGE_CLASSES                        += 'uefi-comboapp uefi-sign'
-
-    # FIXME: Set INITRAMFS_SCRIPTS more explicitly
-    # Remove the grub module from core-image-minimal-initramfs
-    # INITRAMFS_SCRIPTS:remove              = 'initramfs-module-install'
-
-  meta-secure-core/meta-tpm2: |
-    DISTRO_FEATURES_NATIVE:append    = ' tpm2'
-    DISTRO_FEATURES:append           = ' tpm2'
-    SECURE_CORE_IMAGE_EXTRA_INSTALL += 'packagegroup-tpm2'
