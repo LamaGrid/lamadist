@@ -97,6 +97,10 @@ kas/                    # KAS configuration files
   bsp/                  # Per-target BSP overlays
   extras/               # Optional overlays (debug, demo, etc.)
 meta-lamadist/          # Yocto distribution layer
+  conf/distro/          # Distro policy (lamadist.conf + includes)
+  conf/machine/         # Machine configs and shared includes
+  recipes-core/         # Image recipes and packagegroups
+  wic/                  # WIC kickstart files for disk layouts
 docs/                   # Documentation
 ```
 
