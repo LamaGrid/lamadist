@@ -7,6 +7,7 @@
 min_version = "2024.9.0"
 
 [tools]
+"pipx:check-jsonschema" = "latest"
 actionlint = "latest"
 gitversion = "6.6.0"
 hadolint = "latest"
@@ -14,6 +15,7 @@ hk = "latest"
 pkl = "latest"
 shellcheck = "latest"
 uv = "latest"
+yamllint = "latest"
 
 [settings]
 experimental = true  # Needd for hooks
