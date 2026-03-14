@@ -201,9 +201,6 @@ local_conf_header:
   Deploy: |
     DEPLOY_DIR = "${TOPDIR}/../deploy"
 
-  serial-console: |
-    APPEND:append = " console=ttyS0,115200"
-
   # FIXME: Create a private sstate-cache and hashserv server.  Trusting public servers is insecure.
   Cache: |
     # NOTE: SSTATE_DIR is set via env var (container mount at /sstate); do not hardcode here.
