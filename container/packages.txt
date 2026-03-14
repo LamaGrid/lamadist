@@ -61,3 +61,6 @@ python3
 
 # kas requirements
 python3-newt
+
+# Debug tools
+bind9-dnsutils
