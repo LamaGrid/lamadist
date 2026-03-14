@@ -23,11 +23,16 @@ SECURE_CORE_IMAGE_EXTRA_INSTALL += 'packagegroup-luks'
 
 # meta-security/dm-verity
 #
-# dm-verity as a feature is distro policy.  Machine-specific
-# parameters (GUIDs, block sizes, WKS_FILE, IMAGE_FSTYPES)
-# belong in machine.conf or machine includes.
+# dm-verity as a feature is distro policy.  The target image and
+# filesystem type are distro-wide defaults; machines override the
+# hardware-specific parameters (GUIDs, block sizes, WKS_FILE,
+# IMAGE_FSTYPES) in machine.conf or machine includes.
 IMAGE_CLASSES += 'dm-verity-img'
 KERNEL_FEATURES:append = ' features/device-mapper/dm-verity.scc'
+
+# Which image to apply dm-verity to, and the root filesystem type
+DM_VERITY_IMAGE ?= 'core-image-minimal'
+DM_VERITY_IMAGE_TYPE ?= 'ext4'
 
 INITRAMFS_IMAGE = 'dm-verity-image-initramfs'
 INITRAMFS_FSTYPES = 'cpio'

@@ -3,11 +3,7 @@
 header:
   version: 15
 
-# FIXME: intel-skylake-64
-# machine: intel-skylake-64
-# machine: intel-corei7-64
-machine: genericx86-64
-# machine: qemux86-64
+machine: intel
 
 target:
   - core-image-minimal
