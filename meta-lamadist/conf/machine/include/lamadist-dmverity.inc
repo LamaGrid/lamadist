@@ -4,15 +4,12 @@
 # Shared dm-verity machine defaults.
 #
 # Machine-specific dm-verity parameters: partition type GUIDs,
-# block sizes, hash separation, and the target image for verity
-# hashing.  Machines should require this file and override any
-# values that need to differ.
+# block sizes, and hash separation.  Machines should require
+# this file and override any values that need to differ.
 #
 # The distro-level dm-verity policy (IMAGE_CLASSES, KERNEL_FEATURES,
-# INITRAMFS_IMAGE, INITRAMFS_FSTYPES) is set in lamadist-security.inc.
-
-DM_VERITY_IMAGE ?= 'core-image-minimal'
-DM_VERITY_IMAGE_TYPE ?= 'ext4'
+# INITRAMFS_IMAGE, INITRAMFS_FSTYPES, DM_VERITY_IMAGE,
+# DM_VERITY_IMAGE_TYPE) is set in lamadist-security.inc.
 
 DM_VERITY_SEPARATE_HASH ?= '1'
 
