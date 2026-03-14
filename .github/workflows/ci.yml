@@ -29,6 +29,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  MISE_COLOR: 'false'
   BUILDSTATS_BASE: /__w/_buildstats
   SSTATE_DIR: /__w/_sstate
   LAMADIST_HOST_BUILDSTATS_BASE: /__w/_buildstats
