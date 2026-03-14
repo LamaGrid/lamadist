@@ -49,51 +49,7 @@ local_conf_header:
     # Remove the grub module from core-image-minimal-initramfs
     # INITRAMFS_SCRIPTS:remove              = 'initramfs-module-install'
 
-  meta-security/dm-verity: |
-    WKS_FILE = 'lamadist-dmverity-bootdisk.wks.in'
-
-    DM_VERITY_IMAGE = 'core-image-minimal'
-    DM_VERITY_IMAGE_TYPE = 'ext4'
-
-    DM_VERITY_ROOT_GUID ?= '4f68bce3-e8cd-4db1-96e7-fbcaf984b709'
-    DM_VERITY_IMAGE_DATA_BLOCK_SIZE ?= '1024'
-
-    DM_VERITY_SEPARATE_HASH = '1'
-    DM_VERITY_RHASH_GUID ?= '2c7357ed-ebd2-46d9-aec1-23d437ec2bf5'
-    DM_VERITY_IMAGE_HASH_BLOCK_SIZE ?= '4096'
-
   meta-secure-core/meta-tpm2: |
     DISTRO_FEATURES_NATIVE:append    = ' tpm2'
     DISTRO_FEATURES:append           = ' tpm2'
     SECURE_CORE_IMAGE_EXTRA_INSTALL += 'packagegroup-tpm2'
-
-#  dm-verity: |
-#    DM_VERITY_IMAGE = 'core-image-minimal'
-#    DM_VERITY_IMAGE_TYPE    = 'ext4'
-#
-#    DM_VERITY_ROOT_GUID ?= '4f68bce3-e8cd-4db1-96e7-fbcaf984b709'
-#    DM_VERITY_IMAGE_DATA_BLOCK_SIZE ?= '1024'
-#
-#    DM_VERITY_SEPARATE_HASH = '1'
-#    DM_VERITY_RHASH_GUID ?= '2c7357ed-ebd2-46d9-aec1-23d437ec2bf5'
-#    DM_VERITY_IMAGE_HASH_BLOCK_SIZE ?= '4096'
-#
-#    #WKS_FILE = 'systemd-bootdisk-dmverity-hash.wks.in'
-#    #WKS_FILE = 'systemd-bootdisk-dmverity-hash.wks.in'
-#    #WKS_FILES = ''
-
-#    # meta-intel USB installer
-#    WKS_FILE = 'image-installer.wks.in'
-#    IMAGE_FSTYPES:append = ' ext4'
-#    IMAGE_TYPEDEP_wic = 'ext4'
-#    INITRD_IMAGE_LIVE='core-image-minimal-initramfs'
-#    do_image_wic[depends] += "${INITRD_IMAGE_LIVE}:do_image_complete"
-#    do_rootfs[depends] += 'virtual/kernel:do_deploy'
-#    IMAGE_BOOT_FILES:append = "\
-#      ${KERNEL_IMAGETYPE} \
-#      microcode.cpio \
-#      ${IMGDEPLOYDIR}/${IMAGE_BASENAME}-${MACHINE}.ext4;rootfs.img \
-#      systemd-bootx64.efi;EFI/BOOT/bootx64.efi \
-#      ${IMAGE_ROOTFS}/boot/loader/loader.conf;loader/loader.conf \
-#      ${IMAGE_ROOTFS}/boot/loader/entries/boot.conf;loader/entries/boot.conf \
-#    "
