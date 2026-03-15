@@ -10,5 +10,5 @@ repos:
       meta-security-compliance:
 
 local_conf_header:
-  meta-security/meta-security-compliance: |
+  40_security_compliance: |
     IMAGE_INSTALL:append = ' openscap openscap-daemon scap-security-guide'

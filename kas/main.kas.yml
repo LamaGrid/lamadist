@@ -86,7 +86,7 @@ repos:
 #        in `meta-lamadist/conf/machine/.`
 
 local_conf_header:
-  Disk monitor: |
+  10_disk_monitor: |
     BB_DISKMON_DIRS                     ??= " \
         STOPTASKS,${BUILDSTATS_BASE},10M,100K \
         STOPTASKS,${TMPDIR},1G,100K           \
@@ -99,7 +99,7 @@ local_conf_header:
         HALT,${SSTATE_DIR},100M,1K            \
         HALT,/tmp,10M,1K"
 
-  Build options: |
+  10_build_options: |
     # Build metadata
     INHERIT                              += 'buildhistory'
     BUILDHISTORY_COMMIT                   = '1'
@@ -110,11 +110,12 @@ local_conf_header:
     ICECC_DISABLED                      ??= '1'
     ICECC_PARALLEL_MAKE                 ??= '-j 24'
 
-  Deploy: |
+  10_deploy: |
     DEPLOY_DIR = "${TOPDIR}/../deploy"
 
-  # FIXME: Create a private sstate-cache and hashserv server.  Trusting public servers is insecure.
-  Cache: |
+  # FIXME: Create a private sstate-cache and hashserv server.
+  # Trusting public servers is insecure.
+  10_cache: |
     # NOTE: SSTATE_DIR is set via env var (container mount at /sstate); do not hardcode here.
     # Hash equivalence disabled until a private hashserv is deployed (see FIXME above).
     # Connecting to the public upstream during bitbake init can cause a 60 s server

@@ -4,7 +4,7 @@ header:
   version: 15
 local_conf_header:
   # Debug options should only be included for pre-QA builds
-  Debug options: |
+  40_debug: |
     GRUB_GFXSERIAL                        = '1'
     PATCHRESOLVE                          = 'noop'
     EXTRA_IMAGE_FEATURES:append           = ' debug-tweaks'

@@ -43,7 +43,7 @@ cat > "${_dynamic_overlay}" <<- OVERLAY
 	header:
 	  version: 15
 	local_conf_header:
-	  dynamic_build_settings: |
+	  05_dynamic: |
 	    BUILDSTATS_BASE:lamadist = '${BUILDSTATS_BASE}'
 OVERLAY
 if [ -n "${BUILDNAME:-}" ]; then
