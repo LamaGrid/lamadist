@@ -3,5 +3,5 @@
 header:
   version: 15
 local_conf_header:
-  Security scan options: |
+  40_scans: |
     CVE_CHECK_CREATE_MANIFEST = '1'

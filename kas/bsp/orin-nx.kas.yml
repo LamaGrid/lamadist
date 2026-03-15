@@ -24,6 +24,6 @@ local_conf_header:
   # a LamaDist-specific machine config for the Orin NX.
   # Currently kept here because the machine is defined in
   # meta-tegra and we don't have a custom machine.conf.
-  meta-security: |
+  30_orin_nx: |
     DM_VERITY_ROOT_GUID ?= 'b921b045-1df0-41c3-af44-4c6f280d3fae'
     DM_VERITY_RHASH_GUID ?= 'df3300ce-d69f-4c92-978c-9bfb0f38d820'

@@ -25,17 +25,17 @@ repos:
       meta-networking:
 
 local_conf_header:
-  locale: |
+  50_installer_locale: |
     # Limit Linux language support to save space, compile time.
     # FIXME: meta-anaconda seems to require both en_US and en_GB.  Can it be fixed to only require en_US?
     GLIBC_GENERATE_LOCALES = 'en_US.UTF-8 en_GB.UTF-8'
     IMAGE_LINGUAS = 'en-us en-gb'
 
-  meta-anaconda: |
+  50_installer_anaconda: |
     IMAGE_FSTYPES = 'ext4 wic'
     INSTALLER_TARGET_BUILD = "${TOPDIR}/../build/tmp/deploy/images/genericx86-64/secure-core-image-${MACHINE}.ext4"
     #KICKSTART_FILE = "${TOPDIR}/../files/installer.ks"
 
-  meta-selinux: |
+  50_installer_selinux: |
     # TODO: Create an SELinux policy for the installer.
     DISTRO_FEATURES:remove = ' selinux'

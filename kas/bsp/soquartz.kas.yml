@@ -17,5 +17,5 @@ repos:
     path: 'ext/meta-rockchip'
 
 local_conf_header:
-  Layer priorities: |
+  30_soquartz: |
     BBFILE_PRIORITY_rockchip = '4'

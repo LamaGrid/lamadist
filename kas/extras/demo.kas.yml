@@ -14,12 +14,12 @@ local_conf_header:
   # Demo features:
   #  CORE_IMAGE_EXTRA_INSTALL             += 'gtk+3-demo'
 
-  Graphical features: |
+  40_demo: |
     IMAGE_FEATURES                   += 'hwcodecs weston'
     # TODO: Do I need these, or is IMAGE_FEATURES enough?
     DISTRO_FEATURES:append           = ' wayland'
     CORE_IMAGE_EXTRA_INSTALL:append  = ' wayland weston'
 
-  meta-browser/meta-chromium: |
+  40_demo_chromium: |
     IMAGE_INSTALL:append                  = ' chromium-ozone-wayland'
     PACKAGECONFIG:append:pn-chromium-ozone-wayland = ' kiosk-mode use-egl'
