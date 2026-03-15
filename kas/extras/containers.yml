@@ -5,5 +5,10 @@ header:
 
 repos:
   meta-virtualization:
-    url: 'https://git.yoctoproject.org/git/meta-virtualization'
+    url: 'https://git.yoctoproject.org/meta-virtualization'
     path: 'ext/meta-virtualization'
+
+local_conf_header:
+  40_containers: |
+    DISTRO_FEATURES:append = ' virtualization'
+    PACKAGECONFIG:pn-podman += 'rootless'

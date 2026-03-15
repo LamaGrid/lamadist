@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+header:
+  version: 15
+
+local_conf_header:
+  40_no_gplv3: |
+    INCOMPATIBLE_LICENSE:pn-lamadist-image-base += \
+      "GPL-3.0* LGPL-3.0* AGPL-3.0*"
