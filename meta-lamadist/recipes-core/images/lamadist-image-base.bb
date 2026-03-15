@@ -2,4 +2,4 @@
 
 DESCRIPTION = "LamaDist base image"
 
-require lama-image-common.inc
+inherit lamadist-image
