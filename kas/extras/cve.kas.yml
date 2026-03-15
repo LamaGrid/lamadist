@@ -2,6 +2,7 @@
 ---
 header:
   version: 15
+
 local_conf_header:
-  40_scans: |
+  40_cve: |
     CVE_CHECK_CREATE_MANIFEST = '1'

@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+header:
+  version: 15
+
+local_conf_header:
+  40_sbom: |
+    SPDX_ARCHIVE_SOURCES = '1'
+    SPDX_INCLUDE_SOURCES = '1'

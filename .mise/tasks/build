@@ -60,7 +60,7 @@ fi
 # lamadist.conf sets it to the constant DISTRO_VERSION_BASE via ?=,
 # which keeps sstate hashes stable across commits.
 
-_kas_config="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${_bsp}.kas.yml:${KAS_WORK_DIR}/.cache/dynamic.kas.yml"
+_kas_config="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${_bsp}.kas.yml:${KAS_WORK_DIR}/.cache/dynamic.kas.yml:${KAS_WORK_DIR}/kas/extras/sbom.kas.yml"
 
 # Append build-stage overlays:
 #   --qa:      zstd compression (QA/PR builds)
@@ -72,9 +72,9 @@ elif [ "${_ci}" != "true" ]; then
 	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/debug.kas.yml"
 fi
 
-# Scans overlay (CVE manifest generation)
+# CVE manifest overlay
 if [ "${_include_scans}" = "true" ]; then
-	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/scans.kas.yml"
+	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/cve.kas.yml"
 fi
 
 # Record scan marker for pre-push hook

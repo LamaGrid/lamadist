@@ -41,8 +41,8 @@ INITRAMFS_IMAGE_BUNDLE = '0'
 # Enable creation of SPDX manifests by default
 INHERIT += 'create-spdx'
 SPDX_ARCHIVE_PACKAGED = '0'
-SPDX_ARCHIVE_SOURCES  = '1'
-SPDX_INCLUDE_SOURCES  = '1'
+SPDX_ARCHIVE_SOURCES  ?= '0'
+SPDX_INCLUDE_SOURCES  ?= '0'
 
 # We need debug symbols so that SPDX manifests for the kernel work
 KERNEL_EXTRA_FEATURES:append = ' features/debug/debug-kernel.scc'
