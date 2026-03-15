@@ -24,7 +24,7 @@ SANITY_TESTED_DISTROS ?= " \
             ubuntu-22.04 \n \
             "
 
-DISTRO_FEATURES ?= 'acl xattr ext2 ipv4 ipv6 pam pci seccomp security systemd usrmerge selinux luks ima rauc virtualization'
+DISTRO_FEATURES ?= 'acl xattr ext2 ipv4 ipv6 pam pci seccomp security systemd usrmerge selinux luks ima'
 DISTRO_FEATURES_NATIVE = 'acl xattr ipv4 ipv6 systemd selinux luks ima'
 
 DISTRO_EXTRA_RDEPENDS += 'packagegroup-core-boot'
@@ -77,9 +77,3 @@ USE_NLS='no'
 
 # Don't install locales; they won't work without NLS
 IMAGE_LINGUAS = ''
-
-# RAUC OTA updates
-# (placeholder for RAUC configuration)
-
-# Podman container runtime
-PACKAGECONFIG:pn-podman += 'rootless'

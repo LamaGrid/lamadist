@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+header:
+  version: 15
+
+repos:
+  meta-rauc:
+    url: 'https://github.com/rauc/meta-rauc.git'
+    path: 'ext/meta-rauc'
+    branch: scarthgap
+
+local_conf_header:
+  40_rauc: |
+    DISTRO_FEATURES:append = ' rauc'

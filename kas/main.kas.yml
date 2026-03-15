@@ -70,15 +70,6 @@ repos:
     url: 'https://git.yoctoproject.org/meta-security'
     path: 'ext/meta-security'
 
-  # Common feature layers
-  meta-virtualization:
-    url: 'https://git.yoctoproject.org/meta-virtualization'
-    path: 'ext/meta-virtualization'
-
-  meta-rauc:
-    url: 'https://github.com/rauc/meta-rauc.git'
-    path: 'ext/meta-rauc'
-
 # Build infrastructure settings.  Only build-environment-specific settings
 # should appear here.
 #
