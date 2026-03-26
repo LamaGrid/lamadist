@@ -372,9 +372,9 @@ regress==2025.10.1 \
     --hash=sha256:fb61e653a325aea4681cf7b96ba9bbabc1aeb3f3d8fe877a07800024907398b9 \
     --hash=sha256:fdcd839a87fae1e47bf376248589ebcb2e58d3a0fad66837d69856ae99ef3c93
     # via check-jsonschema
-requests==2.32.5 \
-    --hash=sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6 \
-    --hash=sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf
+requests==2.33.0 \
+    --hash=sha256:3324635456fa185245e24865e810cecec7b4caf933d7eb133dcde67d48cee69b \
+    --hash=sha256:c7ebc5e8b0f21837386ad0e1c8fe8b829fa5f544d8df3b2253bff14ef29d7652
     # via check-jsonschema
 rpds-py==0.30.0 \
     --hash=sha256:07ae8a593e1c3c6b82ca3292efbe73c30b61332fd612e05abee07c79359f292f \
