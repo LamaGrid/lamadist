@@ -161,8 +161,9 @@ jsonschema-specifications==2025.9.1 \
     --hash=sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe \
     --hash=sha256:b540987f239e745613c7a9176f3edb72b832a4ac465cf02712288397832b5e8d
     # via jsonschema
-kas==5.2 \
-    --hash=sha256:5e70bca8031492658753f353b82126dd64c66b7b522a7d785219b023e60de0d0
+kas==5.3 \
+    --hash=sha256:7b32b3d330306e93eb7f61bd6492a9dcc6a8569db685a67b13c3208aceeae272 \
+    --hash=sha256:ddec147aacb52183bf09a19b7fa10b70e8e097f19632773e8e71b72aa32a901d
     # via lamadist-builder (pyproject.toml)
 pathspec==1.0.4 \
     --hash=sha256:0210e2ae8a21a9137c0d470578cb0e595af87edaa6ebf12ff176f14a02e0e645 \
