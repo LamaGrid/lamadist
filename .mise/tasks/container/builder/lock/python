@@ -7,6 +7,11 @@ set -o nounset
 set -o pipefail
 
 cd "${MISE_CONFIG_ROOT}/container"
+# --python-version must match the container's interpreter (Ubuntu
+# 22.04 base image ships Python 3.10); without it uv resolves
+# against the host Python and pins packages the container cannot
+# install.
 uv pip compile --no-header --universal --upgrade --generate-hashes \
+	--python-version 3.10 \
 	-o "${MISE_CONFIG_ROOT}/container/requirements.txt" \
 	"${MISE_CONFIG_ROOT}/container/pyproject.toml" &>/dev/null
