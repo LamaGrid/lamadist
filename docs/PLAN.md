@@ -153,6 +153,25 @@ The development is organized into phases, with each phase building upon the prev
 - BSP configs are minimal and focused
 - Extras can be easily combined with base configs
 
+#### 1.5 Yocto LTS Migration (Wrynose)
+
+Migrate from `scarthgap` to the latest LTS release, Wrynose, before
+further feature work lands on the old release.
+
+- [ ] Verify every layer in `kas/main.kas.yml`, `kas/bsp/`, and
+  `kas/extras/` has a Wrynose (or compatible) branch; BSP layers such
+  as meta-tegra historically trail LTS releases and may need pinned
+  revisions or a documented exception
+- [ ] Update branch pins in all KAS configurations
+- [ ] Update `LAYERSERIES_COMPAT` in `meta-lamadist`
+- [ ] Apply Yocto migration-guide changes and fix build fallout until
+  the x86_64 image builds and boots in QEMU
+
+**Acceptance Criteria:**
+- All layers track Wrynose or a documented compatible revision
+- `mise run build --bsp x86_64` succeeds on Wrynose
+- No `scarthgap` references remain outside historical documentation
+
 ### Phase 1 Exit Criteria
 - [ ] All 1.x acceptance criteria met
 - [ ] `meta-lamadist` layer passes `yocto-check-layer` validation
