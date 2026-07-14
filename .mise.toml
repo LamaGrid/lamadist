@@ -20,7 +20,6 @@ yamllint = "latest"
 [settings]
 experimental = true  # Needd for hooks
 lockfile = true
-locked = true
 
 [settings.pipx]
 uvx = true

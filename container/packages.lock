@@ -1,5 +1,5 @@
 # Auto-generated lockfile. Do not edit.
-bind9-dnsutils=1:9.18.39-0ubuntu0.22.04.2
+bind9-dnsutils=1:9.18.39-0ubuntu0.22.04.3
 build-essential=12.9ubuntu3
 chrpath=0.16-2
 cpio=2.13+dfsg-7ubuntu0.1
