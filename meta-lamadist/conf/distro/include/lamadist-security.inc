@@ -8,6 +8,10 @@
 # policy—they apply to all machines and images.
 
 # meta-selinux
+#
+# Boot permissive until the refpolicy is triaged against the real
+# image; ratchet to enforcing in M4 (see docs/PLAN.md).
+DEFAULT_ENFORCING                     = 'permissive'
 FIRST_BOOT_RELABEL                    = '0'
 IMAGE_INSTALL:append                  = ' packagegroup-core-selinux'
 PREFERRED_PROVIDER_virtual/refpolicy  = 'refpolicy-targeted'
