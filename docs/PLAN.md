@@ -379,6 +379,39 @@ Every background operation gets a liveness contract:
 - Restarts never re-run a completed work unit: completion is judged
   by commits and checkboxes, not by session memory.
 
+### API Limit Outages (5-hour and weekly)
+
+Hard provider limits (the rolling 5-hour window and the weekly cap)
+cut off API access entirely: the session hangs up mid-task, and
+in-band recovery (heartbeat wakeups, scheduled routines) fails too,
+because it consumes the same quota.  Handling is layered:
+
+- **Crash-only design.**  Because progress truth lives on disk (git,
+  plan checkboxes, journal written as work happens), a hangup at any
+  instant is just another crash and is already resumable.  No work
+  unit may hold unjournaled critical state longer than one turn.
+- **Host processes outlive the session.**  Podman builds, QEMU VMs,
+  and their log files keep running and accumulating during an
+  outage.  A limit hit does not waste build wall-clock time.  On
+  resume, the entry protocol adopts running or finished work from
+  the journal (task IDs, container names, log paths) instead of
+  restarting it.
+- **Out-of-band resume.**  A host-side systemd user timer (or cron)
+  runs a cheap launcher -- to be added as `mise run agent:resume` --
+  that attempts a headless session resume.  On a limit error it
+  exits immediately and lets the timer retry: hourly for the rolling
+  5-hour window; when the error reports a reset time (weekly cap),
+  the launcher records it and the next attempt is scheduled just
+  after reset instead of blind polling.  The timer costs no API
+  quota, so it survives any outage.
+- **Graceful wind-down.**  When usage nears a limit: stop spawning
+  sub-agents and workflows, flush the journal with an explicit NEXT
+  action, and launch pending long host-side operations (builds)
+  first so they run unattended through the outage.
+- **Weekly pacing.**  Schedule token-heavy phases (fan-out reviews,
+  migration fallout fixing) early in the weekly window; reserve the
+  tail for supervision-only heartbeats and host-side builds.
+
 ### Workflow Mapping (for later Ultracode runs)
 
 - M1: a pipeline of small fix branches, each verified by the QEMU
