@@ -520,6 +520,23 @@ Additional phases may be defined as the project matures:
 
 ---
 
+## Branding
+
+Branding work runs in parallel with the technical phases and has no
+phase gate of its own.
+
+- [ ] Create a new GitHub organization named `lamadist` to reserve the
+  name, configured with the same settings as the LamaGrid organization.
+  Create it now; migrate the repository later.  (Manual step: GitHub
+  provides no API for organization creation.)
+- [ ] Adopt the project mascot: Lama, a samurai wombat (`logo.png` and
+  `sticker.png` at the repository root).
+- [ ] Use the logo in the README and documentation.
+- [ ] Make the CLI more delightful: friendlier output, color, progress
+  indication, and helpful errors across the mise task suite.
+
+---
+
 ## Success Metrics
 
 ### Phase 0
