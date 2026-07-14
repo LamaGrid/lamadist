@@ -40,4 +40,32 @@ lamadist_sudoers_wheel() {
 }
 ROOTFS_POSTPROCESS_COMMAND += "lamadist_sudoers_wheel; "
 
+# The root filesystem is sealed by dm-verity, so declare it
+# read-only (ro fstab root entry, ro kernel cmdline, volatile
+# population) and mount a writable /var from the disk partition the
+# WKS template creates (labeled 'var').
+#
+# ponytail: the var partition starts empty and services recreate
+# what they need via tmpfiles/mkdir; factory population moves to
+# the M3 data-partition design (PARTITIONING.md).
+IMAGE_FEATURES += "read-only-rootfs"
+
+lamadist_fstab_var() {
+    echo 'LABEL=var  /var  ext4  defaults  0  2' >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
+}
+ROOTFS_POSTPROCESS_COMMAND += "lamadist_fstab_var; "
+
+# read_only_rootfs_hook points sshd at volatile /var/run/ssh host
+# keys, which would regenerate every boot and break known_hosts
+# trust.  Persist them under /var/lib/ssh instead (sshdgenkeys
+# creates the directory).
+lamadist_persist_ssh_hostkeys() {
+    if [ -e ${IMAGE_ROOTFS}${sysconfdir}/default/ssh ]; then
+        sed -i 's|/var/run/ssh|/var/lib/ssh|g' \
+            ${IMAGE_ROOTFS}${sysconfdir}/default/ssh \
+            ${IMAGE_ROOTFS}${sysconfdir}/ssh/sshd_config_readonly
+    fi
+}
+ROOTFS_POSTPROCESS_COMMAND += "lamadist_persist_ssh_hostkeys; "
+
 LICENSE = "Apache-2.0"

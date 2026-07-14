@@ -51,6 +51,10 @@ PACKAGECONFIG:append:pn-systemd = ' cryptsetup'
 # IMAGE_FSTYPES to select their actual output formats
 IMAGE_FSTYPES ?= 'ext4 wic wic.xz wic.zst wic.bmap'
 
+# /var/log must be a real directory (not a link into volatile
+# tmpfs) so the journal persists on the writable /var partition
+VOLATILE_LOG_DIR = 'no'
+
 # Release-quality xz compression; constrained machines can override
 # in their machine config, and KAS overlays (debug, qa) override for
 # faster dev builds

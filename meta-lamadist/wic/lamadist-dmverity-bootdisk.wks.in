@@ -15,3 +15,9 @@ include ${STAGING_VERITY_DIR}/${IMAGE_BASENAME}.${DM_VERITY_IMAGE_TYPE}.wks.in
 bootloader --ptable gpt --timeout=5 --append="root=/dev/mapper/rootfs"
 
 part swap --ondisk sda --size 44 --label swap1 --fstype=swap --use-uuid
+
+# Writable data partition mounted at /var via the fstab entry baked
+# into the image (lamadist-image.bbclass); DPS "Variable Data" type
+# UUID.  --no-fstab-update because the rootfs partition content is
+# verity-sealed and must not be modified by wic.
+part /var --ondisk sda --fstype=ext4 --label var --align 1024 --size 512M --part-type 4d21b016-b534-45c2-a9fb-5c16e091fd2d --no-fstab-update --use-uuid
