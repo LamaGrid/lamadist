@@ -91,7 +91,7 @@ An honest snapshot, so the milestones below start from truth:
   add the logo
 - [x] Align mise task names in ARCHITECTURE.md and CONTRIBUTING.md
   with TOOLING.md (the canonical task reference)
-- [ ] Update the ARCHITECTURE.md layer-tree example to reflect the
+- [x] Update the ARCHITECTURE.md layer-tree example to reflect the
   actual multi-machine layout
 - [ ] Prune stale remote branches (`copilot/*`, merged refactor
   branches)

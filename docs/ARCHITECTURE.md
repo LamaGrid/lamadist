@@ -139,18 +139,39 @@ k3s integrates with LamaDist's existing security architecture:
 LamaDist is built using multiple Yocto/OpenEmbedded layers organized in a dependency hierarchy:
 
 ```
-meta-lamadist/                    # Custom distribution layer
+meta-lamadist/                       # Custom distribution layer
+├── classes/
+│   └── lamadist-image.bbclass       # Base image class (inherits core-image)
 ├── conf/
 │   ├── distro/
-│   │   └── lamadist.conf        # Distribution configuration
+│   │   ├── lamadist.conf            # Distro entry point
+│   │   └── include/
+│   │       ├── lamadist-versioning.inc  # DISTRO_VERSION computation
+│   │       ├── lamadist-base.inc        # Core policy: features, init, packaging
+│   │       └── lamadist-security.inc    # SELinux, IMA, LUKS, dm-verity, SPDX, CVE
 │   ├── machine/
-│   │   └── intel.conf           # Machine-specific configs
-│   └── layer.conf               # Layer metadata
-├── recipes-core/                # Core system recipes
-├── wic/                         # Disk image definitions
-└── README.md
+│   │   ├── intel.conf               # x86_64 machine (extends genericx86-64)
+│   │   └── include/
+│   │       ├── lamadist-dmverity.inc    # Shared dm-verity defaults
+│   │       └── lamadist-tpm2.inc        # TPM 2.0 features and packages
+│   └── layer.conf                   # Layer metadata
+├── recipes-core/
+│   ├── images/
+│   │   └── lamadist-image-base.bb   # Base image recipe
+│   └── packagegroups/
+│       └── packagegroup-lamadist-base.bb
+└── wic/
+    ├── installer-image.wks              # USB installer disk layout
+    └── lamadist-dmverity-bootdisk.wks.in  # dm-verity boot disk template
+```
 
-External Layers:
+External layers are fetched by KAS into the git-ignored `ext/`
+directory; which layers are present depends on the KAS files stacked
+for the build.
+
+Core layers (`kas/main.kas.yml`, always present):
+
+```
 ├── poky/                        # Yocto Project reference distribution
 │   ├── meta/                    # OpenEmbedded-Core
 │   ├── meta-poky/               # Poky distribution configuration
@@ -161,18 +182,37 @@ External Layers:
 │   ├── meta-networking/
 │   ├── meta-perl/
 │   └── meta-python/
-├── meta-intel/                  # Intel hardware support
 ├── meta-clang/                  # Clang/LLVM toolchain
 ├── meta-secure-core/            # Security features
 │   ├── meta-secure-core-common/
 │   ├── meta-encrypted-storage/  # LUKS support
 │   ├── meta-integrity/          # IMA/EVM support
-│   ├── meta-signing-key/        # Key management
-│   └── meta-tpm2/               # TPM 2.0 support
+│   └── meta-signing-key/        # Key management
 ├── meta-selinux/                # SELinux support
-├── meta-security/               # Security tools and dm-verity
-├── meta-virtualization/         # Container runtime support
-└── meta-rauc/                   # OTA update system
+└── meta-security/               # Security tools and dm-verity
+```
+
+Per-BSP layers (added by the selected `kas/bsp/*.kas.yml`):
+
+```
+├── meta-intel/                  # x86_64 hardware support (x86_64 only)
+├── meta-secure-core/meta-tpm2/  # TPM 2.0 support (x86_64 only)
+├── meta-arm/                    # ARM firmware (orin-nx, rk1, soquartz)
+├── meta-tegra/                  # NVIDIA Jetson BSP (orin-nx only)
+├── meta-tegra-community/        # Community Tegra add-ons (orin-nx only)
+└── meta-rockchip/               # Rockchip BSP (rk1, soquartz)
+```
+
+Optional overlay layers (added by `kas/extras/*`, `kas/scanners/*`,
+or `kas/installer.kas.yml`; none are enabled by default):
+
+```
+├── meta-virtualization/         # Container runtime (extras/containers.yml)
+├── meta-rauc/                   # OTA update system (extras/rauc.kas.yml)
+├── meta-aws/                    # AWS tooling (extras/aws.yml)
+├── meta-browser/                # Kiosk demo (extras/demo.kas.yml)
+├── meta-security/meta-security-compliance/  # OpenSCAP (scanners/security.kas.yml)
+└── meta-anaconda/               # Installer image (installer.kas.yml)
 ```
 
 ### Layer Purpose and Dependencies
@@ -183,20 +223,30 @@ External Layers:
 **Priority**: 50
 
 Key files:
-- `conf/distro/lamadist.conf`: Distribution feature set, package management, optimization flags
-- `conf/machine/*.conf`: Hardware-specific configurations
-- Custom recipes and bbappends
+- `conf/distro/lamadist.conf` and `conf/distro/include/*.inc`:
+  Distribution feature set, package management, security policy, and
+  optimization flags
+- `conf/machine/*.conf` and `conf/machine/include/*.inc`:
+  Hardware-specific configurations
+- `classes/lamadist-image.bbclass` and
+  `recipes-core/images/lamadist-image-base.bb`: The LamaDist image
+- `wic/*.wks*`: Disk layout templates
 
 #### Upstream Layers
 - **poky**: Base Yocto Project reference with OE-Core
 - **meta-openembedded**: Extended recipes for common software
-- **meta-intel**: x86_64 hardware support and optimizations
 - **meta-clang**: Alternative toolchain support
 - **meta-secure-core**: Security framework and features
 - **meta-selinux**: SELinux integration
 - **meta-security**: Security tools (dm-verity, hardening)
-- **meta-virtualization**: Container runtime and orchestration (k3s, containerd)
-- **meta-rauc**: Update and recovery system
+- **meta-intel**: x86_64 hardware support and optimizations
+  (x86_64 BSP only)
+- **meta-arm / meta-tegra / meta-tegra-community / meta-rockchip**:
+  ARM BSP support (per-BSP)
+- **meta-virtualization**: Container runtime support (optional
+  overlay `kas/extras/containers.yml`)
+- **meta-rauc**: Update and recovery system (optional overlay
+  `kas/extras/rauc.kas.yml`)
 
 ---
 
@@ -257,15 +307,24 @@ KAS configurations are organized hierarchically to enable flexible, composable b
 ```
 kas/
 ├── main.kas.yml              # Base configuration (repos, distro)
-├── bsp/                      # Board Support Package configs
-│   ├── x86_64.kas.yml        # Intel x86_64 machines
-│   ├── orin-nx.kas.yml       # NVIDIA Orin NX
-│   ├── rk1.kas.yml           # Radxa RK1
-│   └── soquartz.kas.yml      # Pine64 SOQuartz
-├── extras/                   # Optional feature overlays
-│   └── debug.kas.yml         # Debug configuration
-├── installer.kas.yml         # USB installer image config
-└── scanners/                 # Additional scanner configs
+├── bsp/                      # Board Support Package configs (pick one)
+│   ├── x86_64.kas.yml        # Intel x86_64, machine: intel
+│   ├── orin-nx.kas.yml       # NVIDIA Orin NX, machine: jetson-orin-nano-devkit-nvme
+│   ├── rk1.kas.yml           # Radxa RK1, machine: rk1
+│   └── soquartz.kas.yml      # Pine64 SOQuartz, machine: soquartz64
+├── extras/                   # Optional feature overlays (stack any number)
+│   ├── aws.yml               # meta-aws tooling
+│   ├── containers.yml        # meta-virtualization, rootless Podman
+│   ├── cve.kas.yml           # CVE manifest generation
+│   ├── debug.kas.yml         # Debug settings, fast compression
+│   ├── demo.kas.yml          # meta-browser kiosk demo
+│   ├── no-gplv3.kas.yml      # Exclude (L/A)GPL-3.0 packages
+│   ├── qa.kas.yml            # QA image types, fast compression
+│   ├── rauc.kas.yml          # meta-rauc OTA updates
+│   └── sbom.kas.yml          # SPDX source archiving
+├── scanners/                 # Compliance scanner overlays
+│   └── security.kas.yml      # OpenSCAP (meta-security-compliance)
+└── installer.kas.yml         # USB installer image config
 ```
 
 **KAS Layering**: Configurations are combined using `:` separator:
@@ -320,7 +379,8 @@ LamaDist supports multiple hardware platforms:
 
 ### x86_64 Intel Systems
 
-**Machine**: `genericx86-64` (with Intel optimizations available)
+**Machine**: `intel` (LamaDist machine config extending
+`genericx86-64`, with Intel optimizations)
 **Bootloader**: UKI direct boot (UEFI) or systemd-boot (fallback)
 **Boot Integrity**: Full suite (Secure Boot + Measured Boot + Trusted Boot)
 **Features**:
@@ -337,7 +397,8 @@ LamaDist supports multiple hardware platforms:
 ### ARM64 Platforms
 
 #### NVIDIA Jetson Orin NX
-**Machine**: `orin-nx` (Tegra platform)
+**Machine**: `jetson-orin-nano-devkit-nvme` (meta-tegra machine; a
+LamaDist machine config is planned, see PLAN.md M5)
 **Bootloader**: U-Boot / UEFI
 **Features**:
 - ARM Cortex-A78AE cores
@@ -352,7 +413,7 @@ LamaDist supports multiple hardware platforms:
 - PCIe, NVMe, SATA support
 
 #### Pine64 SOQuartz
-**Machine**: `soquartz` (Rockchip RK3566)
+**Machine**: `soquartz64` (Rockchip RK3566)
 **Features**:
 - Raspberry Pi CM4 form factor
 - Low power consumption
