@@ -89,7 +89,7 @@ An honest snapshot, so the milestones below start from truth:
 - [x] Rewrite this plan as outcome milestones with accurate statuses
 - [x] Update README: split features into "Current" and "Roadmap";
   add the logo
-- [ ] Align mise task names in ARCHITECTURE.md and CONTRIBUTING.md
+- [x] Align mise task names in ARCHITECTURE.md and CONTRIBUTING.md
   with TOOLING.md (the canonical task reference)
 - [ ] Update the ARCHITECTURE.md layer-tree example to reflect the
   actual multi-machine layout

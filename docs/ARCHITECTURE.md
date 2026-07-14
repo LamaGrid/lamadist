@@ -275,26 +275,32 @@ kas build main.kas.yml:bsp/x86_64.kas.yml:extras/debug.kas.yml
 
 ### mise Tasks
 
-The `mise` task runner provides convenient tasks for common operations (replacing the root `Makefile`):
+The `mise` task runner provides convenient tasks for common
+operations.  [TOOLING.md](TOOLING.md) is the canonical task
+reference; the most common tasks are:
 
 #### Build Tasks
 - `mise run build --bsp <bsp>`: Build images for specified BSP (default: x86_64)
-- `mise run ci-build`: Build with CI-specific settings (force checkout, update)
-- `mise run container`: Build the KAS build container
+- `mise run build --bsp <bsp> --ci`: Build in CI mode (force checkout, no debug)
+- `mise run container:builder:build`: Build the KAS build container image
 
 #### Development Tasks
-- `mise run shell --bsp <bsp>`: Start interactive shell in KAS environment
-- `mise run container-shell`: Start shell in build container (without KAS)
-- `mise run dump --bsp <bsp>`: Dump KAS configuration
+- `mise run kas --bsp <bsp>`: Interactive KAS shell for specified BSP
+- `mise run container:builder:shell`: Shell in build container (without KAS)
+- `mise run inspect --bsp <bsp>`: Dump KAS configuration for specified BSP
+
+#### Validation and Testing Tasks
+- `mise run check --bsp <bsp>`: Run static analysis and validate KAS configuration
+- `mise run test --bsp <bsp>`: Validate build artifacts
+- `mise run vm --bsp <bsp>`: Boot test build artifacts with QEMU
 
 #### Cleanup Tasks
-- `mise run clean`: Remove build artifacts
-- `mise run clean:all`: Remove entire build directory (with confirmation)
-- `mise run clean:sstate`: Clean shared state cache
+- `mise run clean`: Remove build output artifacts
+- `mise run clean:all`: Remove entire build and deploy directories (with confirmation)
 - `mise run clean:builder`: Remove container image
 
 #### Utility Tasks
-- `mise run version`: Display build version (via GitVersion)
+- `mise run info`: Show build version (via GitVersion)
 - `mise tasks`: List all available tasks
 
 ### Build Caching

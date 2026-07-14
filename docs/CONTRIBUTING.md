@@ -71,7 +71,7 @@ See [TOOLING.md](TOOLING.md) for detailed setup instructions.
 
 4. **Build the Container**
    ```bash
-   mise run container
+   mise run container:builder:build
    ```
 
 5. **Verify Setup**
