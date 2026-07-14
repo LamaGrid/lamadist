@@ -31,7 +31,7 @@ IMAGE_CLASSES += 'dm-verity-img'
 KERNEL_FEATURES:append = ' features/device-mapper/dm-verity.scc'
 
 # Which image to apply dm-verity to, and the root filesystem type
-DM_VERITY_IMAGE ?= 'core-image-minimal'
+DM_VERITY_IMAGE ?= 'lamadist-image-base'
 DM_VERITY_IMAGE_TYPE ?= 'ext4'
 
 INITRAMFS_IMAGE = 'dm-verity-image-initramfs'
