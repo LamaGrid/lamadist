@@ -6,7 +6,10 @@
 #
 # This .wks only works with the dm-verity-img class and separate hash data (DM_VERITY_SEPARATE_HASH).
 
-part /boot --source bootimg-efi --sourceparams="loader=systemd-boot,initrd=microcode.cpio;${INITRAMFS_IMAGE}-${MACHINE}.${INITRAMFS_FSTYPES}" --ondisk sda --label msdos --active --align 1024 --use-uuid
+# --part-type sets the DPS/UEFI ESP type UUID; without it the
+# partition is typed as Microsoft basic data and firmware need not
+# treat it as the EFI System Partition.
+part /boot --source bootimg-efi --sourceparams="loader=systemd-boot,initrd=microcode.cpio;${INITRAMFS_IMAGE}-${MACHINE}.${INITRAMFS_FSTYPES}" --ondisk sda --label msdos --active --align 1024 --use-uuid --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b
 
 # include the root+hash part with the dynamic hash/UUIDs from the build.
 include ${STAGING_VERITY_DIR}/${IMAGE_BASENAME}.${DM_VERITY_IMAGE_TYPE}.wks.in
