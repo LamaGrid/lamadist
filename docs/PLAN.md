@@ -402,31 +402,44 @@ Every background operation gets a liveness contract:
 Hard provider limits (the rolling 5-hour window and the weekly cap)
 cut off API access entirely: the session hangs up mid-task, and
 in-band recovery (heartbeat wakeups, scheduled routines) fails too,
-because it consumes the same quota.  Handling is layered:
+because it consumes the same quota.  Handling is proactive first,
+with crash-only recovery as the backstop:
 
-- **Crash-only design.**  Because progress truth lives on disk (git,
-  plan checkboxes, journal written as work happens), a hangup at any
-  instant is just another crash and is already resumable.  No work
-  unit may hold unjournaled critical state longer than one turn.
+- **Proactive pause-and-sleep (primary).**  When a nearing-limit
+  warning arrives, do not work until the hangup.  Immediately:
+  pause all API-consuming sub-agents and workflow runs (TaskStop;
+  interrupted workflows resume later from the run cache via
+  `resumeFromRunId`), flush the journal with an explicit NEXT
+  action, launch any pending long host-side operations (builds)
+  so the outage wastes no wall-clock time, then start one
+  background sleep task (a tool call, e.g. `sleep <seconds>` in
+  the background) sized to return one minute AFTER the reset time
+  given in the warning.  Make no further API-consuming moves; the
+  sleep task's completion re-invokes the session exactly when
+  quota is back, and work resumes from the journal.
+- **Crash-only design (backstop).**  Because progress truth lives
+  on disk (git, plan checkboxes, journal written as work happens),
+  a hangup at any instant is just another crash and is already
+  resumable.  No work unit may hold unjournaled critical state
+  longer than one turn.
 - **Host processes outlive the session.**  Podman builds, QEMU VMs,
   and their log files keep running and accumulating during an
   outage.  A limit hit does not waste build wall-clock time.  On
   resume, the entry protocol adopts running or finished work from
   the journal (task IDs, container names, log paths) instead of
   restarting it.
-- **Out-of-band resume.**  A project-level pitchfork cron daemon
-  (`pitchfork.toml`, `daemons.agent-resume`) runs
-  `mise run agent:resume` every 30 minutes; the default `finish`
-  retrigger means runs never overlap.  The launcher skips cheaply
-  when an interactive session is already running in this project or
-  a recorded limit reset has not passed; on a limit error it records
-  a one-hour backoff and exits.  Pitchfork runs host-side and costs
-  no API quota, so the schedule survives any outage.  Opt-in: start
-  the pitchfork supervisor, then `pitchfork start agent-resume`.
-- **Graceful wind-down.**  When usage nears a limit: stop spawning
-  sub-agents and workflows, flush the journal with an explicit NEXT
-  action, and launch pending long host-side operations (builds)
-  first so they run unattended through the outage.
+- **Out-of-band resume (fallback only).**  A project-level
+  pitchfork cron daemon (`pitchfork.toml`, `daemons.agent-resume`)
+  runs `mise run agent:resume` every 30 minutes; the default
+  `finish` retrigger means runs never overlap.  The launcher skips
+  cheaply when an interactive session is already running in this
+  project or a recorded limit reset has not passed; on a limit
+  error it records a one-hour backoff and exits.  Pitchfork runs
+  host-side and costs no API quota.  It exists only for hard
+  cutoffs that arrive without warning or kill the session process
+  itself; the proactive sleep above is the normal path.  Opt-in:
+  start the pitchfork supervisor, then
+  `pitchfork start agent-resume`.
 - **Weekly pacing.**  Schedule token-heavy phases (fan-out reviews,
   migration fallout fixing) early in the weekly window; reserve the
   tail for supervision-only heartbeats and host-side builds.
