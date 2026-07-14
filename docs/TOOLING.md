@@ -138,7 +138,7 @@ mise install
 # Build image (2-6 hours on first build)
 mise run build --bsp x86_64
 
-# Images will be in: build/tmp/deploy/images/intel/
+# Images will be in: deploy/images/intel/
 ```
 
 ### Detailed Setup
@@ -190,20 +190,21 @@ After a successful build:
 build/
 ├── downloads/              # Source tarballs
 ├── tmp/
-│   ├── deploy/
-│   │   ├── images/        # Final images (WIC, qcow2, etc.)
-│   │   ├── rpm/           # RPM packages
-│   │   └── licenses/      # License manifests
-│   └── work/              # Build work directories
-├── buildhistory/          # Build history tracking
-└── buildstats/            # Build statistics
+│   └── work/               # Build work directories
+├── buildhistory/           # Build history tracking
+└── buildstats/             # Build statistics
+
+deploy/                     # DEPLOY_DIR, redirected out of build/
+├── images/                 # Final images
+├── rpm/                    # RPM packages
+└── licenses/               # License manifests
 ```
 
 **Image files**:
-- `build/tmp/deploy/images/<machine>/`
-  - `*.wic.zst`: Compressed disk image
+- `deploy/images/<machine>/`
+  - `*.wic.xz`: Compressed disk image (release builds; debug builds
+    produce uncompressed `*.wic`, QA builds `*.wic.zst`)
   - `*.ext4`: Root filesystem
-  - `*.qcow2`: QEMU virtual machine image
   - `*.manifest`: Package list
   - `*.rootfs.json`: SPDX SBOM
 
@@ -221,6 +222,9 @@ specs for shell autocompletion of flags and arguments.
 |------|-------------|
 | `mise run build --bsp <bsp>` | Build images for specified BSP (default: x86_64) |
 | `mise run build --bsp <bsp> --ci` | Build in CI mode (force checkout, no debug) |
+| `mise run build --bsp <bsp> --qa` | QA mode: zstd compression for faster QA/PR builds |
+| `mise run build --bsp <bsp> --release` | Release mode: machine-default xz compression, CVE checks |
+| `mise run build --bsp <bsp> --include-scans` | Enable security scans (CVE manifest generation) |
 | `mise run container:builder:build` | Build the KAS build container image |
 | `mise run container:builder:build --ci` | Build container with podman (rootless, for CI) |
 

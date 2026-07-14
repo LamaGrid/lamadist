@@ -191,7 +191,8 @@ Per-BSP layers (added by the selected `kas/bsp/*.kas.yml`):
 ├── meta-arm/                    # ARM firmware (orin-nx, rk1, soquartz)
 ├── meta-tegra/                  # NVIDIA Jetson BSP (orin-nx only)
 ├── meta-tegra-community/        # Community Tegra add-ons (orin-nx only)
-└── meta-rockchip/               # Rockchip BSP (rk1, soquartz)
+└── meta-rockchip/               # Rockchip BSP (soquartz; missing from
+                                 # rk1.kas.yml -- see PLAN.md M5)
 ```
 
 Optional overlay layers (added by `kas/extras/*`, `kas/scanners/*`,
@@ -210,7 +211,9 @@ or `kas/installer.kas.yml`; none are enabled by default):
 
 #### meta-lamadist (Custom Layer)
 **Purpose**: Define the LamaDist distribution configuration, custom recipes, and integration
-**Dependencies**: `core` (from OE-Core)
+**Dependencies**: `core`, `security`, `selinux`, `secure-core`,
+`signing-key`, `integrity-layer`, `encrypted-storage`
+(per `conf/layer.conf`)
 **Priority**: 50
 
 Key files:
@@ -375,13 +378,12 @@ LamaDist supports multiple hardware platforms:
 **Bootloader**: systemd-boot today; UKI direct boot (UEFI) *(planned; M4)*
 **Boot Integrity**: Full suite (Secure Boot + Measured Boot + Trusted Boot) *(planned; M4)*
 **Features**:
-- UEFI boot
-- UKI (Unified Kernel Image) with direct boot support
-- TPM 2.0 support for Measured Boot
-- UEFI Secure Boot with signed binaries
-- Trusted Boot with IMA/EVM integration
-- Intel microcode updates
+- UEFI boot via systemd-boot
 - dm-verity root filesystem verification
+- TPM 2.0 feature wiring (meta-tpm2)
+- Intel microcode updates
+- *(planned; M4)*: UKI direct boot, UEFI Secure Boot with signed
+  binaries, TPM 2.0 Measured Boot, and Trusted Boot with IMA/EVM
 
 **Use Cases**: Home servers, NAS, compute nodes
 
@@ -681,7 +683,9 @@ On systems that support it (x86_64 UEFI), boot artifacts are packaged into a UKI
 
 - **SELinux**: Kernel-level MAC (Mandatory Access Control)
   - Targeted policy (refpolicy-targeted)
-  - First-boot automatic relabeling
+  - Build-time filesystem labeling *(planned; M1)*; first-boot
+    autorelabel is disabled -- it cannot work on a read-only
+    dm-verity root
   - Enforces security boundaries between processes
   - **Exclusive MAC**: SELinux is the only supported MAC framework (AppArmor is incompatible and MUST NOT be used)
 

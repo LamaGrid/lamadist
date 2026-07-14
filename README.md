@@ -77,7 +77,7 @@ mise install
 # Build image (2-6 hours on first build)
 mise run build --bsp x86_64
 
-# Images will be in: build/tmp/deploy/images/intel/
+# Images will be in: deploy/images/intel/
 ```
 
 > **Paranoid mode**: LamaDist's `.mise.toml` is compatible with

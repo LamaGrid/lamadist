@@ -522,8 +522,11 @@ Before submitting a PR, test your changes:
 # Build for your target BSP
 mise run build --bsp x86_64
 
-# Test in QEMU (if applicable)
-runqemu nographic
+# Validate the build artifacts
+mise run test --bsp x86_64
+
+# Boot test in QEMU (if applicable)
+mise run vm --bsp x86_64
 
 # Check for warnings/errors in build logs
 ```

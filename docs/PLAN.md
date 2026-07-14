@@ -167,6 +167,9 @@ serial console:
 - [ ] Read-only-root accommodations: writable `/var` strategy, mask
   `systemd-remount-fs`, handle UTMP
 - [ ] Fix the ESP partition type GUID in the WKS template
+- [ ] Reconcile `DM_VERITY_RHASH_GUID` in `intel.conf`
+  (`2c7357ed-…`) with the DPS x86-64 verity UUID the docs specify
+  (`77ff5f63-…`); found by doc verification 2026-07-14
 - [ ] Regenerate GitVersion data on every build (stale
   `.cache/gitversion.env`)
 - [ ] Root-cause the end-of-build bitbake hang; rebuild the builder
@@ -266,7 +269,10 @@ x86_64, verifiable in QEMU with OVMF and swtpm.
 restore per-BSP parity.
 
 - [ ] Port the `intel.conf` pattern to RK1 first (closest to
-  mainline); create a real machine config in `meta-lamadist`
+  mainline); create a real machine config in `meta-lamadist`.
+  Note: `kas/bsp/rk1.kas.yml` does not add meta-rockchip, the layer
+  that defines the `rk1` machine (soquartz has it; found by doc
+  verification 2026-07-14)
 - [ ] All BSP configs build `lamadist-image-base` (drop the upstream
   `secure-core-image` targets)
 - [ ] Move Orin NX dm-verity GUIDs from the KAS file into a machine
