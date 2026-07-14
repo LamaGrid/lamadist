@@ -368,9 +368,10 @@ Every background operation gets a liveness contract:
 ### Scheduled Restarts and Auto-Resume
 
 - Long campaigns (full milestone execution, migration builds) run
-  under a scheduled heartbeat: a recurring wakeup every 20-30
-  minutes checks liveness, and a coarser scheduled restart (e.g.
-  hourly cron routine) recovers from killed sessions.
+  under a scheduled heartbeat: a recurring in-session wakeup every
+  20-30 minutes checks liveness, and the project-level pitchfork
+  cron daemon (see API Limit Outages below) recovers from killed
+  sessions.
 - Each restart follows the same entry protocol: re-read the standing
   hard rules, read this plan and the journal, inventory stranded
   state (`podman ps`, `pgrep qemu`, background task files), clean or
@@ -396,14 +397,15 @@ because it consumes the same quota.  Handling is layered:
   resume, the entry protocol adopts running or finished work from
   the journal (task IDs, container names, log paths) instead of
   restarting it.
-- **Out-of-band resume.**  A host-side systemd user timer (or cron)
-  runs a cheap launcher -- to be added as `mise run agent:resume` --
-  that attempts a headless session resume.  On a limit error it
-  exits immediately and lets the timer retry: hourly for the rolling
-  5-hour window; when the error reports a reset time (weekly cap),
-  the launcher records it and the next attempt is scheduled just
-  after reset instead of blind polling.  The timer costs no API
-  quota, so it survives any outage.
+- **Out-of-band resume.**  A project-level pitchfork cron daemon
+  (`pitchfork.toml`, `daemons.agent-resume`) runs
+  `mise run agent:resume` every 30 minutes; the default `finish`
+  retrigger means runs never overlap.  The launcher skips cheaply
+  when an interactive session is already running in this project or
+  a recorded limit reset has not passed; on a limit error it records
+  a one-hour backoff and exits.  Pitchfork runs host-side and costs
+  no API quota, so the schedule survives any outage.  Opt-in: start
+  the pitchfork supervisor, then `pitchfork start agent-resume`.
 - **Graceful wind-down.**  When usage nears a limit: stop spawning
   sub-agents and workflows, flush the journal with an explicit NEXT
   action, and launch pending long host-side operations (builds)
