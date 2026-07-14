@@ -58,7 +58,11 @@ An honest snapshot, so the milestones below start from truth:
 - **Image payload: stub.**  One one-line image recipe and a
   packagegroup containing only `haveged`.  The image boots but is not
   usable: no login/network/ssh story, and the default systemd target
-  is `graphical.target` with no graphical stack.
+  is `graphical.target` with no graphical stack.  Root cause of the
+  unusability (verified by boot test, 2026-07-14): the rootfs carries
+  no SELinux labels while `/etc/selinux/config` ships enforcing, so
+  on the read-only dm-verity root every exec is denied
+  (`Cannot execute /bin/sh: Permission denied` at login).
 - **OTA updates: not implemented.**  RAUC exists only as an opt-in
   KAS overlay adding the layer.  No system.conf, no bundle recipe, no
   A/B slot layout, no bootloader integration.  The full design lives
@@ -109,22 +113,67 @@ Definition of usable: login on serial console as an administrator,
 network up via systemd-networkd (DHCP), sshd reachable, standard
 core utilities present, persistent journal.
 
+#### Boot-test findings (2026-07-14, QEMU x86_64)
+
+Established by booting the built image headlessly and driving the
+serial console:
+
+- **Root cause of "boots but unusable"**: the ext4/verity rootfs has
+  no `security.selinux` xattrs (no build-time labeling) while the
+  image ships `SELINUX=enforcing`.  systemd never transitions out of
+  `kernel_t`, module loads and unit starts are AVC-denied, and
+  login's exec of `/bin/sh` is denied.  Autorelabel cannot fix a
+  read-only dm-verity root.
+- The x86_64 KAS target builds `core-image-minimal`, not
+  `lamadist-image-base`, so the distro's own image is never
+  exercised.
+- The CI smoke test (`mise run vm --ci`) greps only for a `login:`
+  prompt and PASSES on this broken image.
+- Read-only-root fallout: `systemd-remount-fs` and UTMP writes fail;
+  there is no writable `/var` strategy yet.
+- The ESP is typed "Microsoft basic data" instead of the ESP type
+  GUID in the dm-verity WKS layout.
+- `DISTRO_VERSION` is stamped from a stale cached GitVersion value
+  (wrong branch, months old) via `.cache/gitversion.env`.
+- The build hangs after the final image task (~5 tasks remaining,
+  idle workers, "Server refused shutdown" repeating in
+  `bitbake-cookerdaemon.log`); artifacts deploy but the command
+  never exits.
+- The builder container image predates the current lockfiles, so
+  `container:builder:verify` fails mid-build (non-fatal but noisy).
+
+#### Steps
+
+- [ ] Point the x86_64 KAS target and `DM_VERITY_IMAGE` at
+  `lamadist-image-base`
+- [ ] Label the rootfs at image-build time (`setfiles` via the
+  meta-selinux image class) and disable autorelabel on verity roots
+- [ ] Boot SELinux permissive until the policy is triaged; ratchet
+  to enforcing in M4
 - [ ] Fill out `packagegroup-lamadist-base`: shell and core
   utilities, iproute2, sudo, tzdata, systemd network/resolve config
 - [ ] Set `SYSTEMD_DEFAULT_TARGET` to `multi-user.target`
-- [ ] Point `DM_VERITY_IMAGE` at `lamadist-image-base` (currently
-  `core-image-minimal`), or explicitly gate verity out until M3
-  partitioning work
 - [ ] Define the administrator account story (default user via
   `extrausers` or systemd first-boot credentials)
-- [ ] Run SELinux permissive; collect and triage denials
-- [ ] Wire `mise run test` to a QEMU boot smoke test asserting
-  login, network, and ssh
+- [ ] Read-only-root accommodations: writable `/var` strategy, mask
+  `systemd-remount-fs`, handle UTMP
+- [ ] Fix the ESP partition type GUID in the WKS template
+- [ ] Regenerate GitVersion data on every build (stale
+  `.cache/gitversion.env`)
+- [ ] Root-cause the end-of-build bitbake hang; rebuild the builder
+  image from current lockfiles
+- [ ] vm task: add a headless-interactive mode (serial + monitor
+  unix sockets in waiting mode, ssh port-forward) so agents and CI
+  can drive the console; keep socket paths short (108-char limit)
+- [ ] Strengthen the CI smoke test: perform a real login and assert
+  command execution, not just a `login:` prompt; wire it to
+  `mise run test`
 
 **Exit criteria:**
 
 - QEMU x86_64 boot reaches a working login and ssh session
-- `mise run test` passes and fails meaningfully when boot breaks
+- `mise run test` passes, and fails on the 2026-07-14 defect classes
+  (unlabeled rootfs, exec-denied login)
 
 ### M2: Wrynose LTS Migration
 
