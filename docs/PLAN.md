@@ -98,7 +98,12 @@ An honest snapshot, so the milestones below start from truth:
   RAUC), fix compression/SPDX/machine facts, and replace k3s with
   the agreed Podman + Quadlet workload model
 - [ ] Prune stale remote branches (`copilot/*`, merged refactor
-  branches)
+  branches).  BLOCKED on the standing no-push rule: the local
+  counterparts were pruned 2026-07-14 after verifying (by patch-id)
+  that every commit is merged or superseded, but deleting remote
+  branches requires a push.  The `dependabot/*` branches belong to
+  open PRs that the deps-update commit on this branch supersedes;
+  close those PRs when it lands.
 - [x] Add `.gitignore` entries for local editor and shell files
 
 **Exit criteria:**
