@@ -93,6 +93,10 @@ An honest snapshot, so the milestones below start from truth:
   with TOOLING.md (the canonical task reference)
 - [x] Update the ARCHITECTURE.md layer-tree example to reflect the
   actual multi-machine layout
+- [x] Align ARCHITECTURE.md with reality: mark unimplemented
+  subsystems as planned (Secure Boot, UKI, EROFS, TPM sealing,
+  RAUC), fix compression/SPDX/machine facts, and replace k3s with
+  the agreed Podman + Quadlet workload model
 - [ ] Prune stale remote branches (`copilot/*`, merged refactor
   branches)
 - [ ] Add `.gitignore` entries for local editor and shell files

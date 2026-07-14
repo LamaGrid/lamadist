@@ -138,7 +138,7 @@ mise install
 # Build image (2-6 hours on first build)
 mise run build --bsp x86_64
 
-# Images will be in: build/tmp/deploy/images/genericx86-64/
+# Images will be in: build/tmp/deploy/images/intel/
 ```
 
 ### Detailed Setup

@@ -200,11 +200,11 @@ release/<major>[.minor][-codename]
 ```mermaid
 gitGraph
     commit id: "..."
-    branch "feat/add-k3s"
-    checkout "feat/add-k3s"
+    branch "feat/add-podman"
+    checkout "feat/add-podman"
     commit id: "feat commit"
     checkout main
-    merge "feat/add-k3s"
+    merge "feat/add-podman"
     commit id: "v1.0.0" tag: "v1.0.0"
     branch "release/1.x"
     checkout main
@@ -218,7 +218,7 @@ gitGraph
 ### Branch Naming Examples
 
 ```
-feat/add-k3s-support
+feat/add-podman-quadlet
 fix/systemd-boot-timeout
 docs/update-architecture
 refactor/kas-config-structure

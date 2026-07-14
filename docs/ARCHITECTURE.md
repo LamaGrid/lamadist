@@ -23,10 +23,19 @@ LamaDist is a Yocto/OpenEmbedded-based Linux distribution designed for homelab d
 
 - **Security**: Multi-layered security with SELinux, dm-verity, IMA/EVM, LUKS encryption, and secure boot
 - **Reliability**: Atomic updates with RAUC, verified boot, and rollback capabilities
-- **Containerization**: Kubernetes workloads via k3s lightweight distribution
+- **Containerization**: Container workloads managed by Podman with Quadlet (systemd units); cluster orchestration is deferred to future work
 - **Maintainability**: Reproducible builds, comprehensive testing, and clear documentation
 
 The distribution targets multiple hardware platforms with unified configuration management through KAS (Setup tool for bitbake based projects).
+
+> **Implementation status**: This document describes the *target*
+> architecture.  Several subsystems -- Secure Boot, UKI, EROFS,
+> TPM-sealed LUKS unlocking, RAUC OTA updates, and container
+> workloads -- are designed but not yet implemented.
+> [PLAN.md](PLAN.md) is authoritative for what exists today (see its
+> "Current State" section) and for when each subsystem lands
+> (milestones M1-M6).  Sections below are annotated with *(planned;
+> Mx)* where the design is not yet wired into the build.
 
 ---
 
@@ -40,7 +49,7 @@ flowchart TD
         direction TB
         subgraph app["Application Layer"]
             us["User Services"]
-            cw["Container Workloads (k3s)"]
+            cw["Container Workloads (Podman + Quadlet)"]
             ss["System Services (systemd)"]
         end
         sec["System Security Layer\nSELinux · IMA/EVM · dm-verity · LUKS · TPM"]
@@ -57,72 +66,54 @@ flowchart TD
 - **Init System**: systemd (PID 1)
 - **System Tools**: systemd ecosystem preferred (systemd-timesyncd, systemd-networkd, systemd-resolved, etc.)
 - **Package Format**: RPM with mandatory GPG signatures and TPM-backed signing support
-- **Root Filesystem**: EROFS (Enhanced Read-Only File System) — immutable, compressed, with dm-verity integrity verification via a separate Verity Hash partition per slot
+- **Root Filesystem**: Immutable and read-only, with dm-verity integrity verification via a separate Verity Hash partition per slot.  Current images use ext4; EROFS (Enhanced Read-Only File System) is the target *(planned; M4)*
 - **Partition Table**: GPT with [Discoverable Partitions Specification (DPS)](https://uapi-group.org/specifications/specs/discoverable_partitions_specification/) type UUIDs on all partitions. On systems that support it, `systemd-gpt-auto-generator` auto-discovers and mounts partitions based on their DPS type UUIDs. DPS type UUIDs are set on all platforms regardless of whether auto-discovery is used for mounting.
 - **Mutable Data**: Separate data partition (`/var`) with OverlayFS for directories requiring write access (`/etc`). See [PARTITIONING.md](PARTITIONING.md) for full layout details.
 - **User Space**: Merged `/usr` (UsrMerge)
-- **Compression**: zstd level 11 for all compressed artifacts
-- **SBOM**: SPDX 3.0.1 software bill of materials for all images
+- **Compression**: xz (`-9e`) for release image artifacts; the debug and QA overlays override to fast compression for development builds
+- **SBOM**: SPDX software bill of materials for all images (via the `create-spdx` class; SPDX 3.0.1 is the target once the toolchain supports it)
 
 #### 2. Security Stack
 - **SELinux**: Mandatory Access Control with targeted policy
 - **IMA/EVM**: Integrity Measurement Architecture with Extended Verification Module
-- **dm-verity**: Device-mapper integrity checking for root filesystem
-- **LUKS2**: Full Disk Encryption for rootfs (A/B slots) and persistent data partitions; TPM2-sealed keys for automated unlocking
+- **dm-verity**: Device-mapper integrity checking for root filesystem (x86_64 image class today)
+- **LUKS2**: Full Disk Encryption for rootfs (A/B slots) and persistent data partitions; TPM2-sealed keys for automated unlocking *(sealing planned; M4)*
 - **TPM 2.0**: Hardware security module support (where available)
-- **Secure Boot**: UEFI secure boot on x86_64 systems
+- **Secure Boot**: UEFI secure boot on x86_64 systems *(planned; M4 -- the meta-efi-secure-boot layer is currently disabled in `kas/main.kas.yml`)*
 
-#### 3. Container Runtime
-- **k3s**: Lightweight Kubernetes distribution for edge/IoT
-- **Features**:
-  - Full Kubernetes API compatibility
-  - Embedded container runtime (containerd)
-  - Built-in networking (Flannel/Calico support)
-  - Network policies for pod-to-pod security
-  - SELinux support for container isolation
-  - Integrated with systemd for service management
-- **Storage**: Local path provisioner, supports persistent volumes
-- **Networking**: CNI plugins, Kubernetes network policies
+#### 3. Container Runtime *(planned)*
+- **Podman**: Daemonless OCI container engine, rootless-capable
+- **Quadlet**: Containers, volumes, and networks declared as systemd
+  units (`.container`, `.volume`, `.network` files), giving ordinary
+  systemd lifecycle management, dependency ordering, and journal
+  logging
+- **Cluster orchestration**: Deferred to future work; single-node
+  workloads are the current target
 
-**k3s Security Integration:**
-
-k3s integrates with LamaDist's existing security architecture:
+**Podman Security Integration (design):**
 
 - **SELinux Integration**:
-  - k3s containers run under SELinux confinement
-  - Container processes inherit SELinux context
-  - Pod Security Standards enforcement
+  - Containers run under SELinux confinement (container-selinux
+    policy)
   - Mandatory Access Control for container isolation
-  - k3s SELinux policy provided by @k3s-io organization
-  - **Note**: SELinux is mandatory; AppArmor is NOT used (incompatible with SELinux)
-
-- **Network Security**:
-  - Kubernetes Network Policies for pod-to-pod communication control
-  - Built-in support for encrypted inter-node communication
-  - Service mesh compatible (Istio, Linkerd)
-
-- **Image Security**:
-  - Integration with RPM-signed container images
-  - Image pull policies enforcement
-  - Private registry support with authentication
-
-- **Runtime Security**:
-  - Seccomp profiles for syscall filtering
-  - Pod Security Admission for security policy enforcement
-  - Read-only root filesystems for containers
-  - SELinux enforced for all container processes
-
-- **Audit and Compliance**:
-  - Kubernetes audit logging
-  - Integration with IMA/EVM for container image verification
-  - RBAC (Role-Based Access Control) for API access
-
-- **Resource Isolation**:
-  - Control groups (cgroups) for resource limits
-  - Namespace isolation for processes, network, and filesystem
+  - **Note**: SELinux is mandatory; AppArmor is NOT used
+    (incompatible with SELinux)
+- **Privilege Separation**:
+  - Rootless Podman with user namespaces where workloads allow
   - No privileged containers by default
+  - Seccomp profiles for syscall filtering
+- **Image Security**:
+  - Signature verification via containers-policy (`policy.json`)
+  - Private registry support with authentication
+- **Resource Isolation**:
+  - cgroups v2 resource limits through systemd slices
+  - Namespace isolation for processes, network, and filesystem
 
-#### 4. Update System
+The optional `kas/extras/containers.yml` overlay adds
+meta-virtualization and enables rootless Podman support; the base
+image does not yet ship a container runtime (see PLAN.md).
+
+#### 4. Update System *(planned; M3)*
 - **RAUC**: Robust Auto-Update Controller with adaptive updates (`casync` chunker)
 - **Split A/B Slots**: Each slot has a separate Rootfs partition (LUKS2-encrypted EROFS) and Verity Hash partition
 - **Crypt Bundles**: Updates delivered as CMS-encrypted `crypt` bundles, protecting firmware during transport
@@ -286,17 +277,17 @@ LamaDist implements fully reproducible builds:
 - **Pinned Dependencies**: All layer versions and external dependencies are pinned
 - **Controlled Environment**: Containerized build environment eliminates host variations
 - **Source Date Epoch**: Timestamps are normalized for reproducibility
-- **SBOM Generation**: Every build produces an SPDX 3.0.1 software bill of materials
+- **SBOM Generation**: Every build produces an SPDX software bill of materials via the `create-spdx` class
 
 ### Build Output Standards
 
 All build artifacts follow these standards:
 
 - **Package Format**: RPM format for all packages with mandatory GPG signatures
-- **Compression**: zstd algorithm at compression level 11 for optimal balance of size and speed
-- **SBOM**: SPDX 3.0.1 format for software bill of materials
-- **Signatures**: All packages and images are cryptographically signed (GPG for packages, UEFI for boot artifacts)
-- **Hardware-Backed Signing**: TPM 2.0 integration for signing key protection (where available)
+- **Compression**: xz (`-9e`) for release image artifacts; debug and QA overlays switch to fast compression
+- **SBOM**: SPDX format for software bill of materials (SPDX 3.0.1 targeted)
+- **Signatures**: All packages are GPG-signed; boot-artifact signing (UEFI) is *(planned; M4)*
+- **Hardware-Backed Signing**: TPM 2.0 integration for signing key protection *(planned; where available)*
 - **Manifests**: Complete package lists and dependency information included
 - **Verification**: Signature verification enforced at installation time
 
@@ -381,8 +372,8 @@ LamaDist supports multiple hardware platforms:
 
 **Machine**: `intel` (LamaDist machine config extending
 `genericx86-64`, with Intel optimizations)
-**Bootloader**: UKI direct boot (UEFI) or systemd-boot (fallback)
-**Boot Integrity**: Full suite (Secure Boot + Measured Boot + Trusted Boot)
+**Bootloader**: systemd-boot today; UKI direct boot (UEFI) *(planned; M4)*
+**Boot Integrity**: Full suite (Secure Boot + Measured Boot + Trusted Boot) *(planned; M4)*
 **Features**:
 - UEFI boot
 - UKI (Unified Kernel Image) with direct boot support
@@ -447,7 +438,7 @@ flowchart TD
     kernel --> initramfs["initramfs\n(dm-verity verification)"]
     initramfs --> systemd["systemd (init)"]
     systemd --> syssvcs["System Services\n• SELinux (refpolicy-targeted)\n• IMA/EVM (integrity)\n• systemd services\n• Network (systemd-networkd)"]
-    syssvcs --> appsvcs["Application Layer\n• Container workloads (k3s)\n• Kubernetes pods and services\n• User services"]
+    syssvcs --> appsvcs["Application Layer\n• Container workloads (Podman + Quadlet)\n• User services"]
 ```
 
 ### Host Configuration
@@ -500,8 +491,8 @@ flowchart TD
     end
     subgraph target["Target System"]
         direction TB
-        tenant["Tenant Layer\nOCI Containers · Kubernetes Pods"]
-        platform["Platform Layer\nk3s · System Services"]
+        tenant["Tenant Layer\nOCI Containers (Quadlet units)"]
+        platform["Platform Layer\nPodman + Quadlet · System Services"]
         distro["Distro Layer (hardware-independent policy)\nsystemd · SELinux · RAUC Client · dm-verity · IMA/EVM"]
         osbase["OS Base Layer (hardware-specific)\nKernel · Bootloader · Machine Config"]
         tenant -->|runs on| platform
@@ -536,11 +527,11 @@ The Yocto distro defines hardware-independent policy: package format, init syste
 
 #### 4. OS Base ↔ Platform Components
 
-The OS base provides systemd service management, SELinux policy enforcement, the network stack (systemd-networkd), storage, and device access. Platform components (e.g., k3s) consume these OS interfaces.
+The OS base provides systemd service management, SELinux policy enforcement, the network stack (systemd-networkd), storage, and device access. Platform components (e.g., Podman) consume these OS interfaces.
 
 #### 5. Platform Components ↔ Tenant Components
 
-Tenant applications interact through their respective runtime APIs — Kubernetes API (pods, services, volumes, configmaps) for k3s workloads, or other runtime IPCs. Tenants access host resources only through runtime-mediated interfaces and are more isolated than platform components.
+Tenant applications interact through their respective runtime APIs — the Podman API and systemd unit lifecycle for Quadlet-managed containers, or other runtime IPCs. Tenants access host resources only through runtime-mediated interfaces and are more isolated than platform components.
 
 #### 6. RAUC Client ↔ Update Server
 
@@ -556,9 +547,13 @@ The RAUC client is part of the LamaDist distro layer (in the Yocto sense — the
 
 ## Security Architecture
 
-LamaDist implements defense-in-depth with multiple security layers:
+LamaDist implements defense-in-depth with multiple security layers.
+This section is the design target: today only SELinux, IMA/EVM RPM
+signing, dm-verity (x86_64), and LUKS wiring exist at the build
+level; boot integrity, TPM sealing, and EROFS land in milestone M4
+(see PLAN.md).
 
-### 1. Boot Integrity Protection
+### 1. Boot Integrity Protection *(planned; M4)*
 
 LamaDist employs comprehensive boot integrity protection using the fullest set of features available on each platform:
 
@@ -613,7 +608,13 @@ LamaDist configures the fullest set of boot integrity protection available:
 - Platforms with partial support: Enable maximum available subset
 - All platforms: Implement software-based integrity verification (dm-verity, IMA/EVM)
 
-### 2. Secure Boot Chain
+### 2. Secure Boot Chain *(planned; M4)*
+
+> **Current boot path**: the shipped WKS template
+> (`lamadist-dmverity-bootdisk.wks.in`) deliberately boots via
+> systemd-boot with a separate, non-bundled initramfs to avoid
+> kernel relinking on every build.  UKI packaging and direct UEFI
+> boot are milestone M4 work.
 
 **With UKI Direct Boot (preferred on UEFI systems):**
 ```mermaid
@@ -655,7 +656,7 @@ On systems that support it (x86_64 UEFI), boot artifacts are packaged into a UKI
 
 ### 3. File System Integrity
 
-- **EROFS**: Enhanced Read-Only File System for root partition
+- **EROFS**: Enhanced Read-Only File System for root partition *(planned; M4 — current images use ext4)*
   - High-performance compressed read-only filesystem
   - Immutable root — no runtime modifications possible
   - Optimized for embedded and read-only use cases
@@ -690,7 +691,7 @@ On systems that support it (x86_64 UEFI), boot artifacts are packaged into a UKI
   - Rootfs A/B partitions: LUKS2 containers holding read-only EROFS; protects IP at rest
   - Data partition (`/var`): LUKS2 container holding read-write ext4/xfs; protects user secrets at rest
   - AES-256 encryption
-  - TPM2-sealed keys for automated unlocking during boot (initramfs/systemd)
+  - TPM2-sealed keys for automated unlocking during boot (initramfs/systemd) *(planned; M4)*
   - dm-verity operates on the decrypted EROFS filesystem inside the LUKS container
 
 ### 6. Package Signing
@@ -716,9 +717,9 @@ On systems that support it (x86_64 UEFI), boot artifacts are packaged into a UKI
 
 ## Update and Maintenance
 
-### OTA Update System (RAUC)
+### OTA Update System (RAUC) *(planned; M3)*
 
-LamaDist uses RAUC (Robust Auto-Update Controller) for safe, atomic updates:
+LamaDist will use RAUC (Robust Auto-Update Controller) for safe, atomic updates.  Nothing below is implemented yet -- meta-rauc is an opt-in overlay today, with no system.conf, bundle recipe, slot layout, or bootloader integration (see PLAN.md M3):
 
 ```mermaid
 flowchart TD
@@ -794,7 +795,7 @@ See [PARTITIONING.md](PARTITIONING.md) for per-platform GPT layouts, FDE strateg
 - Pinned dependencies
 - Containerized build environment
 - Version-controlled everything
-- SPDX 3.0.1 SBOM for all artifacts
+- SPDX SBOM for all artifacts (SPDX 3.0.1 targeted)
 
 ### 4. Maintainability
 - Clear documentation
@@ -808,7 +809,7 @@ See [PARTITIONING.md](PARTITIONING.md) for per-platform GPT layouts, FDE strateg
 - Minimal installed packages
 - Efficient init system (systemd)
 - Hardware-specific optimizations
-- zstd level 11 compression for optimal size/speed balance
+- High-ratio xz compression for release artifacts, fast compression in development overlays
 
 ### 6. Consistency and Integration
 - systemd-first approach: Prefer systemd ecosystem tools for system management
