@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Attempt limit-aware headless resume of agent work"
+#
+# Invoked by the project-level pitchfork cron daemon (agent-resume in
+# pitchfork.toml).  Attempts to resume the most recent Claude Code
+# session for this project in headless mode.  Exits 0 in every case:
+# the cron schedule provides the retry loop, and a non-zero exit
+# would only put the daemon into a failure state.  See the "Agent
+# Execution Strategy" section of docs/PLAN.md.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+_state_dir="${MISE_CONFIG_ROOT}/.cache/agents"
+_log_file="${_state_dir}/resume.log"
+_reset_file="${_state_dir}/limit-reset"
+_prompt='Resume LamaDist agent work.  Follow the entry protocol in
+docs/PLAN.md ("Agent Execution Strategy"): re-read the standing hard
+rules, read the plan and .cache/agents/worklog.md, inventory stranded
+state (containers, VMs, background task logs), adopt or clean it,
+then resume the first unchecked milestone step.'
+
+mkdir -p "${_state_dir}"
+
+_log_line() {
+	printf '%s %s\n' "$(date -Is)" "$1" >> "$_log_file"
+}
+
+# Keep the log bounded (1 MiB cap, keep the newest 256 KiB)
+if [[ -f "$_log_file" && "$(wc -c < "$_log_file")" -gt 1048576 ]]; then
+	tail -c 262144 "$_log_file" > "${_log_file}.tmp"
+	mv "${_log_file}.tmp" "$_log_file"
+fi
+
+# Skip while any claude session is running in this project; the
+# resume is for hung-up sessions, not live ones.
+for _pid in $(pgrep -x claude 2>/dev/null || true); do
+	if [[ "$(readlink "/proc/${_pid}/cwd" 2>/dev/null)" == "${MISE_CONFIG_ROOT}" ]]; then
+		_log_line 'skip: session already running in this project'
+		exit 0
+	fi
+done
+
+# Skip until a previously recorded API limit reset has passed
+if [[ -f "$_reset_file" ]]; then
+	_reset_epoch="$(cat "$_reset_file")"
+	if [[ "$(date +%s)" -lt "$_reset_epoch" ]]; then
+		_log_line "skip: waiting for limit reset at $(date -d "@${_reset_epoch}" -Is)"
+		exit 0
+	fi
+	rm -f "$_reset_file"
+fi
+
+_log_line 'attempting headless resume'
+_rc=0
+_output="$(claude --continue -p "$_prompt" --permission-mode acceptEdits 2>&1)" || _rc=$?
+
+if [[ "$_rc" -eq 0 ]]; then
+	_log_line 'resume session completed'
+	exit 0
+fi
+
+if grep -qiE 'usage limit|rate limit|limit reached|429|overloaded' <<< "$_output"; then
+	# ponytail: flat 1-hour backoff; parse the reset timestamp out
+	# of the error message if this proves too chatty for the
+	# weekly cap
+	date -d '+1 hour' +%s > "$_reset_file"
+	_log_line "limit hit (rc=${_rc}); backing off 1 hour"
+	exit 0
+fi
+
+_log_line "resume failed (rc=${_rc}): $(tail -c 300 <<< "$_output")"
+exit 0

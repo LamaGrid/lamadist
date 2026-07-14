@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Project-level pitchfork daemons.
+#
+# agent-resume: limit-aware auto-resume of agent work (see the
+# "Agent Execution Strategy" section of docs/PLAN.md).  Fires every
+# 30 minutes; the default "finish" retrigger prevents overlap with a
+# still-running resume session, and the task itself skips cheaply
+# when an interactive session is active in this project or an API
+# limit reset is pending.
+#
+# Opt-in: requires the pitchfork supervisor, then
+#   pitchfork start agent-resume
+
+[daemons.agent-resume]
+run = 'mise run agent:resume'
+cron = '0 */30 * * * *'
