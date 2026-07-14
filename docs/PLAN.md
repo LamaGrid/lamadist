@@ -295,6 +295,104 @@ working constraints are lifted.
 
 ---
 
+## Agent Execution Strategy
+
+The milestones above are sized to be executed by AI agent sessions,
+including multi-agent workflow runs ("Ultracode"), where three
+realities dominate: context windows compact mid-task, Yocto builds
+outlive any single turn, and long operations can hang (see the
+2026-07-14 bitbake hang).  These rules make the work survivable and
+resumable regardless of which agent, session, or schedule picks it
+up.
+
+### Work Units
+
+- Execute one milestone step per work unit: one branch, one
+  verifiable check, roughly one hour of agent attention.  Builds and
+  boots run as background tasks, never as in-turn waits.
+- A work unit ends in exactly one of: a commit plus a checked box in
+  this plan, or a blocked note with diagnostics.  Nothing ends
+  silently.
+
+### Durable State and Resume
+
+- Git is the only source of truth for progress: commits on work
+  branches plus the checkboxes in this plan.  An agent resuming work
+  derives "next action" from `git log` and this document, never from
+  conversation memory.
+- In-flight scratch state (background task IDs, container names,
+  deploy paths, log locations) is journaled to
+  `.cache/agents/worklog.md` (git-ignored) as it is created, not at
+  the end of a turn, so a compaction or crash loses nothing.
+- Multi-agent workflow scripts are persisted to files, and
+  interrupted runs resume via the workflow runner's resume mechanism
+  (completed agent calls replay from cache; identical script and
+  args yield a full cache hit).
+
+### Token-Limit Error Handling
+
+- Never stream raw build output into agent context.  Bitbake logs
+  run to megabytes; extract with filtered greps for the decisive
+  lines only (`ERROR|Tasks Summary|denied|Failed`).
+- Sub-agents swallow verbose compilation streams and return
+  high-signal summaries.  A sub-agent that makes no state progress
+  for three consecutive turns must yield with a status report
+  instead of burning context.
+- Workflow runs check the remaining token budget before each
+  fan-out; below a floor (~50k), stop spawning, write partial
+  results and a remaining-work list to the journal, and exit
+  cleanly.  A truncated run that reports is recoverable; one that
+  dies mid-fan-out is not.
+- Before predictable compaction points (long waits on builds), flush
+  status to the journal so the post-compaction session can re-derive
+  state from disk.
+
+### Long-Operation Supervision
+
+Every background operation gets a liveness contract:
+
+- An expected-duration budget (cold build: hours; warm build:
+  ~40 min; QEMU boot: minutes).
+- A liveness signal: new task lines in the build log, transcript
+  growth for console sessions.
+- A monitor whose filter matches success AND failure signatures
+  (`Tasks Summary` and `ERROR`, not just the happy path); silence is
+  never treated as success.
+- A stall action when the budget or liveness fails: capture
+  diagnostics (tail of `bitbake-cookerdaemon.log`, process tree,
+  serial transcript), stop the container or VM, and record the step
+  as blocked with the evidence attached.  The 2026-07-14
+  end-of-build hang (idle workers, "Server refused shutdown") is the
+  canonical case this catches.
+
+### Scheduled Restarts and Auto-Resume
+
+- Long campaigns (full milestone execution, migration builds) run
+  under a scheduled heartbeat: a recurring wakeup every 20-30
+  minutes checks liveness, and a coarser scheduled restart (e.g.
+  hourly cron routine) recovers from killed sessions.
+- Each restart follows the same entry protocol: re-read the standing
+  hard rules, read this plan and the journal, inventory stranded
+  state (`podman ps`, `pgrep qemu`, background task files), clean or
+  adopt it, then resume the first unchecked step.  The protocol is
+  idempotent -- running it twice must be safe.
+- Restarts never re-run a completed work unit: completion is judged
+  by commits and checkboxes, not by session memory.
+
+### Workflow Mapping (for later Ultracode runs)
+
+- M1: a pipeline of small fix branches, each verified by the QEMU
+  boot smoke test.  Single-agent capable; panel review before merge.
+- M2: fan out per-layer Wrynose branch-availability checks in
+  parallel, then a serialized migration with the M1 smoke test as
+  the gate after each layer bump.
+- M3/M4: implement serially (partition and boot changes conflict
+  structurally); use finder/verifier panels only for review passes.
+- Reviews at any milestone: independent finders per dimension, then
+  adversarial verification of each finding before it is reported.
+
+---
+
 ## Branding
 
 Branding work runs in parallel with the technical milestones and has
