@@ -40,11 +40,18 @@ if [ -n "${_info_version}" ]; then
 	else
 		_distro_version="${_info_version}"
 	fi
+else
+	echo "WARNING: GitVersion unavailable; DISTRO_VERSION will fall" >&2
+	echo "         back to bitbake snapshot versioning." >&2
 fi
+
+# Stamp the HEAD sha so dependent tasks can reject a stale file.
+_head_sha=$(git -C "${MISE_CONFIG_ROOT}" rev-parse HEAD 2>/dev/null || echo "")
 
 cat > "${_env_file}" <<-EOF
 	export BUILDNAME='${_buildname}'
 	export DISTRO_VERSION='${_distro_version}'
+	export GITVERSION_ENV_SHA='${_head_sha}'
 EOF
 
 if [ "${usage_json:-}" = true ]; then

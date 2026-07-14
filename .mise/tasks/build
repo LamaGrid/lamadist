@@ -24,11 +24,21 @@ if [ "${_release}" = "true" ]; then
 	_include_scans="true"
 fi
 
-# Source version variables computed by the 'version' dependency task.
+# Source version variables computed by the 'info' dependency task.
+# Reject the file if it was stamped for a different HEAD: a stale
+# DISTRO_VERSION (wrong branch, old sha) is worse than the bitbake
+# snapshot fallback.
 _gitversion_env="${MISE_CONFIG_ROOT}/.cache/gitversion.env"
 if [ -f "${_gitversion_env}" ]; then
 	# shellcheck source=/dev/null
 	source "${_gitversion_env}"
+	_head_sha=$(git -C "${MISE_CONFIG_ROOT}" rev-parse HEAD 2>/dev/null || echo "")
+	if [ "${GITVERSION_ENV_SHA:-}" != "${_head_sha}" ]; then
+		echo "WARNING: ${_gitversion_env} is stale (stamped for" >&2
+		echo "         '${GITVERSION_ENV_SHA:-none}', HEAD is '${_head_sha}');" >&2
+		echo "         ignoring cached version variables." >&2
+		unset BUILDNAME DISTRO_VERSION
+	fi
 fi
 
 # Generate dynamic KAS overlay for version and build settings.
