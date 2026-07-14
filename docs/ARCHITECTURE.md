@@ -747,7 +747,7 @@ flowchart TD
 
 - **Boot (ESP)**: UEFI system partition containing UKI images for both slots and RAUC slot status; DPS type UUID `C12A7328-F81F-11D2-BA4B-00A0C93EC93B`
 - **Rootfs A/B**: LUKS2-encrypted containers holding EROFS (Enhanced Read-Only File System) — immutable, compressed root filesystems; DPS architecture-specific root partition type UUID (e.g., `4F68BCE3-…` for x86-64, `69DAD710-…` for AArch64)
-- **Verity Hash A/B**: dm-verity Merkle tree for the corresponding decrypted rootfs slot; DPS architecture-specific verity partition type UUID (e.g., `77FF5F63-…` for x86-64, `DF3300CE-…` for AArch64)
+- **Verity Hash A/B**: dm-verity Merkle tree for the corresponding decrypted rootfs slot; DPS architecture-specific verity partition type UUID (e.g., `2C7357ED-…` for x86-64, `DF3300CE-…` for AArch64)
 - **Data Partition**: LUKS2-encrypted read-write volume for all persistent, mutable data mounted at `/var`; OverlayFS upper layers for `/etc` and application data; DPS `/var` type UUID `4D21B016-…`
 - **Immutability**: Decrypted root filesystems are EROFS and cannot be modified at runtime
 - **Full Disk Encryption**: All Rootfs (A/B) and Data partitions are LUKS2-encrypted; TPM2-sealed keys enable automated unlocking during boot

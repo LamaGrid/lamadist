@@ -169,9 +169,10 @@ serial console:
 - [ ] Read-only-root accommodations: writable `/var` strategy, mask
   `systemd-remount-fs`, handle UTMP
 - [ ] Fix the ESP partition type GUID in the WKS template
-- [ ] Reconcile `DM_VERITY_RHASH_GUID` in `intel.conf`
-  (`2c7357ed-…`) with the DPS x86-64 verity UUID the docs specify
-  (`77ff5f63-…`); found by doc verification 2026-07-14
+- [x] Reconcile the x86-64 root-verity partition UUID between docs
+  and code.  Resolved 2026-07-14 against the DPS spec: the code
+  (`intel.conf`, `2c7357ed-…`) was correct; the docs wrongly used
+  the *usr*-verity UUID (`77ff5f63-…`) and are fixed
 - [ ] Regenerate GitVersion data on every build (stale
   `.cache/gitversion.env`)
 - [ ] Root-cause the end-of-build bitbake hang; rebuild the builder

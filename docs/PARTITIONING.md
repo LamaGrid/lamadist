@@ -40,13 +40,13 @@ This section details the GPT disk layout for each platform. The partitions are d
 │   └── [ LUKS Header ]
 │       └── [ Decrypted: Read-Only EROFS ]
 │
-├── [ p3: Verity Hash A ] ─────────────── UUID: 77ff5f63-e7b6-4633-acf4-1565b864c0e6
+├── [ p3: Verity Hash A ] ─────────────── UUID: 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
 │   └── (Merkle Tree for decrypted p2)
 │
 ├── [ p4: Rootfs B (LUKS2) ] ──────────── UUID: 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
 │   └── (Inactive Target)
 │
-├── [ p5: Verity Hash B ] ─────────────── UUID: 77ff5f63-e7b6-4633-acf4-1565b864c0e6
+├── [ p5: Verity Hash B ] ─────────────── UUID: 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
 │   └── (Merkle Tree for decrypted p4)
 │
 └── [ p6: Var / Data (LUKS2) ] ────────── UUID: 4d21b016-b534-45c2-a9fb-5c16e091fd2d
@@ -200,13 +200,13 @@ part /boot/efi --source bootimg-efi --sourceparams="loader=systemd-boot" --ondis
 part / --source rootfs --ondisk sda --fstype=erofs --label rootfs_a --align 1024 --fixed-size 1G --part-type 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
 
 # Verity A (x86_64 Verity UUID)
-part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_a --align 1024 --fixed-size 64M --part-type 77ff5f63-e7b6-4633-acf4-1565b864c0e6
+part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_a --align 1024 --fixed-size 64M --part-type 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
 
 # Rootfs B (x86_64 UUID) - LUKS Container
 part --source rootfs --ondisk sda --fstype=erofs --label rootfs_b --align 1024 --fixed-size 1G --part-type 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
 
 # Verity B (x86_64 Verity UUID)
-part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_b --align 1024 --fixed-size 64M --part-type 77ff5f63-e7b6-4633-acf4-1565b864c0e6
+part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_b --align 1024 --fixed-size 64M --part-type 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
 
 # Data (LUKS Container)
 part /var --ondisk sda --fstype=ext4 --label var --align 1024 --fixed-size 512M --part-type 4d21b016-b534-45c2-a9fb-5c16e091fd2d
