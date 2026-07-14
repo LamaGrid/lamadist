@@ -83,7 +83,9 @@ An honest snapshot, so the milestones below start from truth:
 
 ### M0: Truth Reset
 
-**Status:** In Progress
+**Status:** In Progress (2026-07-14: all steps complete and verified
+by an adversarial doc-review pass, except the remote branch prune,
+which is blocked on the standing no-push rule)
 **Goal:** Every document tells the truth, and the repository is tidy.
 
 - [x] Rewrite this plan as outcome milestones with accurate statuses
