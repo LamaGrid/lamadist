@@ -87,7 +87,7 @@ An honest snapshot, so the milestones below start from truth:
 **Goal:** Every document tells the truth, and the repository is tidy.
 
 - [x] Rewrite this plan as outcome milestones with accurate statuses
-- [ ] Update README: split features into "Current" and "Roadmap";
+- [x] Update README: split features into "Current" and "Roadmap";
   add the logo
 - [ ] Align mise task names in ARCHITECTURE.md and CONTRIBUTING.md
   with TOOLING.md (the canonical task reference)
