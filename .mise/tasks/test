@@ -5,12 +5,14 @@
 #USAGE   choices "x86_64" "orin-nx" "rk1" "soquartz"
 #USAGE }
 #USAGE flag "-c --ci" help="CI mode"
+#USAGE flag "-n --no-boot" help="Skip the QEMU login smoke test"
 # TODO: Implement CI mode behavior (e.g., machine-readable output, stricter validation)
 set -o errexit
 set -o nounset
 set -o pipefail
 
 _bsp="${usage_bsp:-x86_64}"
+_no_boot="${usage_no_boot:-false}"
 
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
@@ -47,3 +49,11 @@ else
 fi
 
 echo "==> Build artifact validation passed"
+
+# Boot smoke test: a real serial-console login with command
+# execution (see .mise/lib/smoke_login.py).  x86_64 only until
+# other BSPs get a QEMU story.
+if [ "${_bsp}" = "x86_64" ] && [ "${_no_boot}" != "true" ]; then
+	echo "==> Running QEMU login smoke test"
+	mise run vm --bsp "${_bsp}" --ci
+fi

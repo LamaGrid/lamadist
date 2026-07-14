@@ -5,7 +5,9 @@
 #USAGE   choices "x86_64"
 #USAGE }
 #USAGE flag "-t --timeout <timeout>" help="Boot timeout in seconds (CI mode)" default="300"
-#USAGE flag "-c --ci" help="CI mode (headless boot test)"
+#USAGE flag "-c --ci" help="CI mode (headless login smoke test)"
+#USAGE flag "-H --headless" help="Headless-interactive mode: serial/monitor unix sockets + ssh port-forward"
+#USAGE flag "-p --ssh-port <port>" help="Host port forwarded to guest :22 (headless mode)" default="2222"
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -13,6 +15,8 @@ set -o pipefail
 _bsp="${usage_bsp:-x86_64}"
 _timeout="${usage_timeout:-300}"
 _ci="${usage_ci:-false}"
+_headless="${usage_headless:-false}"
+_ssh_port="${usage_ssh_port:-2222}"
 
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
@@ -38,7 +42,7 @@ trap cleanup EXIT
 # --- Prerequisites ---
 
 _required_tools=(qemu-system-x86_64 swtpm)
-if [[ "${_ci}" != "true" ]]; then
+if [[ "${_ci}" != "true" && "${_headless}" != "true" ]]; then
 	_required_tools+=(spicy)
 fi
 for tool in "${_required_tools[@]}"; do
@@ -98,6 +102,13 @@ fi
 
 # --- Build QEMU command ---
 
+# user-mode networking; headless/CI modes forward a host port to
+# guest sshd for agents and tests
+_netdev='user,id=net0'
+if [[ "${_ci}" == "true" || "${_headless}" == "true" ]]; then
+	_netdev="${_netdev},hostfwd=tcp:127.0.0.1:${_ssh_port}-:22"
+fi
+
 _qemu_args=(
 	"${_accel_args[@]}"
 	-machine q35
@@ -107,7 +118,7 @@ _qemu_args=(
 	-drive "file=${_wic_image},format=raw,if=none,id=hd0"
 	-device 'ahci,id=ahci0'
 	-device 'ide-hd,drive=hd0,bus=ahci0.0'
-	-netdev 'user,id=net0'
+	-netdev "${_netdev}"
 	-device 'virtio-net-pci,netdev=net0'
 	-object 'rng-random,filename=/dev/urandom,id=rng0'
 	-device 'virtio-rng-pci,rng=rng0'
@@ -118,38 +129,59 @@ _qemu_args=(
 	-no-reboot
 )
 
-if [[ "${_ci}" == "true" ]]; then
-	# --- CI mode: headless boot test with timeout ---
-	_serial_log="${_qemu_tmpdir}/serial.log"
+# Serial console as a unix socket (server, no wait) with a mirror
+# logfile: agents/tests attach to the socket, humans read the log.
+# The socket lives in the short mktemp dir to stay under the
+# 108-char sun_path limit.
+_serial_sock="${_qemu_tmpdir}/serial.sock"
+_serial_log="${_qemu_tmpdir}/serial.log"
+_serial_chardev="socket,id=ser0,path=${_serial_sock},server=on,wait=off,logfile=${_serial_log}"
 
-	echo "==> CI boot test: image=${_wic_image}"
+if [[ "${_ci}" == "true" ]]; then
+	# --- CI mode: headless login smoke test with timeout ---
+	echo "==> CI login smoke test: image=${_wic_image}"
 	echo "==> Timeout: ${_timeout}s"
 
-	timeout "${_timeout}" qemu-system-x86_64 \
+	timeout "$((_timeout + 30))" qemu-system-x86_64 \
 		"${_qemu_args[@]}" \
+		-snapshot \
 		-display none \
-		-serial file:"${_serial_log}" &
+		-chardev "${_serial_chardev}" \
+		-serial chardev:ser0 &
 	_qemu_pid=$!
 
-	_boot_success=false
-	while kill -0 "${_qemu_pid}" 2>/dev/null; do
-		if grep -q "login:" "${_serial_log}" 2>/dev/null; then
-			_boot_success=true
-			kill "${_qemu_pid}" 2>/dev/null || true
-			break
-		fi
-		sleep 5
-	done
+	_smoke_rc=0
+	python3 "${MISE_CONFIG_ROOT}/.mise/lib/smoke_login.py" \
+		"${_serial_sock}" lama lamadist "${_timeout}" || _smoke_rc=$?
+
+	kill "${_qemu_pid}" 2>/dev/null || true
 	wait "${_qemu_pid}" 2>/dev/null || true
 
-	if [[ "${_boot_success}" == "true" ]]; then
-		echo "==> QEMU boot test PASSED — login prompt detected"
+	if [[ "${_smoke_rc}" -eq 0 ]]; then
+		echo "==> QEMU login smoke test PASSED"
 	else
-		echo "==> QEMU boot test FAILED — no login prompt within ${_timeout}s"
+		echo "==> QEMU login smoke test FAILED"
 		echo "==> Last 50 lines of serial log:"
 		tail -50 "${_serial_log}" 2>/dev/null || true
 		exit 1
 	fi
+elif [[ "${_headless}" == "true" ]]; then
+	# --- Headless-interactive mode: sockets for agents/CI ---
+	_monitor_sock="${_qemu_tmpdir}/monitor.sock"
+
+	echo "==> Image: ${_wic_image}"
+	echo "==> Serial console socket: ${_serial_sock}"
+	echo "==> Serial transcript:     ${_serial_log}"
+	echo "==> QEMU monitor socket:   ${_monitor_sock}"
+	echo "==> Guest ssh forwarded to 127.0.0.1:${_ssh_port}"
+	echo "==> Attach: socat -,raw,echo=0 UNIX-CONNECT:${_serial_sock}"
+
+	qemu-system-x86_64 \
+		"${_qemu_args[@]}" \
+		-display none \
+		-chardev "${_serial_chardev}" \
+		-serial chardev:ser0 \
+		-monitor "unix:${_monitor_sock},server=on,wait=off"
 else
 	# --- Interactive mode: SPICE display + serial console ---
 	_spice_port=5930
