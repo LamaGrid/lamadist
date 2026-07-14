@@ -9,3 +9,25 @@ ext/
 
 hk.local.pkl
 *key.rsa
+
+# Local editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+\#*\#
+
+# Local shell and home-directory files (the repo doubles as $HOME in
+# builder containers and sandboxes)
+.bash_profile
+.bashrc
+.profile
+.zprofile
+.zshrc
+.*_history
+.lesshst
+.gitconfig
+.ripgreprc
+.envrc
+.direnv/

@@ -99,7 +99,7 @@ An honest snapshot, so the milestones below start from truth:
   the agreed Podman + Quadlet workload model
 - [ ] Prune stale remote branches (`copilot/*`, merged refactor
   branches)
-- [ ] Add `.gitignore` entries for local editor and shell files
+- [x] Add `.gitignore` entries for local editor and shell files
 
 **Exit criteria:**
 
