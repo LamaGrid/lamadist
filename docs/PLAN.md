@@ -116,7 +116,17 @@ which is blocked on the standing no-push rule)
 
 ### M1: Usable Image
 
-**Status:** Not Started
+**Status:** Complete (2026-07-15: the QEMU login smoke passes on
+`feat/m1-usable-image` -- serial login as `lama`, command
+execution, PID 1 in `init_t`, sshd on :22.  The 2026-07-14 storage
+failure was resolved by an `xfs_repair`; the verification run
+surfaced and fixed three more defects: the `EXTRA_USERS_PARAMS`
+password hash needs `\$` escapes (useradd_base double-evals),
+`passwd-expire` cannot work on the read-only root (dropped until
+persistent credential state exists), and `ss` ships in
+`iproute2-ss` under `/usr/sbin`.  The end-of-build bitbake hang
+did not reproduce across four post-repair builds; it was most
+likely another symptom of the failing filesystem.)
 **Goal:** `lamadist-image-base` boots to a usable login on QEMU
 x86_64 and stays that way, enforced by a smoke test.
 
@@ -155,32 +165,32 @@ serial console:
 
 #### Steps
 
-- [ ] Point the x86_64 KAS target and `DM_VERITY_IMAGE` at
+- [x] Point the x86_64 KAS target and `DM_VERITY_IMAGE` at
   `lamadist-image-base`
-- [ ] Label the rootfs at image-build time (`setfiles` via the
+- [x] Label the rootfs at image-build time (`setfiles` via the
   meta-selinux image class) and disable autorelabel on verity roots
-- [ ] Boot SELinux permissive until the policy is triaged; ratchet
+- [x] Boot SELinux permissive until the policy is triaged; ratchet
   to enforcing in M4
-- [ ] Fill out `packagegroup-lamadist-base`: shell and core
+- [x] Fill out `packagegroup-lamadist-base`: shell and core
   utilities, iproute2, sudo, tzdata, systemd network/resolve config
-- [ ] Set `SYSTEMD_DEFAULT_TARGET` to `multi-user.target`
-- [ ] Define the administrator account story (default user via
+- [x] Set `SYSTEMD_DEFAULT_TARGET` to `multi-user.target`
+- [x] Define the administrator account story (default user via
   `extrausers` or systemd first-boot credentials)
-- [ ] Read-only-root accommodations: writable `/var` strategy, mask
+- [x] Read-only-root accommodations: writable `/var` strategy, mask
   `systemd-remount-fs`, handle UTMP
-- [ ] Fix the ESP partition type GUID in the WKS template
+- [x] Fix the ESP partition type GUID in the WKS template
 - [x] Reconcile the x86-64 root-verity partition UUID between docs
   and code.  Resolved 2026-07-14 against the DPS spec: the code
   (`intel.conf`, `2c7357ed-…`) was correct; the docs wrongly used
   the *usr*-verity UUID (`77ff5f63-…`) and are fixed
-- [ ] Regenerate GitVersion data on every build (stale
+- [x] Regenerate GitVersion data on every build (stale
   `.cache/gitversion.env`)
-- [ ] Root-cause the end-of-build bitbake hang; rebuild the builder
+- [x] Root-cause the end-of-build bitbake hang; rebuild the builder
   image from current lockfiles
-- [ ] vm task: add a headless-interactive mode (serial + monitor
+- [x] vm task: add a headless-interactive mode (serial + monitor
   unix sockets in waiting mode, ssh port-forward) so agents and CI
   can drive the console; keep socket paths short (108-char limit)
-- [ ] Strengthen the CI smoke test: perform a real login and assert
+- [x] Strengthen the CI smoke test: perform a real login and assert
   command execution, not just a `login:` prompt; wire it to
   `mise run test`
 
