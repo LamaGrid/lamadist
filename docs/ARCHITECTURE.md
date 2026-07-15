@@ -164,10 +164,9 @@ for the build.
 Core layers (`kas/main.kas.yml`, always present):
 
 ```
-├── poky/                        # Yocto Project reference distribution
-│   ├── meta/                    # OpenEmbedded-Core
-│   ├── meta-poky/               # Poky distribution configuration
-│   └── meta-yocto-bsp/          # Reference BSP layer
+├── bitbake/                     # Build engine (no layer of its own)
+├── openembedded-core/           # OpenEmbedded-Core
+│   └── meta/
 ├── meta-openembedded/           # Extended package repository
 │   ├── meta-oe/
 │   ├── meta-filesystems/
@@ -188,6 +187,8 @@ Per-BSP layers (added by the selected `kas/bsp/*.kas.yml`):
 
 ```
 ├── meta-intel/                  # x86_64 hardware support (x86_64 only)
+├── meta-yocto/                  # Reference BSP layer (x86_64 only)
+│   └── meta-yocto-bsp/
 ├── meta-secure-core/meta-tpm2/  # TPM 2.0 support (x86_64 only)
 ├── meta-arm/                    # ARM firmware (orin-nx, rk1, soquartz)
 ├── meta-tegra/                  # NVIDIA Jetson BSP (orin-nx only)
@@ -228,7 +229,9 @@ Key files:
 - `files/wic/*.wks*`: Disk layout templates
 
 #### Upstream Layers
-- **poky**: Base Yocto Project reference with OE-Core
+- **bitbake**: Build engine
+- **openembedded-core**: OpenEmbedded-Core
+- **meta-yocto**: Reference BSP layer (meta-yocto-bsp; x86_64 only)
 - **meta-openembedded**: Extended recipes for common software
 - **meta-clang**: Alternative toolchain support
 - **meta-secure-core**: Security framework and features

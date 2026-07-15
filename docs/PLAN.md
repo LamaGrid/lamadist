@@ -204,7 +204,8 @@ serial console:
 
 ### M2: Wrynose LTS Migration
 
-**Status:** Not Started
+**Status:** In Progress (2026-07-15: branch/layer verification and
+config migrations complete; fixing remaining build fallout)
 **Goal:** All layers move from `scarthgap` to the Wrynose LTS
 release while the feature surface is still small, using the M1 smoke
 test as the acceptance gate.
