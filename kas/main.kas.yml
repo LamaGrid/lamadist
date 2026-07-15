@@ -115,4 +115,4 @@ local_conf_header:
     # BB_HASHSERVE = 'auto'
     # BB_HASHSERVE_UPSTREAM = 'hashserv.yocto.io:8687'
     # BB_SIGNATURE_HANDLER = 'OEEquivHash'
-    SSTATE_MIRRORS = 'file://.* http://sstate.yoctoproject.org/PATH;downloadfilename=PATH'
+    SSTATE_MIRRORS = 'file://.* https://sstate.yoctoproject.org/PATH;downloadfilename=PATH'
