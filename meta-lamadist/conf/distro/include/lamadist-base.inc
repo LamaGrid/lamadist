@@ -65,13 +65,14 @@ XZ_INTEGRITY_CHECK = 'sha256'
 XZ_COMPRESSION_LEVEL = '-9e'
 
 require conf/distro/include/lamadist-gcsections.inc
-require conf/distro/include/no-static-libs.inc
-require conf/distro/include/security_flags.inc
-require conf/distro/include/yocto-uninative.inc
 
-INHERIT += 'uninative'
+# no-static-libs.inc, security_flags.inc, and yocto-uninative.inc are
+# all required by oe-core's defaultsetup.conf since Wrynose; no need
+# to require them again here.  defaultsetup.conf's INHERIT_DISTRO also
+# inherits the uninative class by default, so no explicit INHERIT here
+# either.
 
-FULL_OPTIMIZATION="-Os -pipe ${DEBUG_FLAGS}"
+FULL_OPTIMIZATION = "-Os -pipe ${DEBUG_FLAGS}"
 
 # Save a little space by disabling wide character support in ncurses
 ENABLE_WIDEC = 'false'
@@ -80,7 +81,7 @@ ENABLE_WIDEC = 'false'
 ENABLE_WIDEC:class-native = 'true'
 
 # Don't install Native Language Support to save space and build time
-USE_NLS='no'
+USE_NLS = 'no'
 
 # Don't install locales; they won't work without NLS
 IMAGE_LINGUAS = ''

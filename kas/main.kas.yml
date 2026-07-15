@@ -11,8 +11,6 @@ env:
   BUILDSTATS_BASE:
   DISTRO_VERSION:
   DISPLAY:
-  ICECC_DISABLED:
-  ICECC_PARALLEL_MAKE:
 
 build_system: oe
 
@@ -103,11 +101,6 @@ local_conf_header:
     INHERIT                              += 'buildhistory'
     BUILDHISTORY_COMMIT                   = '1'
     USER_CLASSES                         += 'buildstats buildstats-summary'
-
-    # Icecream distributed build options
-    INHERIT                              += 'icecc'
-    ICECC_DISABLED                      ??= '1'
-    ICECC_PARALLEL_MAKE                 ??= '-j 24'
 
   10_deploy: |
     DEPLOY_DIR = "${TOPDIR}/../deploy"

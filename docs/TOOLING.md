@@ -701,11 +701,6 @@ bitbake-layers show-layers  # Verify all layers present
    ```
 3. **Use shared sstate cache**: Point to network sstate mirror
 4. **Use shared download directory**: Reuse downloads across workspaces
-5. **Enable Icecream** (distributed compilation):
-   ```bash
-   # In .kas.env.local
-   ICECC_DISABLED=0
-   ```
 
 #### Reduce Disk Usage
 
