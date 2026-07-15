@@ -209,17 +209,18 @@ serial console:
 release while the feature surface is still small, using the M1 smoke
 test as the acceptance gate.
 
-- [ ] Verify every layer in `kas/main.kas.yml`, `kas/bsp/`, and
-  `kas/extras/` has a Wrynose (or compatible) branch; BSP layers
-  such as meta-tegra historically trail LTS releases and may need
-  pinned revisions or a documented exception
-- [ ] Include the optional-feature layers in the Wrynose check:
-  meta-virtualization (k3s) and meta-aws (Greengrass, Corretto)
-  must have Wrynose branches or pinned compatible revisions, and
-  `kas/extras/aws.yml` needs a branch pin either way (it currently
-  floats)
-- [ ] Update branch pins in all KAS configurations
-- [ ] Update `LAYERSERIES_COMPAT` in `meta-lamadist`
+- [x] Verify every layer in `kas/main.kas.yml`, `kas/bsp/`, and
+  `kas/extras/` has a Wrynose (or compatible) branch.  Verified
+  2026-07-15: all layers have wrynose branches (including
+  meta-tegra) except meta-anaconda (whinlatter pin, documented
+  exception in installer.kas.yml) and poky, which is no longer
+  branched at all since whinlatter -- replaced by separate
+  openembedded-core + bitbake 2.18 repos per upstream guidance
+- [x] Include the optional-feature layers in the Wrynose check:
+  meta-virtualization and meta-aws both have wrynose branches;
+  `kas/extras/aws.yml` is now pinned
+- [x] Update branch pins in all KAS configurations
+- [x] Update `LAYERSERIES_COMPAT` in `meta-lamadist`
 - [ ] Apply Yocto migration-guide changes and fix build fallout
 
 **Exit criteria:**
