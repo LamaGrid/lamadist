@@ -8,14 +8,14 @@ header:
 distro: anaconda
 target: core-image-anaconda
 
-defaults:
-  repos:
-    branch: scarthgap
-
 repos:
+  # Exception to the Wrynose migration (M2): meta-anaconda's newest
+  # release branch is whinlatter (verified 2026-07-15).  Revisit
+  # when a wrynose branch appears.
   meta-anaconda:
     path: 'ext/meta-anaconda'
     url: 'https://git.yoctoproject.org/meta-anaconda'
+    branch: whinlatter
 
   meta-openembedded:
     layers:

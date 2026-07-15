@@ -13,7 +13,7 @@ set -o nounset
 set -o pipefail
 
 _buildstats_base_dir="${LAMADIST_HOST_BUILDSTATS_BASE}"
-_script="${MISE_CONFIG_ROOT}/ext/poky/scripts/buildstats-diff"
+_script="${MISE_CONFIG_ROOT}/ext/openembedded-core/scripts/buildstats-diff"
 
 if [ ! -x "${_script}" ]; then
 	echo "ERROR: buildstats-diff script not found at ${_script}"

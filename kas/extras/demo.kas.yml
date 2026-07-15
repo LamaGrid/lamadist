@@ -6,7 +6,7 @@ repos:
   meta-browser:
     url: 'https://github.com/OSSystems/meta-browser.git'
     path: 'ext/meta-browser'
-    branch: master
+    branch: wrynose
     layers:
       meta-chromium:
 

@@ -8,3 +8,4 @@ repos:
   meta-aws:
     url: 'https://github.com/aws4embeddedlinux/meta-aws.git'
     path: 'ext/meta-aws'
+    branch: wrynose

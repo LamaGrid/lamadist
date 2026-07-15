@@ -20,7 +20,7 @@ distro: lamadist
 
 defaults:
   repos:
-    branch: scarthgap
+    branch: wrynose
 
 repos:
   # Package layers
@@ -37,16 +37,24 @@ repos:
   meta-clang:
     url: 'https://github.com/kraj/meta-clang.git'
     path: 'ext/meta-clang'
-    branch: scarthgap
+    branch: wrynose
 
-  # Distro layers
-  poky:
-    url: 'https://git.yoctoproject.org/poky'
-    path: 'ext/poky'
+  # Core build system.  Since whinlatter (5.3) the poky repo is no
+  # longer branched; the supported setup is separate bitbake and
+  # openembedded-core clones.  bitbake 2.18 is the 6.0 (wrynose)
+  # series.
+  bitbake:
+    url: 'https://git.openembedded.org/bitbake'
+    path: 'ext/bitbake'
+    branch: '2.18'
+    layers:
+      .: disabled
+
+  openembedded-core:
+    url: 'https://git.openembedded.org/openembedded-core'
+    path: 'ext/openembedded-core'
     layers:
       meta:
-      meta-poky:
-      meta-yocto-bsp:
 
   meta-lamadist:
     path: 'meta-lamadist'

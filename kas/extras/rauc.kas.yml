@@ -7,7 +7,7 @@ repos:
   meta-rauc:
     url: 'https://github.com/rauc/meta-rauc.git'
     path: 'ext/meta-rauc'
-    branch: scarthgap
+    branch: wrynose
 
 local_conf_header:
   40_rauc: |

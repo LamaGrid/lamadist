@@ -13,7 +13,17 @@ repos:
   meta-intel:
     url: 'https://git.yoctoproject.org/meta-intel'
     path: 'ext/meta-intel'
-    branch: scarthgap
+    branch: wrynose
+
+  # intel.conf extends the genericx86-64 reference BSP, which
+  # lives in meta-yocto-bsp (standalone meta-yocto repo since the
+  # poky split).
+  meta-yocto:
+    url: 'https://git.yoctoproject.org/meta-yocto'
+    path: 'ext/meta-yocto'
+    branch: wrynose
+    layers:
+      meta-yocto-bsp:
 
   meta-secure-core:
     url: 'https://github.com/Wind-River/meta-secure-core.git'
