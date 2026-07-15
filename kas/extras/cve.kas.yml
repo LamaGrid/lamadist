@@ -5,4 +5,4 @@ header:
 
 local_conf_header:
   40_cve: |
-    CVE_CHECK_CREATE_MANIFEST = '1'
+    IMAGE_CLASSES:append = ' sbom-cve-check'

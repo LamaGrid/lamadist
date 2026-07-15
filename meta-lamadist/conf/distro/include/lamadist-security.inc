@@ -51,11 +51,10 @@ SPDX_INCLUDE_SOURCES  ?= '0'
 # We need debug symbols so that SPDX manifests for the kernel work
 KERNEL_EXTRA_FEATURES:append = ' features/debug/debug-kernel.scc'
 
-# Enable CVE checks and reporting (manifest generation is opt-in
-# via --release or --include-scans to avoid the ~7 min/build
-# recrdeptask overhead)
-INHERIT += 'cve-check'
-CVE_CHECK_CREATE_MANIFEST = '0'
+# CVE scanning runs against the image SBOM produced by create-spdx
+# above, so it is opt-in only: enabling it here would run
+# do_sbom_cve_check on every build.  --release and --include-scans
+# add the sbom-cve-check overlay (kas/extras/cve.kas.yml) instead.
 
 # Include the Yocto CVE exclusion list for unfixable CVEs
 include conf/distro/include/cve-extra-exclusions.inc
