@@ -151,9 +151,10 @@ meta-lamadist/                       # Custom distribution layer
 │   │   └── lamadist-image-base.bb   # Base image recipe
 │   └── packagegroups/
 │       └── packagegroup-lamadist-base.bb
-└── wic/
-    ├── installer-image.wks              # USB installer disk layout
-    └── lamadist-dmverity-bootdisk.wks.in  # dm-verity boot disk template
+└── files/
+    └── wic/
+        ├── installer-image.wks              # USB installer disk layout
+        └── lamadist-dmverity-bootdisk.wks.in  # dm-verity boot disk template
 ```
 
 External layers are fetched by KAS into the git-ignored `ext/`
@@ -224,7 +225,7 @@ Key files:
   Hardware-specific configurations
 - `classes/lamadist-image.bbclass` and
   `recipes-core/images/lamadist-image-base.bb`: The LamaDist image
-- `wic/*.wks*`: Disk layout templates
+- `files/wic/*.wks*`: Disk layout templates
 
 #### Upstream Layers
 - **poky**: Base Yocto Project reference with OE-Core
