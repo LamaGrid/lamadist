@@ -5,6 +5,6 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/systemd-conf:"
 SRC_URI += "file://10-lamadist-journald.conf"
 
 do_install:append() {
-	install -D -m0644 ${WORKDIR}/10-lamadist-journald.conf \
+	install -D -m0644 ${UNPACKDIR}/10-lamadist-journald.conf \
 		${D}${systemd_unitdir}/journald.conf.d/10-lamadist.conf
 }
