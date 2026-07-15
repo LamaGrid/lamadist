@@ -52,20 +52,20 @@ done
 [[ -f "${_ovmf_vars_template}" ]] || { echo "ERROR: OVMF VARS template not found at ${_ovmf_vars_template}"; exit 1; }
 
 # --- Find WIC image ---
-# Prefer uncompressed, then newest compressed (.zst > .xz > .gz > .bz2)
+# Newest by mtime across compressed and uncompressed candidates,
+# so a stale decompression leftover never shadows a fresh build.
 
-_wic_image=$(find "${_deploy_dir}" -maxdepth 1 -name "*.wic" ! -name "*.wic.*" | sort | tail -1)
-if [[ -z "${_wic_image}" ]]; then
-	_wic_compressed=$(find "${_deploy_dir}" -maxdepth 1 \( -name "*.wic.zst" -o -name "*.wic.xz" -o -name "*.wic.gz" -o -name "*.wic.bz2" \) | sort | tail -1)
-	[[ -n "${_wic_compressed}" ]] || { echo "ERROR: No WIC image found in ${_deploy_dir}"; exit 1; }
-	echo "==> Decompressing ${_wic_compressed}..."
-	case "${_wic_compressed}" in
-		*.zst) zstd -d -k "${_wic_compressed}" ;;
-		*.xz)  xz -d -k "${_wic_compressed}" ;;
-		*.gz)  gunzip -k "${_wic_compressed}" ;;
-		*.bz2) bzip2 -d -k "${_wic_compressed}" ;;
+_wic_image=$(find "${_deploy_dir}" -maxdepth 1 \( -name "*.wic" -o -name "*.wic.zst" -o -name "*.wic.xz" -o -name "*.wic.gz" -o -name "*.wic.bz2" \) -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
+[[ -n "${_wic_image}" ]] || { echo "ERROR: No WIC image found in ${_deploy_dir}"; exit 1; }
+if [[ "${_wic_image}" != *.wic ]]; then
+	echo "==> Decompressing ${_wic_image}..."
+	case "${_wic_image}" in
+		*.zst) zstd -d -k -f "${_wic_image}" ;;
+		*.xz)  xz -d -k -f "${_wic_image}" ;;
+		*.gz)  gunzip -k -f "${_wic_image}" ;;
+		*.bz2) bzip2 -d -k -f "${_wic_image}" ;;
 	esac
-	_wic_image="${_wic_compressed%.*}"
+	_wic_image="${_wic_image%.*}"
 fi
 
 # --- Prepare OVMF VARS (writable copy) ---
