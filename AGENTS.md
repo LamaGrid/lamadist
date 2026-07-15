@@ -179,5 +179,5 @@ docs/                   # Documentation
   supplementary group membership.
 
 - **Layer compatibility errors**: All KAS repos must target the same Yocto
-  release series (currently `scarthgap`). Check `kas/main.kas.yml` branch
+  release series (currently `wrynose`). Check `kas/main.kas.yml` branch
   settings if a layer reports incompatibility.

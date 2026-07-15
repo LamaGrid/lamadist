@@ -204,8 +204,8 @@ serial console:
 
 ### M2: Wrynose LTS Migration
 
-**Status:** In Progress (2026-07-15: branch/layer verification and
-config migrations complete; fixing remaining build fallout)
+**Status:** Complete (2026-07-15: all layers on Wrynose, x86_64
+build green, M1 QEMU login smoke passes on the Wrynose image)
 **Goal:** All layers move from `scarthgap` to the Wrynose LTS
 release while the feature surface is still small, using the M1 smoke
 test as the acceptance gate.
@@ -222,7 +222,7 @@ test as the acceptance gate.
   `kas/extras/aws.yml` is now pinned
 - [x] Update branch pins in all KAS configurations
 - [x] Update `LAYERSERIES_COMPAT` in `meta-lamadist`
-- [ ] Apply Yocto migration-guide changes and fix build fallout.
+- [x] Apply Yocto migration-guide changes and fix build fallout.
   ostree (`meta-oe/recipes-extended/ostree`) previously failed to
   parse under bitbake 2.18's pysh shell lexer
   (`bb.pysh.pyshlex.NeedMore`).  Verified root cause:
@@ -237,9 +237,73 @@ test as the acceptance gate.
   Python-runtime-version issue.  Fixing `FULL_OPTIMIZATION` to use
   `${DEBUG_LEVELFLAG}` (see
   `meta-lamadist/conf/distro/include/lamadist-base.inc`) resolves
-  the parse failure directly, so no `BBMASK` is needed.  Leave this
-  bullet unchecked until `mise run build --bsp x86_64` completes a
-  full parse pass.
+  the parse failure directly, so no `BBMASK` is needed.  Build
+  attempt 5 reached a full parse pass and surfaced two further
+  fallout items:
+  - debug-tweaks: Wrynose's `debug-tweaks` `IMAGE_FEATURES` bundle
+    was removed upstream.  Fixed in `kas/extras/debug.kas.yml` by
+    expanding `EXTRA_IMAGE_FEATURES:append` to the equivalent
+    discrete features (`allow-empty-password
+    empty-root-password allow-root-login post-install-logging`).
+  - BB_HASHSERVE: Wrynose's `bitbake.conf` weakly defaults
+    `BB_HASHSERVE ??= 'auto'`, so merely commenting out
+    `BB_HASHSERVE = 'auto'` in `kas/main.kas.yml`'s `10_cache` block
+    no longer disables hash equivalence.  Combined with
+    `SSTATE_MIRRORS`, this tripped sanity.bbclass's "local hash
+    equivalence server ... configured an sstate mirror" warning.
+    Setting `BB_HASHSERVE = ''` alone is not sufficient either:
+    Wrynose also defaults `BB_SIGNATURE_HANDLER` to `OEEquivHash`,
+    whose `init_rundepcheck` hard-requires `BB_HASHSERVE` to be set
+    and calls `bb.fatal` otherwise during cooker init, before any
+    recipe is parsed.  Fixed by setting both `BB_HASHSERVE = ''` and
+    `BB_SIGNATURE_HANDLER = 'OEBasicHash'` explicitly in
+    `kas/main.kas.yml`, which also makes the prior
+    `BB_HASHSERVE_DB_DIR = "${SSTATE_DIR}"` line dead configuration;
+    that line was removed and its intent folded into the block's
+    FIXME comment for when a private hashserv is deployed.
+  Build attempt 6 reached bitbake's dependency-resolution stage and reported
+  5 ERRORs, all tracing to `virtual/libx11-native` being filtered out of
+  native builds because 'x11' was absent from `DISTRO_FEATURES_NATIVE`:
+  - libx11-native: `libsdl2.bb` and `libepoxy.bb` both hardcode
+    `PACKAGECONFIG:class-native` to include 'x11' unconditionally.
+    `qemu-system-native` pulls them in via its own `PACKAGECONFIG` (`sdl`,
+    `epoxy`).  oe-core's `qemuboot.bbclass` unconditionally adds
+    `qemu-system-native` to `EXTRA_IMAGEDEPENDS`; genericx86-64's machine
+    chain enables that class via `IMAGE_CLASSES += "qemuboot"` for `runqemu`
+    support, not via `meta-extsdk-toolchain`.
+  While auditing `DISTRO_FEATURES_NATIVE` for the x11 fix, a second latent
+  defect was found by code inspection, not itself among attempt 6's 5
+  ERRORs:
+  - systemd-native: oe-core's `systemd.bb` has no native `BBCLASSEXTEND`, so
+    "systemd-native" can never be provided, yet `DISTRO_FEATURES_NATIVE`
+    still carried 'systemd'.  `util-linux.bb` inherits `systemd.bbclass` and
+    sets `BBCLASSEXTEND = "native nativesdk"`; with 'systemd' in
+    `DISTRO_FEATURES_NATIVE`, `util-linux-native` picked up an unresolvable
+    `DEPENDS` on `systemd-systemctl-native` via that class's unconditional
+    `__anonymous` check.  (`uutils-coreutils` was checked as a candidate
+    cause, since it also carries a systemd-gated native `PACKAGECONFIG`, but
+    meta-oe's `layer.conf` pins `PREFERRED_PROVIDER_coreutils-native` to GNU
+    `coreutils-native`, so `uutils-coreutils-native` is never selected into
+    the graph; confirmed by its absence from
+    `pn-buildlist`/`task-depends.dot` after the fix below.)
+  Restoring 'x11' to `DISTRO_FEATURES_NATIVE` cleared the 5
+  originally-reported ERRORs; re-running `bitbake -g lamadist-image-base`
+  then surfaced the anticipated circular dependency between
+  `util-linux-native` and `systemd-systemctl-native`'s
+  `do_create_recipe_spdx` tasks, confirming the second defect -- this time
+  as a hard cycle instead of a resolution failure.  Fixed by dropping
+  'systemd' from `DISTRO_FEATURES_NATIVE` entirely (see
+  `lamadist-base.inc`).
+  Attempts 7-9 each fixed one further item: stale pre-migration
+  orphans in the repo-default `deploy/` tree colliding with
+  `do_populate_lic` (state cleanup, no code change); the
+  `systemd-conf` bbappend still installing its journald snippet
+  from `WORKDIR` instead of `UNPACKDIR`; and stale scarthgap-era
+  buildhistory tripping `version-going-backwards` on
+  `libdevmapper` (lvm2 legitimately re-versions it on Wrynose;
+  buildhistory re-baselined, no code change).  Build attempt 10
+  completed all 7735 tasks and the M1 QEMU login smoke passes on
+  the Wrynose image.
 
 **Exit criteria:**
 

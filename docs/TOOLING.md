@@ -447,7 +447,7 @@ mise run build --bsp x86_64
 - Defines repositories (layers)
 - Sets distribution (`lamadist`)
 - Configures shared `local_conf_header` settings
-- Specifies default branch (`scarthgap`)
+- Specifies default branch (`wrynose`)
 
 #### BSP configs (bsp/*.kas.yml)
 
