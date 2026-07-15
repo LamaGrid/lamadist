@@ -30,8 +30,9 @@ DISTRO_FEATURES_NATIVE = 'acl xattr ipv4 ipv6 systemd selinux luks ima'
 DISTRO_EXTRA_RDEPENDS += 'packagegroup-core-boot'
 DISTRO_EXTRA_RRECOMMENDS += ''
 
-PREFERRED_VERSION_linux-yocto ?= '6.6%'
-PREFERRED_VERSION_linux-yocto-rt ?= '6.6%'
+# Wrynose ships Linux 6.18 LTS; the 6.6 recipes left oe-core
+PREFERRED_VERSION_linux-yocto ?= '6.18%'
+PREFERRED_VERSION_linux-yocto-rt ?= '6.18%'
 
 SDK_NAME = "${DISTRO}-${TCLIBC}-${SDKMACHINE}-${IMAGE_BASENAME}-${TUNE_PKGARCH}-${MACHINE}"
 SDKPATHINSTALL = "/opt/${DISTRO}/${SDK_VERSION}"
@@ -41,7 +42,7 @@ PACKAGE_CLASSES = 'package_rpm'
 # systemd
 INIT_MANAGER = 'systemd'
 EFI_PROVIDER = 'systemd-boot'
-DISTRO_FEATURES_BACKFILL_CONSIDERED += 'sysvinit'
+DISTRO_FEATURES_OPTED_OUT += 'sysvinit'
 VIRTUAL-RUNTIME_init_manager = 'systemd'
 VIRTUAL-RUNTIME_initscripts = ''
 PREFERRED_PROVIDER_virtual/bootloader = 'systemd-boot'
@@ -52,8 +53,10 @@ PACKAGECONFIG:append:pn-systemd = ' cryptsetup'
 IMAGE_FSTYPES ?= 'ext4 wic wic.xz wic.zst wic.bmap'
 
 # /var/log must be a real directory (not a link into volatile
-# tmpfs) so the journal persists on the writable /var partition
-VOLATILE_LOG_DIR = 'no'
+# tmpfs) so the journal persists on the writable /var partition.
+# Since 6.0 this is selected by dropping fs-perms-volatile-log.txt
+# from the perms tables (VOLATILE_LOG_DIR is gone).
+FILESYSTEM_PERMS_TABLES = "files/fs-perms.txt files/fs-perms-volatile-tmp.txt"
 
 # Release-quality xz compression; constrained machines can override
 # in their machine config, and KAS overlays (debug, qa) override for
@@ -61,7 +64,7 @@ VOLATILE_LOG_DIR = 'no'
 XZ_INTEGRITY_CHECK = 'sha256'
 XZ_COMPRESSION_LEVEL = '-9e'
 
-require conf/distro/include/gcsections.inc
+require conf/distro/include/lamadist-gcsections.inc
 require conf/distro/include/no-static-libs.inc
 require conf/distro/include/security_flags.inc
 require conf/distro/include/yocto-uninative.inc
