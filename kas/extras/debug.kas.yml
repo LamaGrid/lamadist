@@ -7,7 +7,12 @@ local_conf_header:
   40_debug: |
     GRUB_GFXSERIAL                        = '1'
     PATCHRESOLVE                          = 'noop'
-    EXTRA_IMAGE_FEATURES:append           = ' debug-tweaks'
+    EXTRA_IMAGE_FEATURES:append           = ' \
+        allow-empty-password    \
+        empty-root-password     \
+        allow-root-login        \
+        post-install-logging    \
+    '
     IMAGE_FEATURES:remove                 = ' splash'
     IMAGE_INSTALL:append                  = ' curl less'
 
