@@ -72,7 +72,13 @@ require conf/distro/include/lamadist-gcsections.inc
 # inherits the uninative class by default, so no explicit INHERIT here
 # either.
 
-FULL_OPTIMIZATION = "-Os -pipe ${DEBUG_FLAGS}"
+# -Os for flash-size budget; use ${DEBUG_LEVELFLAG} (not DEBUG_FLAGS
+# -- renamed upstream).  Do not add ${DEBUG_PREFIX_MAP} here: oe-core's
+# bitbake.conf already appends it in TARGET_CFLAGS, so re-adding it
+# would duplicate the -ffile-prefix-map flags.  Same reasoning for
+# '-pipe': bitbake.conf's TARGET_CFLAGS/BUILDSDK_CFLAGS append it
+# unconditionally, so it no longer belongs in this override either.
+FULL_OPTIMIZATION = "-Os ${DEBUG_LEVELFLAG}"
 
 # Save a little space by disabling wide character support in ncurses
 ENABLE_WIDEC = 'false'

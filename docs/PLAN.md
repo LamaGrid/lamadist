@@ -221,7 +221,24 @@ test as the acceptance gate.
   `kas/extras/aws.yml` is now pinned
 - [x] Update branch pins in all KAS configurations
 - [x] Update `LAYERSERIES_COMPAT` in `meta-lamadist`
-- [ ] Apply Yocto migration-guide changes and fix build fallout
+- [ ] Apply Yocto migration-guide changes and fix build fallout.
+  ostree (`meta-oe/recipes-extended/ostree`) previously failed to
+  parse under bitbake 2.18's pysh shell lexer
+  (`bb.pysh.pyshlex.NeedMore`).  Verified root cause:
+  `FULL_OPTIMIZATION` referenced the undefined `${DEBUG_FLAGS}`
+  (renamed upstream to `DEBUG_LEVELFLAG`).  BitBake leaves undefined
+  `${VAR}` references unexpanded, so the literal text flowed into
+  ostree's `EXTRA_OECONF` and left raw, unevaluated Python source
+  (with Python-style quote escaping) in the shell body of
+  `oe_runconf`; pysh's lexer then hit EOF still inside an
+  unterminated single quote (`_parse_squote`) and raised
+  `NeedMore`.  This is a content-dependent parse failure, not a
+  Python-runtime-version issue.  Fixing `FULL_OPTIMIZATION` to use
+  `${DEBUG_LEVELFLAG}` (see
+  `meta-lamadist/conf/distro/include/lamadist-base.inc`) resolves
+  the parse failure directly, so no `BBMASK` is needed.  Leave this
+  bullet unchecked until `mise run build --bsp x86_64` completes a
+  full parse pass.
 
 **Exit criteria:**
 
