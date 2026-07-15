@@ -25,7 +25,29 @@ SANITY_TESTED_DISTROS ?= " \
             "
 
 DISTRO_FEATURES ?= 'acl xattr ext2 ipv4 ipv6 pam pci seccomp security systemd usrmerge selinux luks ima'
-DISTRO_FEATURES_NATIVE = 'acl xattr ipv4 ipv6 systemd selinux luks ima'
+
+# 'x11' stays here even though the target has no display: this list
+# governs build-host native/cross tool recipes only (never shipped to
+# the target).  libsdl2.bb and libepoxy.bb both hardcode
+# PACKAGECONFIG:class-native to include 'x11' unconditionally,
+# regardless of DISTRO_FEATURES_NATIVE or qemu's own settings, so any
+# native build that pulls them in (qemu-system-native, which
+# oe-core's qemuboot.bbclass unconditionally adds to
+# EXTRA_IMAGEDEPENDS -- enabled for this BSP by genericx86-64's
+# machine chain via `IMAGE_CLASSES += "qemuboot"`) needs
+# virtual/libx11-native to be resolvable.
+#
+# 'systemd' is deliberately absent: oe-core's systemd.bb has no
+# native BBCLASSEXTEND, so "systemd-native" can never be provided.
+# Recipes that unconditionally add "systemd-systemctl-native" to
+# DEPENDS when 'systemd' is in DISTRO_FEATURES (e.g. util-linux via
+# systemd.bbclass) close a hard dependency cycle with
+# systemd-systemctl-native's own build if 'systemd' leaks into the
+# native context.  Any BBCLASSEXTEND=native recipe with an unguarded
+# `bb.utils.filter('DISTRO_FEATURES', 'systemd', d)` default (e.g.
+# appstream) is a landmine for the same reason -- do not re-add
+# 'systemd' here without first auditing for that pattern.
+DISTRO_FEATURES_NATIVE = 'acl x11 xattr ipv4 ipv6 selinux luks ima'
 
 DISTRO_EXTRA_RDEPENDS += 'packagegroup-core-boot'
 DISTRO_EXTRA_RRECOMMENDS += ''
