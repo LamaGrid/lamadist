@@ -28,7 +28,14 @@ bsp_to_machine() {
 #
 # All arguments after "--" (or after options) are passed as the container command.
 run_in_container() {
-	local _interactive="-it"
+	# A pty is only safe when stdin is a real terminal.  When the
+	# caller is detached (CI, agents, nohup), the pty master can
+	# vanish mid-build and every stdio write in the container then
+	# fails with EIO, killing bitbake workers at random.
+	local _interactive=""
+	if [[ -t 0 ]]; then
+		_interactive="-it"
+	fi
 	local _entrypoint_args=()
 	local _cmd=()
 
