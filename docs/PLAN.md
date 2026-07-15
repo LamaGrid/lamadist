@@ -20,8 +20,9 @@ if a status is wrong, fixing it is part of the current milestone.
   compute node, or container workload host.  Devices run 24/7 with
   infrequent physical access; remote management is the norm.
 - **Workload model**: Containers managed by Podman with Quadlet
-  (systemd units).  Cluster orchestration is deferred to future work
-  and is out of scope for the current milestones.
+  (systemd units).  Optional, off-by-default feature overlays add
+  k3s cluster orchestration, an OpenTelemetry collector, and (on
+  x86_64) AWS IoT Greengrass (M7/M8).
 - **Quality attribute priorities** (in order):
   1. Security
   2. Reliability
@@ -39,8 +40,9 @@ if a status is wrong, fixing it is part of the current milestone.
 
 Until lifted, build and test operations are limited to Podman, QEMU,
 static analysis, and unit tests.  No physical hardware testing, and
-no k3s.  Milestones are sequenced so that everything through M4 is
-verifiable entirely in QEMU.
+no k3s in CI or test infrastructure (k3s as an optional image
+feature is in scope; see M7).  Milestones are sequenced so that
+everything through M4 is verifiable entirely in QEMU.
 
 ---
 
@@ -211,6 +213,11 @@ test as the acceptance gate.
   `kas/extras/` has a Wrynose (or compatible) branch; BSP layers
   such as meta-tegra historically trail LTS releases and may need
   pinned revisions or a documented exception
+- [ ] Include the optional-feature layers in the Wrynose check:
+  meta-virtualization (k3s) and meta-aws (Greengrass, Corretto)
+  must have Wrynose branches or pinned compatible revisions, and
+  `kas/extras/aws.yml` needs a branch pin either way (it currently
+  floats)
 - [ ] Update branch pins in all KAS configurations
 - [ ] Update `LAYERSERIES_COMPAT` in `meta-lamadist`
 - [ ] Apply Yocto migration-guide changes and fix build fallout
@@ -320,6 +327,110 @@ working constraints are lifted.
 
 - One tagged v0.x release from `main` with artifacts, SBOM, and
   generated release notes
+
+### M7: Optional Workload Features
+
+**Status:** Not Started
+**Goal:** A documented optional-feature pattern, proven by two
+features on all platforms: an OpenTelemetry collector and k3s.
+Optional features are off by default and live behind KAS overlays
+so the base image never grows.
+
+The pattern (already latent in `kas/extras/`): one overlay per
+feature adds layers, `DISTRO_FEATURES`, and a feature
+packagegroup; `mise run build --feature <name>` composes overlays;
+each feature ships its own smoke assertion and SELinux policy so
+M4's enforcing gate stays green.
+
+- [ ] Document the optional-feature pattern (overlay +
+  packagegroup + smoke assertion + policy module) in
+  ARCHITECTURE.md and TOOLING.md; add `--feature` composition to
+  the build task
+- [ ] otel-collector overlay (all platforms): run the official
+  otel-collector-contrib image as a Quadlet `.container` unit with
+  config in `/etc/otelcol` and state under `/var`; journald and
+  hostmetrics receivers, OTLP exporter.  Decision checkbox:
+  confirm the Quadlet route over a from-scratch Go recipe (no OE
+  recipe exists for the collector; meta-oe only has the C++
+  library)
+- [ ] k3s overlay (all platforms): meta-virtualization k3s with
+  `DISTRO_FEATURES += "virtualization k8s seccomp"`, the kernel
+  config fragment applied to each BSP kernel, and split
+  `k3s-server` / `k3s-agent` package selection; state lives in
+  `/var/lib/rancher`
+- [ ] SELinux: policy modules (or documented permissive domains
+  pending M4 triage) for otelcol and k3s services
+- [ ] Extend the QEMU smoke: with the otel overlay, the collector
+  unit is active and exports pipeline metrics; with the k3s
+  overlay, `k3s kubectl get node` reports Ready on a single node
+
+**Exit criteria:**
+
+- Base image without overlays is byte-identical to the M6 baseline
+  (features are truly optional)
+- Each feature overlay builds and passes its smoke assertion in
+  QEMU x86_64
+
+### M8: AWS IoT Greengrass (x86_64)
+
+**Status:** Not Started
+**Goal:** An optional Greengrass overlay for x86_64 turns a
+LamaDist node into a Greengrass core device, with a clear pattern
+for enabling additional components.
+
+Image-side vs runtime-side split: the image bakes the nucleus, its
+Java runtime, credentials plumbing, and per-component OS
+prerequisites; the components themselves arrive through Greengrass
+deployments (cloud or `greengrass-cli` local) into writable state.
+Greengrass state roots at `/var/lib/greengrass` (`/greengrass/v2`
+symlink), on the writable `/var` partition.
+
+- [ ] Greengrass overlay: meta-aws `greengrass-bin` (nucleus
+  2.16.x) with `corretto-17-bin`, a systemd unit, the
+  `ggc_user`/`ggc_group` accounts, and state on `/var`; pin the
+  meta-aws branch
+- [ ] Decision checkbox: classic Java nucleus vs `greengrass-lite`
+  (C runtime, image-provided component deployment, much smaller
+  footprint but a subset of component features).  Default: classic
+  nucleus, since the required component list below leans on it
+- [ ] Provisioning story: document cloud provisioning (claim certs
+  / fleet provisioning via `greengrass-plugin-fleetprovisioning`)
+  and keep CI cloud-free
+- [ ] Component prerequisites in the image, one checkbox each:
+  - [ ] Lambda runtimes (Python, Node.js): ship `python3` and
+    `nodejs`; the Lambda launcher and Lambda manager components
+    are runtime-deployed
+  - [ ] Docker application manager: decision required -- real
+    `docker` from meta-virtualization vs `podman-docker` compat
+    shim (unsupported by AWS but keeps one container engine)
+  - [ ] MQTT 5 broker (EMQX): runtime component; requires Docker
+    on Linux AND bundles EMQX, which is BUSL-1.1 since v5.9 --
+    **Lucas must sign off before this ships**
+  - [ ] PKCS#11 provider: bake `greengrass-plugin-pkcs11` plus
+    `tpm2-pkcs11` / `p11-kit` so keys can live in the TPM
+  - [ ] MQTT bridge, client device auth, shadow manager, disk
+    spooler, log manager, system log forwarder (LogManager's
+    system log feed): pure runtime components -- verify no image
+    deps beyond the nucleus, document enabling each
+  - [ ] System Manager Agent: runtime component; document the SSM
+    registration flow and its writable-state needs
+  - [ ] Development overlay additions: Greengrass CLI and Local
+    debug console, gated behind the debug/dev overlay only
+- [ ] Document the add-a-component pattern: deployment recipe
+  (cloud or local), image prerequisites checklist, SELinux
+  expectations, and where state lands on the read-only root
+- [ ] SELinux policy for the nucleus and component processes
+  (permissive domains until M4-style triage, then enforcing)
+- [ ] QEMU smoke (cloud-free): nucleus service active, and a local
+  `greengrass-cli` deployment of a helloworld component succeeds
+
+**Exit criteria:**
+
+- Greengrass overlay builds for x86_64; base image unaffected
+- In QEMU: nucleus healthy and a local component deployment runs
+  end-to-end without cloud access
+- Component-enabling pattern documented well enough that adding a
+  new AWS-provided component is a checklist, not a project
 
 ---
 
@@ -466,6 +577,10 @@ with crash-only recovery as the backstop:
   structurally); use finder/verifier panels only for review passes.
 - Reviews at any milestone: independent finders per dimension, then
   adversarial verification of each finding before it is reported.
+- M7/M8: feature overlays are independent of each other and of
+  M5/M6; each is a small serial implementation gated by its own
+  QEMU smoke, parallelizable across agents once the M7 pattern
+  step is merged.
 
 ---
 
@@ -491,10 +606,12 @@ no gate of its own.
 
 Deferred until the milestones above are complete:
 
-- Cluster orchestration for container workloads (tooling TBD)
+- Cluster orchestration beyond single-node k3s (multi-node, HA
+  control plane)
 - Remaining BSPs beyond the reference x86_64 + first ARM board
 - Installer images (anaconda-based) and network install workflows
-- Ecosystem integration: monitoring, logging, cloud services
+- Ecosystem integration beyond M7/M8: additional exporters,
+  dashboards, and cloud services
 - Performance profiling and tuning
 - LTS / backport policy and long-term maintenance tracks
 
