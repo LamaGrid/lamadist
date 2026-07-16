@@ -55,6 +55,21 @@ lamadist_fstab_var() {
 }
 ROOTFS_POSTPROCESS_COMMAND += "lamadist_fstab_var; "
 
+# The RAUC OTA commit/rollback chain (lamadist-health-check, the
+# systemd-boot custom backend, and the bundle hook) all read/write
+# ESP loader entries under /boot at runtime and require it mounted
+# read-write.  Without an explicit fstab entry, whether /boot ends
+# up mounted at all -- and at /boot rather than /efi -- depends on
+# systemd-gpt-auto-generator guessing right, which is not reliable
+# with a dm-verity mapper root.  Pin it the same way /var is pinned,
+# using the filesystem label the WKS template gives the ESP
+# partition (--label msdos on the /boot part in
+# lamadist-dmverity-bootdisk.wks.in).
+lamadist_fstab_boot() {
+    echo 'LABEL=msdos  /boot  vfat  defaults,x-systemd.automount  0  2' >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
+}
+ROOTFS_POSTPROCESS_COMMAND += "lamadist_fstab_boot; "
+
 # read_only_rootfs_hook points sshd at volatile /var/run/ssh host
 # keys, which would regenerate every boot and break known_hosts
 # trust.  Persist them under /var/lib/ssh instead (sshdgenkeys
