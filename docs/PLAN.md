@@ -314,20 +314,28 @@ test as the acceptance gate.
 
 ### M3: OTA Update Core
 
-**Status:** Not Started
-**Goal:** A/B updates with automatic rollback proven end-to-end in
-QEMU.  This is the largest gap between the stated goals and the
-code, so it is staged in two passes.
+**Status:** Pass 1 COMPLETE (2026-07-16, OTA test PASS in QEMU);
+pass 2 not started (mapper-device slots depend on M4 LUKS).
+Update procedure documented in [OTA.md](OTA.md).  Notable fallout
+fixed on the way to green: squashfs needed CONFIG_SQUASHFS_XATTR
+(SELinux rejects xattr-less mounts even permissive); RAUC invokes
+slot hooks as `slot-post-install`, not the manifest's
+`post-install` name; the ESP needed `--fixed-size 512M` to hold
+both slots' boot payloads; `/var/lib/rauc` needed a tmpfiles.d
+entry; systemd-bless-boot had to be masked (auto-blessed trial
+boots behind the health gate); and sd-boot 259.5's `default` key
+ignores boot counting, so primary selection moved into the loader
+entries' `sort-key` lines.
 
 Pass 1 -- plain signed bundles:
 
-- [ ] Implement the split A/B partition layout in WKS (per
+- [x] Implement the split A/B partition layout in WKS (per
   [PARTITIONING.md](PARTITIONING.md))
-- [ ] Write `system.conf` slot definitions matching the layout
-- [ ] Create the bundle recipe and development signing keys
-- [ ] Integrate systemd-boot: slot selection plus a mark-good
+- [x] Write `system.conf` slot definitions matching the layout
+- [x] Create the bundle recipe and development signing keys
+- [x] Integrate systemd-boot: slot selection plus a mark-good
   health-check service
-- [ ] QEMU test: install, reboot, health check, commit; then a
+- [x] QEMU test: install, reboot, health check, commit; then a
   forced failure that triggers automatic rollback
 
 Pass 2 -- after pass 1 is green:

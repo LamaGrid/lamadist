@@ -174,6 +174,7 @@ Core layers (`kas/main.kas.yml`, always present):
 │   ├── meta-perl/
 │   └── meta-python/
 ├── meta-clang/                  # Clang/LLVM toolchain
+├── meta-rauc/                   # OTA update system (RAUC)
 ├── meta-secure-core/            # Security features
 │   ├── meta-secure-core-common/
 │   ├── meta-encrypted-storage/  # LUKS support
@@ -202,7 +203,6 @@ or `kas/installer.kas.yml`; none are enabled by default):
 
 ```
 ├── meta-virtualization/         # Container runtime (extras/containers.yml)
-├── meta-rauc/                   # OTA update system (extras/rauc.kas.yml)
 ├── meta-aws/                    # AWS tooling (extras/aws.yml)
 ├── meta-browser/                # Kiosk demo (extras/demo.kas.yml)
 ├── meta-security/meta-security-compliance/  # OpenSCAP (scanners/security.kas.yml)
@@ -243,8 +243,7 @@ Key files:
   ARM BSP support (per-BSP)
 - **meta-virtualization**: Container runtime support (optional
   overlay `kas/extras/containers.yml`)
-- **meta-rauc**: Update and recovery system (optional overlay
-  `kas/extras/rauc.kas.yml`)
+- **meta-rauc**: Update and recovery system (core since M3)
 
 ---
 
@@ -318,7 +317,6 @@ kas/
 │   ├── demo.kas.yml          # meta-browser kiosk demo
 │   ├── no-gplv3.kas.yml      # Exclude (L/A)GPL-3.0 packages
 │   ├── qa.kas.yml            # QA image types, fast compression
-│   ├── rauc.kas.yml          # meta-rauc OTA updates
 │   └── sbom.kas.yml          # SPDX source archiving
 ├── scanners/                 # Compliance scanner overlays
 │   └── security.kas.yml      # OpenSCAP (meta-security-compliance)
@@ -725,9 +723,14 @@ On systems that support it (x86_64 UEFI), boot artifacts are packaged into a UKI
 
 ## Update and Maintenance
 
-### OTA Update System (RAUC) *(planned; M3)*
+### OTA Update System (RAUC) *(pass 1 proven; M3)*
 
-LamaDist will use RAUC (Robust Auto-Update Controller) for safe, atomic updates.  Nothing below is implemented yet -- meta-rauc is an opt-in overlay today, with no system.conf, bundle recipe, slot layout, or bootloader integration (see PLAN.md M3):
+LamaDist uses RAUC (Robust Auto-Update Controller) for safe,
+atomic updates.  M3 pass 1 -- plain signed bundles on the split
+A/B layout with systemd-boot boot counting, health-gated commit,
+and forced-failure rollback -- is proven end-to-end in QEMU (see
+[OTA.md](OTA.md)); LUKS, EROFS, crypt bundles, and mapper-device
+slot targets below remain planned (M4 / pass 2):
 
 ```mermaid
 flowchart TD
