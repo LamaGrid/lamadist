@@ -37,6 +37,27 @@ repos:
     path: 'ext/meta-clang'
     branch: wrynose
 
+  # Exception to the Wrynose migration (M2), same documented-exception
+  # pattern as meta-anaconda in kas/installer.kas.yml: meta-rauc has no
+  # wrynose branch (newest release branch is whinlatter; verified
+  # 2026-07-15).  whinlatter and master both carry rauc 1.15.1 and
+  # declare LAYERSERIES_COMPAT_rauc = "whinlatter" only, so either
+  # pin needs the compat patch below; whinlatter is pinned for
+  # stability.  bitbake's fatal LAYERSERIES_COMPAT check
+  # (ext/bitbake/lib/bb/cookerdata.py) reads conf/layer.conf directly
+  # during the BBLAYERS loop, before local.conf is even parsed, so a
+  # local_conf_header append cannot satisfy it -- the layer.conf
+  # itself must carry "wrynose".  Remove this patch once upstream
+  # meta-rauc branches for wrynose.
+  meta-rauc:
+    url: 'https://github.com/rauc/meta-rauc.git'
+    path: 'ext/meta-rauc'
+    branch: whinlatter
+    patches:
+      wrynose-compat:
+        repo: meta-lamadist
+        path: patches/meta-rauc/0001-layerseries-compat-wrynose.patch
+
   # Core build system.  Since whinlatter (5.3) the poky repo is no
   # longer branched; the supported setup is separate bitbake and
   # openembedded-core clones.  bitbake 2.18 is the 6.0 (wrynose)
@@ -104,6 +125,16 @@ local_conf_header:
 
   10_deploy: |
     DEPLOY_DIR = "${TOPDIR}/../deploy"
+
+  # RAUC is core to LamaDist (M3: OTA updates are a product
+  # requirement, not an overlay), so its DISTRO_FEATURES flag lives
+  # here rather than in an extras/*.kas.yml overlay.  The
+  # LAYERSERIES_COMPAT_rauc extension is carried as a patch against
+  # meta-rauc's own conf/layer.conf (see the meta-rauc repo pin
+  # above), not as a local.conf setting: bitbake's fatal compat
+  # check runs before local.conf is parsed.
+  10_rauc: |
+    DISTRO_FEATURES:append = ' rauc'
 
   # FIXME: Create a private sstate-cache and hashserv server.  Trusting
   # public servers is insecure.  When a private hashserv is deployed,

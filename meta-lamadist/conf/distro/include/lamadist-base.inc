@@ -70,6 +70,12 @@ VIRTUAL-RUNTIME_initscripts = ''
 PREFERRED_PROVIDER_virtual/bootloader = 'systemd-boot'
 PACKAGECONFIG:append:pn-systemd = ' cryptsetup'
 
+# 'efi' is not in DISTRO_FEATURES (only the genericx86-64 BSP's
+# MACHINE_FEATURES has it), so systemd's PACKAGECONFIG[efi] --
+# bootctl and systemd-bless-boot -- would otherwise be off.  RAUC's
+# systemd-boot bootchooser backend (M3) needs both on target.
+PACKAGECONFIG:append:pn-systemd = ' efi'
+
 # All image types any build stage might need; machines override
 # IMAGE_FSTYPES to select their actual output formats
 IMAGE_FSTYPES ?= 'ext4 wic wic.xz wic.zst wic.bmap'
