@@ -1,0 +1,74 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# initramfs-framework dmverity module (LamaDist override).
+#
+# Upstream (meta-security) resolves the root hash and partition
+# UUIDs from /usr/share/misc/dm-verity.env, baked in at image build
+# time.  That describes only the slot that was on disk at build
+# time, so it cannot pick between the A/B slots after an update.
+#
+# Slot discovery instead comes from the kernel cmdline, set per
+# systemd-boot entry by the RAUC bundle-install hook:
+#
+#   roothash=<hex root hash>   lamadist.slot=a|b
+#
+# DATA_BLOCK_SIZE is a distro-wide constant (DM_VERITY_IMAGE_DATA_
+# BLOCK_SIZE), not per-slot data, so it is still read from the
+# build-baked env file.  Module name/entry point/install path are
+# unchanged so the rest of the INITRAMFS wiring (module ordering,
+# PACKAGES, FILES) keeps working untouched.
+
+dmverity_enabled() {
+    return 0
+}
+
+dmverity_run() {
+    DATA_BLOCK_SIZE="__not_set__"
+    . /usr/share/misc/dm-verity.env
+
+    SLOT="${bootparam_lamadist_slot}"
+    case "${SLOT}" in
+        a|b)
+            ;;
+        *)
+            fatal "lamadist.slot=${SLOT} on cmdline is not 'a' or 'b'"
+            exit 1
+            ;;
+    esac
+
+    ROOT_HASH="${bootparam_roothash}"
+    if [ -z "${ROOT_HASH}" ]; then
+        fatal "roothash= missing from the kernel cmdline"
+        exit 1
+    fi
+
+    ROOT_DEV="/dev/disk/by-partlabel/rootfs_${SLOT}"
+    HASH_DEV="/dev/disk/by-partlabel/hash_${SLOT}"
+
+    C=0
+    delay=${bootparam_rootdelay:-1}
+    timeout=${bootparam_roottimeout:-5}
+
+    while [ ! -b "${ROOT_DEV}" ] || [ ! -b "${HASH_DEV}" ]; do
+        if [ $(( $C * $delay )) -gt $timeout ]; then
+            fatal "Root/hash device resolution failed for slot ${SLOT}"
+            exit 1
+        fi
+        debug "Sleeping for $delay second(s) to wait for slot ${SLOT} partitions to settle..."
+        sleep $delay
+        C=$(( $C + 1 ))
+    done
+
+    veritysetup \
+        --data-block-size=${DATA_BLOCK_SIZE} \
+        create rootfs \
+        ${ROOT_DEV} \
+        ${HASH_DEV} \
+        ${ROOT_HASH}
+
+    mount \
+        -o ro \
+        /dev/mapper/rootfs \
+        ${ROOTFS_DIR} || exit 2
+}
