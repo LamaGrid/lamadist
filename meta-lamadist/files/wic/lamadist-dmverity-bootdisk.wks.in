@@ -1,21 +1,56 @@
-# short-description: Create an EFI disk image with systemd-boot, separate initramfs, and dm-verity
+# short-description: Create an EFI disk image with systemd-boot, separate initramfs, and dm-verity A/B slots
 # Based on meta-security's systemd-bootdisk-dmverity-hash.wks.in, modified to
 # load the dm-verity initramfs separately (not bundled into the kernel image).
 # This avoids a kernel recompile every build caused by the upstream initramfs
 # recipe's do_image[nostamp] = "1" flag combined with INITRAMFS_IMAGE_BUNDLE=1.
 #
 # This .wks only works with the dm-verity-img class and separate hash data (DM_VERITY_SEPARATE_HASH).
+#
+# A/B layout: rootfs_a/hash_a are rawcopy'd from the build's
+# .ext4.verity/.ext4.vhash artifacts; rootfs_b/hash_b are empty,
+# fixed-size raw partitions RAUC writes into during an update.  Slot
+# discovery is by PARTLABEL + the kernel cmdline roothash (see
+# initramfs-framework-dm dmverity override), not by build-baked
+# PARTUUIDs, so the dm-verity-img class's generated
+# ${STAGING_VERITY_DIR}/....wks.in fragment (single-slot, UUID-based)
+# is not included here.
 
 # --part-type sets the DPS/UEFI ESP type UUID; without it the
 # partition is typed as Microsoft basic data and firmware need not
 # treat it as the EFI System Partition.
-part /boot --source bootimg-efi --sourceparams="loader=systemd-boot,initrd=microcode.cpio;${INITRAMFS_IMAGE}-${MACHINE}.${INITRAMFS_FSTYPES}" --ondisk sda --label msdos --active --align 1024 --use-uuid --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+#
+# --include-path seeds slot A's boot files and systemd-boot entry
+# (kernel, initramfs, microcode, loader/entries/lamadist-a+3.conf,
+# loader/loader.conf) so first boot uses the same PARTLABEL +
+# roothash discovery an OTA update to slot B will use later; see
+# classes/lamadist-esp-slot-a.bbclass (do_image_wic prefunc) for
+# what populates that directory.  Trailing "/." copies the
+# directory's contents, not the directory itself.
+#
+# install-kernel-into-boot-dir=false and no initrd= sourceparam:
+# every loader entry references /lamadist/<slot>/ paths only, so
+# bootimg-efi's root-level kernel/initrd copies would be ~69 MB of
+# dead weight (the stock boot.conf that references them is
+# overwritten by the bbclass above).  --fixed-size is mandatory
+# with that: wic otherwise sizes the ESP from its build-time
+# content (slot A only), leaving no room for the RAUC bundle hook
+# to stage slot B's ~70 MB at update time.  512M holds two slots
+# (~70 MB each today) plus growth; resizing an ESP on fielded A/B
+# devices is not realistically possible, so oversize now.
+part /boot --source bootimg-efi --sourceparams="loader=systemd-boot,install-kernel-into-boot-dir=false" --ondisk sda --label msdos --active --align 1024 --fixed-size 512M --use-uuid --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b --include-path ${LAMADIST_ESP_SLOT_A_DIR}/.
 
-# include the root+hash part with the dynamic hash/UUIDs from the build.
-include ${STAGING_VERITY_DIR}/${IMAGE_BASENAME}.${DM_VERITY_IMAGE_TYPE}.wks.in
+# Slot A: populated from this build's dm-verity artifacts.
+part --source rawcopy --sourceparams="file=${DM_VERITY_DEPLOY_DIR}/${DM_VERITY_IMAGE}-${MACHINE}${IMAGE_NAME_SUFFIX}.${DM_VERITY_IMAGE_TYPE}.verity" --ondisk sda --align 1024 --fixed-size ${DM_VERITY_ROOT_SIZE} --part-name rootfs_a --part-type="${DM_VERITY_ROOT_GUID}" --use-uuid
+part --source rawcopy --sourceparams="file=${DM_VERITY_DEPLOY_DIR}/${DM_VERITY_IMAGE}-${MACHINE}${IMAGE_NAME_SUFFIX}.${DM_VERITY_IMAGE_TYPE}.vhash" --ondisk sda --align 1024 --fixed-size ${DM_VERITY_HASH_SIZE} --part-name hash_a --part-type="${DM_VERITY_RHASH_GUID}" --use-uuid
 
-# add "console=ttyS0,115200" or whatever you need to the --append="..."
-bootloader --ptable gpt --timeout=5 --append="root=/dev/mapper/rootfs"
+# Slot B: empty until the first RAUC update writes it; --fstype=none
+# with no --source reserves the raw space without formatting it.
+part --ondisk sda --align 1024 --fixed-size ${DM_VERITY_ROOT_SIZE} --fstype=none --part-name rootfs_b --part-type="${DM_VERITY_ROOT_GUID}" --use-uuid
+part --ondisk sda --align 1024 --fixed-size ${DM_VERITY_HASH_SIZE} --fstype=none --part-name hash_b --part-type="${DM_VERITY_RHASH_GUID}" --use-uuid
+
+# root= moves to the per-slot systemd-boot entry (roothash=,
+# lamadist.slot=); only slot-independent args belong here.
+bootloader --ptable gpt --timeout=5 --append=""
 
 part swap --ondisk sda --size 44 --label swap1 --fstype=swap --use-uuid
 
@@ -23,4 +58,4 @@ part swap --ondisk sda --size 44 --label swap1 --fstype=swap --use-uuid
 # into the image (lamadist-image.bbclass); DPS "Variable Data" type
 # UUID.  --no-fstab-update because the rootfs partition content is
 # verity-sealed and must not be modified by wic.
-part /var --ondisk sda --fstype=ext4 --label var --align 1024 --size 512M --part-type 4d21b016-b534-45c2-a9fb-5c16e091fd2d --no-fstab-update --use-uuid
+part /var --ondisk sda --fstype=ext4 --label var --align 1024 --size 2G --part-type 4d21b016-b534-45c2-a9fb-5c16e091fd2d --no-fstab-update --use-uuid

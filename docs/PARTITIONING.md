@@ -193,23 +193,26 @@ Below are **Wic (.wks)** kickstart templates for Yocto.
 ```
 bootloader --ptable gpt --timeout=3 --append="rootwait"
 
-# ESP
-part /boot/efi --source bootimg-efi --sourceparams="loader=systemd-boot" --ondisk sda --label efi --active --align 1024 --fixed-size 100M --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+# ESP -- sized for BOTH slots' boot payloads (kernel + initramfs +
+# microcode, ~70 MB per slot today) plus growth; an OTA update
+# stages the inactive slot's files here before switching, and an
+# ESP can never realistically be resized on fielded A/B devices.
+part /boot/efi --source bootimg-efi --sourceparams="loader=systemd-boot" --ondisk sda --label efi --active --align 1024 --fixed-size 512M --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b
 
 # Rootfs A (x86_64 UUID) - LUKS Container
-part / --source rootfs --ondisk sda --fstype=erofs --label rootfs_a --align 1024 --fixed-size 1G --part-type 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
+part / --source rootfs --ondisk sda --fstype=erofs --label rootfs_a --align 1024 --fixed-size 4G --part-type 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
 
 # Verity A (x86_64 Verity UUID)
-part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_a --align 1024 --fixed-size 64M --part-type 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
+part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_a --align 1024 --fixed-size 128M --part-type 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
 
 # Rootfs B (x86_64 UUID) - LUKS Container
-part --source rootfs --ondisk sda --fstype=erofs --label rootfs_b --align 1024 --fixed-size 1G --part-type 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
+part --source rootfs --ondisk sda --fstype=erofs --label rootfs_b --align 1024 --fixed-size 4G --part-type 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
 
 # Verity B (x86_64 Verity UUID)
-part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_b --align 1024 --fixed-size 64M --part-type 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
+part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_b --align 1024 --fixed-size 128M --part-type 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
 
 # Data (LUKS Container)
-part /var --ondisk sda --fstype=ext4 --label var --align 1024 --fixed-size 512M --part-type 4d21b016-b534-45c2-a9fb-5c16e091fd2d
+part /var --ondisk sda --fstype=ext4 --label var --align 1024 --fixed-size 2G --part-type 4d21b016-b534-45c2-a9fb-5c16e091fd2d
 ```
 
 #### Configuration
@@ -260,7 +263,7 @@ WantedBy=local-fs.target
 bootloader --ptable gpt --timeout=3 --append="rootwait"
 
 # ESP
-part /boot/efi --source bootimg-efi --sourceparams="loader=systemd-boot" --ondisk nvme0n1 --label efi --active --align 1024 --fixed-size 100M --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+part /boot/efi --source bootimg-efi --sourceparams="loader=systemd-boot" --ondisk nvme0n1 --label efi --active --align 1024 --fixed-size 512M --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b
 
 # Rootfs A (ARM64 UUID) - LUKS Container
 part / --source rootfs --ondisk nvme0n1 --fstype=erofs --label rootfs_a --align 1024 --fixed-size 4G --part-type 69dad710-2ce4-4e3c-b16c-21a1d49abed3
@@ -308,7 +311,7 @@ part --source rawcopy --sourceparams="file=idbloader.img" --ondisk mmcblk0 --ali
 part --source rawcopy --sourceparams="file=u-boot.itb" --ondisk mmcblk0 --align 8192 --no-table
 
 # 2. ESP
-part /boot/efi --source bootimg-efi --sourceparams="loader=u-boot" --ondisk mmcblk0 --label efi --active --align 1024 --fixed-size 100M --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+part /boot/efi --source bootimg-efi --sourceparams="loader=u-boot" --ondisk mmcblk0 --label efi --active --align 1024 --fixed-size 512M --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b
 
 # 3. Rootfs A (ARM64 UUID) - LUKS Container
 part / --source rootfs --ondisk mmcblk0 --fstype=erofs --label rootfs_a --align 1024 --fixed-size 1G --part-type 69dad710-2ce4-4e3c-b16c-21a1d49abed3
