@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# No unit-level OnFailure=reboot.target here: that would fire on
+# every future health failure, even after this slot has already been
+# marked good and its systemd-boot counter stripped -- with no
+# counter left to exhaust, that becomes an unconditional reboot loop
+# instead of a graceful degrade.  lamadist-health-check itself checks
+# whether the boot is still a pending boot-counting trial and only
+# reboots in that case.
+[Unit]
+Description=LamaDist RAUC health gate (mark-good on success, reboot while pending)
+After=multi-user.target sshd.socket
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/rauc/lamadist-health-check
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,71 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# ExecStart for lamadist-health.service: marks the booted RAUC slot
+# good only once the system is confirmed healthy.  On failure, this
+# only reboots (so systemd-boot burns a boot-counting try and falls
+# back to the other slot) while the booted slot's loader entry still
+# carries a counter, i.e. this boot is still a pending trial.  Once a
+# slot has been marked good, files/systemd-boot-backend's set-state
+# strips the counter (renames to the bare lamadist-<slot>.conf), so
+# there is no counter left to burn and no other slot to fall back to
+# -- rebooting unconditionally there would loop forever instead of
+# degrading gracefully.
+
+set -eu
+
+FLAG=/var/lamadist-force-unhealthy
+# Marker baked onto the read-only rootfs at build time (rauc-conf.
+# bbappend's LAMADIST_OTA_TEST_HOOKS); the FLAG check below is a
+# no-op without it, so a plain write to the writable /var partition
+# can never suppress an update on an image built with that switch
+# off (M6 release builds).
+TEST_HOOKS_MARKER=/etc/lamadist/ota-test-hooks-enabled
+ESP_ENTRIES=/boot/loader/entries
+
+slot=""
+for tok in $(cat /proc/cmdline); do
+	case "${tok}" in
+	lamadist.slot=*)
+		slot=${tok#lamadist.slot=}
+		;;
+	esac
+done
+
+# Pending iff the bare (counterless) entry for this slot does not
+# exist yet -- mirrors files/systemd-boot-backend's get-state check.
+# Open risk: this assumes `rauc status mark-good` strips the counter
+# the same way files/systemd-boot-backend's set-state good does; if
+# RAUC 1.15.1 ships a native systemd-boot bootchooser backend instead
+# (see the M3 plan's bootloader-backend decision) it may reset
+# counters on its own schedule, which this check needs to be verified
+# against once that backend choice is confirmed.
+pending=0
+if [ -n "${slot}" ] && [ ! -e "${ESP_ENTRIES}/lamadist-${slot}.conf" ]; then
+	pending=1
+fi
+
+fail() {
+	echo "lamadist-health: $1" >&2
+	if [ "${pending}" -eq 1 ]; then
+		systemctl reboot
+	fi
+	exit 1
+}
+
+if [ -e "${TEST_HOOKS_MARKER}" ] && [ -e "${FLAG}" ]; then
+	fail "forced-unhealthy flag present (${FLAG})"
+fi
+
+state=$(systemctl is-system-running 2>/dev/null || true)
+case "${state}" in
+degraded | failed)
+	fail "systemd is-system-running reports '${state}'"
+	;;
+esac
+
+if ! systemctl is-active --quiet sshd.socket; then
+	fail "sshd.socket is not active"
+fi
+
+exec rauc status mark-good

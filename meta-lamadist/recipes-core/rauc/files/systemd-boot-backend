@@ -1,0 +1,205 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# RAUC custom bootloader backend for systemd-boot boot-counting.
+# RAUC 1.15.1 ships no native systemd-boot bootchooser backend
+# (verified against the fetched upstream source's
+# src/bootchooser.c supported_bootloaders list: barebox, grub,
+# uboot, efi, custom, noop); this implements the documented
+# custom-backend contract (get-current/get-primary/set-primary/
+# get-state/set-state -- see RAUC's docs/integration.rst,
+# "Custom Bootloader Backend") against systemd-boot loader entries.
+#
+# Loader entries are named lamadist-<slot>.conf once RAUC has
+# confirmed the slot good, or lamadist-<slot>+<tries-left>
+# [-<tries-done>].conf while pending (systemd-boot itself rewrites
+# the counter on each boot attempt; see systemd-boot(7) "Automatic
+# Boot Assessment").  This script only resolves/writes the
+# loader.conf "preferred" pointer and strips/zeroes the counter for
+# RAUC's own good/bad calls -- it does not implement boot counting.
+#
+# Primary selection is encoded in the entries' sort-key lines, NOT
+# in loader.conf.  systemd-boot 259.5's config_select_default_entry
+# (src/boot/boot.c, verified against the pinned v259.5 tag) matches
+# a loader.conf "default" pattern with no boot-assessment check --
+# an entry with zero tries left still gets booted, forever
+# (observed: a dead slot retried to tries-done=8 while a good slot
+# sat in the menu) -- and the assessment-aware "preferred" key only
+# exists in later systemd.  The one assessment-aware mechanism in
+# 259.5 is the sorted entry list ("first suitable entry" fallback):
+# exhausted entries sort last, sort-key'd entries sort before
+# keyless ones, and sort-keys compare ascending.  So: no default in
+# loader.conf at all; the primary slot's entry carries
+# "sort-key lamadist-10", the secondary "sort-key lamadist-20", and
+# wic's keyless boot.conf sorts dead last.  Rollback is then pure
+# boot counting: primary exhausts, sorts last, secondary wins.
+# set-primary strips any default/preferred line from loader.conf so
+# a lingering pin can never resurrect a dead slot.
+
+set -eu
+
+ESP=/boot
+ENTRIES="${ESP}/loader/entries"
+LOADER_CONF="${ESP}/loader/loader.conf"
+
+entry_for_slot() {
+	# Print the one loader-entries path for slot $1, whatever its
+	# current counter suffix; fail if none exists.
+	for f in "${ENTRIES}"/lamadist-"$1".conf "${ENTRIES}"/lamadist-"$1"+*.conf; do
+		[ -e "${f}" ] || continue
+		printf '%s\n' "${f}"
+		return 0
+	done
+	return 1
+}
+
+slot_from_entry() {
+	# Strips the "lamadist-" prefix and everything from the first
+	# "+" (tries-left suffix) or "*" (glob pattern, as written by
+	# set_default) onward, leaving just the slot letter.
+	base=$(basename "$1" .conf)
+	base=${base#lamadist-}
+	printf '%s\n' "${base%%[+*]*}"
+}
+
+entry_sort_key() {
+	# Print the sort-key value of entry file $1 (empty if none).
+	sortkey=""
+	while read -r key val; do
+		[ "${key}" = "sort-key" ] && sortkey="${val}"
+	done <"$1"
+	printf '%s\n' "${sortkey}"
+}
+
+entry_set_sort_key() {
+	# Rewrite entry file $1 with sort-key $2 (replace or append).
+	entry_file=$1
+	value=$2
+	tmp="${entry_file}.new"
+	found=0
+	{
+		while read -r key val; do
+			if [ "${key}" = "sort-key" ]; then
+				printf 'sort-key %s\n' "${value}"
+				found=1
+			else
+				printf '%s\n' "${key:+${key} }${val}"
+			fi
+		done <"${entry_file}"
+		[ "${found}" -eq 1 ] || printf 'sort-key %s\n' "${value}"
+	} >"${tmp}"
+	mv "${tmp}" "${entry_file}"
+}
+
+strip_loader_pins() {
+	# Remove any default/preferred line from loader.conf: both pin
+	# an entry without regard to boot counting on this sd-boot (see
+	# header) and would defeat the sort-key fallback.
+	[ -f "${LOADER_CONF}" ] || return 0
+	tmp="${LOADER_CONF}.new"
+	{
+		while read -r key val; do
+			case "${key}" in
+			default | preferred) ;;
+			*) printf '%s\n' "${key:+${key} }${val}" ;;
+			esac
+		done <"${LOADER_CONF}"
+	} >"${tmp}"
+	mv "${tmp}" "${LOADER_CONF}"
+}
+
+cmd=${1:?usage: $0 CMD [ARGS...]}
+
+case "${cmd}" in
+get-current)
+	for tok in $(cat /proc/cmdline); do
+		case "${tok}" in
+		lamadist.slot=*)
+			printf '%s\n' "${tok#lamadist.slot=}"
+			exit 0
+			;;
+		esac
+	done
+	echo "lamadist.slot= not found on /proc/cmdline" >&2
+	exit 1
+	;;
+get-primary)
+	for s in a b; do
+		entry=$(entry_for_slot "${s}") || continue
+		if [ "$(entry_sort_key "${entry}")" = "lamadist-10" ]; then
+			printf '%s\n' "${s}"
+			exit 0
+		fi
+	done
+	echo "no entry with primary sort-key lamadist-10" >&2
+	exit 1
+	;;
+set-primary)
+	bootname=$2
+	entry_for_slot "${bootname}" >/dev/null || { echo "no loader entry for slot ${bootname}" >&2; exit 1; }
+	for s in a b; do
+		entry=$(entry_for_slot "${s}") || continue
+		if [ "${s}" = "${bootname}" ]; then
+			entry_set_sort_key "${entry}" "lamadist-10"
+		else
+			entry_set_sort_key "${entry}" "lamadist-20"
+		fi
+	done
+	strip_loader_pins
+	;;
+get-state)
+	bootname=$2
+	if [ -e "${ENTRIES}/lamadist-${bootname}.conf" ]; then
+		echo good
+	elif entry=$(entry_for_slot "${bootname}"); then
+		# A pending entry (tries-left > 0) is bootable-but-unconfirmed,
+		# not failed -- only a zero-tries-left entry means systemd-boot
+		# has exhausted its attempts and marked the slot bad.
+		case "${entry}" in
+		*"+0.conf"|*"+0-"*.conf)
+			echo bad
+			;;
+		*)
+			echo good
+			;;
+		esac
+	else
+		# No loader entry at all: the slot cannot be booted, which
+		# is the normal state of a never-installed slot on a fresh
+		# disk.  Report it as bad rather than erroring.
+		echo bad
+	fi
+	;;
+set-state)
+	bootname=$2
+	state=$3
+	if ! entry=$(entry_for_slot "${bootname}"); then
+		# RAUC pre-marks the target slot bad before writing it; on
+		# a first-ever install the slot has no loader entry yet, so
+		# "make it unbootable" is already true -- succeed as a
+		# no-op.  Marking a nonexistent entry good stays an error.
+		if [ "${state}" = "bad" ]; then
+			exit 0
+		fi
+		echo "no loader entry for slot ${bootname}" >&2
+		exit 1
+	fi
+	case "${state}" in
+	good)
+		target="${ENTRIES}/lamadist-${bootname}.conf"
+		;;
+	bad)
+		target="${ENTRIES}/lamadist-${bootname}+0.conf"
+		;;
+	*)
+		echo "unknown state '${state}'" >&2
+		exit 1
+		;;
+	esac
+	[ "${entry}" = "${target}" ] || mv "${entry}" "${target}"
+	;;
+*)
+	echo "usage: $0 {get-current|get-primary|set-primary BOOTNAME|get-state BOOTNAME|set-state BOOTNAME good|bad}" >&2
+	exit 1
+	;;
+esac
