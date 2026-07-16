@@ -3,7 +3,7 @@
 """Drive a real login over a QEMU serial unix socket and assert
 command execution.
 
-Usage: _smoke_login.py SOCKET USER PASSWORD TIMEOUT_SECONDS
+Usage: smoke_login.py SOCKET USER PASSWORD TIMEOUT_SECONDS
 
 Asserts, in order:
 1. a getty login prompt appears;
@@ -17,6 +17,11 @@ Asserts, in order:
 
 Exit 0 on success, 1 on failure (with the transcript tail on
 stderr).
+
+The `SerialSession` class and `login()` function below are the
+reusable expect-style serial-console machinery; other drivers
+(e.g. .mise/lib/ota_test.py) import them instead of re-implementing
+socket handling.
 """
 
 import re
@@ -24,77 +29,89 @@ import socket
 import sys
 import time
 
-SOCK_PATH, USER, PASSWORD = sys.argv[1], sys.argv[2], sys.argv[3]
-TIMEOUT = int(sys.argv[4])
-NEW_PASSWORD = PASSWORD + "-Sm0ke!"
 
-deadline = time.monotonic() + TIMEOUT
-transcript = bytearray()
-consumed = 0  # transcript offset already matched by expect()
+class SerialTimeoutError(RuntimeError):
+    """An expected serial pattern never appeared before the deadline."""
 
 
-def fail(msg: str) -> None:
-    tail = transcript[-4000:].decode("utf-8", "replace")
-    print(f"SMOKE FAIL: {msg}", file=sys.stderr)
-    print("---- serial transcript tail ----", file=sys.stderr)
-    print(tail, file=sys.stderr)
-    sys.exit(1)
+class SerialSession:
+    """Minimal expect-style driver for a QEMU serial console exposed
+    as a unix domain socket (chardev socket,server=on,wait=off)."""
+
+    def __init__(self, sock_path: str, timeout: float):
+        self.sock_path = sock_path
+        self.deadline = time.monotonic() + timeout
+        self.transcript = bytearray()
+        self._consumed = 0  # transcript offset already matched by expect()
+        self._sock: "socket.socket | None" = None
+
+    def connect(self) -> None:
+        while time.monotonic() < self.deadline:
+            try:
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.connect(self.sock_path)
+                self._sock = s
+                return
+            except OSError:
+                time.sleep(0.5)
+        raise SerialTimeoutError(
+            f"could not connect to serial socket {self.sock_path}"
+        )
+
+    def expect(self, patterns: "list[str]", what: str) -> int:
+        """Wait until any pattern matches unconsumed output; return
+        its index and consume through the end of the match."""
+        idx, _match = self.expect_capture(patterns, what)
+        return idx
+
+    def expect_capture(
+        self, patterns: "list[str]", what: str
+    ) -> "tuple[int, re.Match[str]]":
+        """As expect(), but also return the match object so callers
+        can pull capture groups (e.g. a slot letter) out of it."""
+        assert self._sock is not None, "connect() not called"
+        regexes = [re.compile(p, re.M) for p in patterns]
+        while time.monotonic() < self.deadline:
+            text = self.transcript[self._consumed :].decode("utf-8", "replace")
+            for i, rx in enumerate(regexes):
+                m = rx.search(text)
+                if m:
+                    self._consumed += len(text[: m.end()].encode("utf-8", "replace"))
+                    return i, m
+            self._sock.settimeout(1.0)
+            try:
+                data = self._sock.recv(4096)
+                if data:
+                    self.transcript.extend(data)
+            except TimeoutError:
+                pass
+            except OSError as exc:
+                raise SerialTimeoutError(
+                    f"serial socket error while waiting for {what}: {exc}"
+                ) from exc
+        raise SerialTimeoutError(f"timeout waiting for {what}")
+
+    def send(self, line: str) -> None:
+        assert self._sock is not None, "connect() not called"
+        self._sock.sendall(line.encode() + b"\n")
+
+    def tail(self, n: int = 4000) -> str:
+        return self.transcript[-n:].decode("utf-8", "replace")
 
 
-def connect() -> socket.socket:
-    while time.monotonic() < deadline:
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.connect(SOCK_PATH)
-            return s
-        except OSError:
-            time.sleep(0.5)
-    fail(f"could not connect to serial socket {SOCK_PATH}")
-    raise AssertionError  # unreachable
+def login(session: SerialSession, user: str, password: str) -> str:
+    """Drive a getty login prompt to a shell, handling a forced
+    password change transparently.  Returns the password actually in
+    effect afterward (changed if the image forced an expiry)."""
+    new_password = password + "-Sm0ke!"
 
+    session.expect([r"login:"], "login prompt")
+    session.send(user)
+    session.expect([r"Password:"], "password prompt")
+    session.send(password)
 
-def expect(sock: socket.socket, patterns: "list[str]", what: str) -> int:
-    """Wait until any pattern matches unconsumed output; return its
-    index and consume through the end of the match."""
-    global consumed
-    regexes = [re.compile(p, re.M) for p in patterns]
-    while time.monotonic() < deadline:
-        text = transcript[consumed:].decode("utf-8", "replace")
-        for i, rx in enumerate(regexes):
-            m = rx.search(text)
-            if m:
-                consumed += len(text[: m.end()].encode("utf-8", "replace"))
-                return i
-        sock.settimeout(1.0)
-        try:
-            data = sock.recv(4096)
-            if data:
-                transcript.extend(data)
-        except TimeoutError:
-            pass
-        except OSError as exc:
-            fail(f"serial socket error while waiting for {what}: {exc}")
-    fail(f"timeout waiting for {what}")
-    raise AssertionError  # unreachable
-
-
-def send(sock: socket.socket, line: str) -> None:
-    sock.sendall(line.encode() + b"\n")
-
-
-def main() -> None:
-    sock = connect()
-
-    expect(sock, [r"login:"], "login prompt")
-    send(sock, USER)
-    expect(sock, [r"Password:"], "password prompt")
-    send(sock, PASSWORD)
-
-    # Forced password change (passwd-expire) or straight to shell.
-    password = PASSWORD
     while True:
-        idx = expect(
-            sock,
+        idx = session.expect(
             [
                 r"Current password:",
                 r"Retype new password:",
@@ -105,36 +122,54 @@ def main() -> None:
             "shell after login",
         )
         if idx == 0:
-            send(sock, password)
+            session.send(password)
         elif idx == 1:
-            send(sock, NEW_PASSWORD)
-            password = NEW_PASSWORD
+            session.send(new_password)
+            password = new_password
         elif idx == 2:
-            send(sock, NEW_PASSWORD)
+            session.send(new_password)
         elif idx == 3:
-            break
+            return password
         else:
-            fail("login rejected (Login incorrect)")
+            raise SerialTimeoutError("login rejected (Login incorrect)")
 
-    # Give the getty/shell handoff a moment; the tty line discipline
-    # buffers input typed early anyway.
-    time.sleep(2)
 
-    # The quoted marker keeps the echoed command line from matching
-    # the expected output.
-    # Full path: sbin is not on the non-root PATH.
-    send(sock, 'echo SMOKE_"OK"; cat /proc/1/attr/current; /usr/sbin/ss -ltn')
-    expect(sock, [r"SMOKE_OK"], "command execution (exec on rootfs)")
+def main() -> None:
+    sock_path, user, password = sys.argv[1], sys.argv[2], sys.argv[3]
+    timeout = int(sys.argv[4])
 
-    idx = expect(
-        sock,
-        [r"kernel_t|^kernel\s*$", r"\w+_t[:\s]"],
-        "PID 1 SELinux domain",
-    )
-    if idx == 0:
-        fail("PID 1 still in kernel_t: rootfs unlabeled or policy not loaded")
+    session = SerialSession(sock_path, timeout)
+    try:
+        session.connect()
+        password = login(session, user, password)
 
-    expect(sock, [r":22\b"], "sshd listening on :22")
+        # Give the getty/shell handoff a moment; the tty line
+        # discipline buffers input typed early anyway.
+        time.sleep(2)
+
+        # The quoted marker keeps the echoed command line from
+        # matching the expected output.  Full path: sbin is not on
+        # the non-root PATH.
+        session.send(
+            'echo SMOKE_"OK"; cat /proc/1/attr/current; /usr/sbin/ss -ltn'
+        )
+        session.expect([r"SMOKE_OK"], "command execution (exec on rootfs)")
+
+        idx = session.expect(
+            [r"kernel_t|^kernel\s*$", r"\w+_t[:\s]"],
+            "PID 1 SELinux domain",
+        )
+        if idx == 0:
+            raise SerialTimeoutError(
+                "PID 1 still in kernel_t: rootfs unlabeled or policy not loaded"
+            )
+
+        session.expect([r":22\b"], "sshd listening on :22")
+    except SerialTimeoutError as exc:
+        print(f"SMOKE FAIL: {exc}", file=sys.stderr)
+        print("---- serial transcript tail ----", file=sys.stderr)
+        print(session.tail(), file=sys.stderr)
+        sys.exit(1)
 
     print("SMOKE PASS: login, exec, SELinux domain, and sshd all OK")
     sys.exit(0)

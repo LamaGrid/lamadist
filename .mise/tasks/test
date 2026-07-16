@@ -56,4 +56,10 @@ echo "==> Build artifact validation passed"
 if [ "${_bsp}" = "x86_64" ] && [ "${_no_boot}" != "true" ]; then
 	echo "==> Running QEMU login smoke test"
 	mise run vm --bsp "${_bsp}" --ci
+
+	# OTA install/rollback test (see .mise/lib/ota_test.py): builds
+	# on the login smoke above, so it shares the same skip flag and
+	# x86_64-only gate rather than adding a second one.
+	echo "==> Running QEMU OTA install/rollback test"
+	mise run test-ota --bsp "${_bsp}"
 fi

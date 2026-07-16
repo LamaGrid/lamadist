@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="QEMU OTA test: RAUC A/B install, health commit, and forced-failure rollback"
+#USAGE flag "-b --bsp <bsp>" help="BSP target to test" default="x86_64" {
+#USAGE   choices "x86_64"
+#USAGE }
+#USAGE flag "-t --timeout <timeout>" help="Timeout in seconds for the RAUC install/reboot/rollback flow (a separate, equal-sized budget also bounds the pre-flight QEMU-boot wait)" default="2400"
+#USAGE flag "-p --ssh-port <port>" help="Host port forwarded to guest :22" default="2223"
+set -o errexit
+set -o nounset
+set -o pipefail
+
+_bsp="${usage_bsp:-x86_64}"
+# Two >1G bundle transfers, two ~3G raw slot writes, and 5-6 boot
+# cycles fit comfortably in 40 min; 900s dies mid-rollback.
+_timeout="${usage_timeout:-2400}"
+_ssh_port="${usage_ssh_port:-2223}"
+
+# QEMU-driven OTA proof only exists for x86_64 (M3 pass 1 scope; see
+# docs/PLAN.md).
+if [[ "${_bsp}" != "x86_64" ]]; then
+	echo "ERROR: test-ota only supports x86_64 (no QEMU story for other BSPs yet)"
+	exit 1
+fi
+
+# shellcheck source=.mise/tasks/_lib.sh
+source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
+
+command -v sshpass >/dev/null || { echo "ERROR: sshpass not found (required to drive password-authenticated ssh/scp against the guest)"; exit 1; }
+
+# bundle.bbclass's do_deploy() installs the .raucb straight into the
+# standard per-machine deploy dir (deploy/images/<machine>/), not a
+# bundles/ subdirectory; newest by mtime picks up the freshest build
+# without hardcoding the datestamp in the filename.
+_bundle=$(find "${LAMADIST_HOST_DEPLOY_DIR}" -name '*.raucb' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
+[[ -n "${_bundle}" ]] || { echo "ERROR: No RAUC bundle (*.raucb) found under ${LAMADIST_HOST_DEPLOY_DIR}/images/<machine>/"; exit 1; }
+echo "==> Using bundle: ${_bundle}"
+
+# Short-lived, short-named tmpdir: shared with the vm task via
+# --tmpdir so both sides agree on the serial/monitor socket paths
+# without parsing stdout, and to stay under the unix sun_path limit.
+_ota_tmpdir=$(mktemp -d /tmp/lamadist-ota.XXXXXX)
+_serial_sock="${_ota_tmpdir}/serial.sock"
+_monitor_sock="${_ota_tmpdir}/monitor.sock"
+
+cleanup() {
+	# Ask QEMU to quit via the monitor socket first (graceful); the
+	# tmpdir path is unique to this run, so a pkill match on it can't
+	# hit an unrelated qemu invocation.
+	if [[ -S "${_monitor_sock}" ]] && command -v socat >/dev/null; then
+		printf 'quit\n' | timeout 5 socat - "UNIX-CONNECT:${_monitor_sock}" >/dev/null 2>&1 || true
+	fi
+	for _ in $(seq 1 20); do
+		pgrep -f "${_ota_tmpdir}" >/dev/null 2>&1 || break
+		sleep 0.5
+	done
+	pkill -f "${_ota_tmpdir}" 2>/dev/null || true
+	wait "${_vm_pid:-}" 2>/dev/null || true
+	rm -rf "${_ota_tmpdir}"
+}
+trap cleanup EXIT
+
+echo "==> Booting QEMU (headless, snapshot + reboot-capable)..."
+mise run vm --bsp "${_bsp}" --headless --allow-reboot --snapshot \
+	--tmpdir "${_ota_tmpdir}" --ssh-port "${_ssh_port}" \
+	>"${_ota_tmpdir}/vm.log" 2>&1 &
+_vm_pid=$!
+
+for _ in $(seq 1 $((_timeout * 2))); do
+	[[ -S "${_serial_sock}" ]] && break
+	kill -0 "${_vm_pid}" 2>/dev/null || {
+		echo "ERROR: vm task exited before starting QEMU; see below"
+		cat "${_ota_tmpdir}/vm.log" 2>/dev/null || true
+		exit 1
+	}
+	sleep 0.5
+done
+[[ -S "${_serial_sock}" ]] || { echo "ERROR: serial socket never appeared at ${_serial_sock}"; exit 1; }
+
+_ota_rc=0
+python3 "${MISE_CONFIG_ROOT}/.mise/lib/ota_test.py" \
+	--serial-sock "${_serial_sock}" \
+	--ssh-port "${_ssh_port}" \
+	--bundle "${_bundle}" \
+	--timeout "${_timeout}" || _ota_rc=$?
+
+if [[ "${_ota_rc}" -eq 0 ]]; then
+	echo "==> QEMU OTA install/rollback test PASSED"
+else
+	echo "==> QEMU OTA install/rollback test FAILED"
+	echo "==> Last 80 lines of serial log:"
+	tail -80 "${_ota_tmpdir}/serial.log" 2>/dev/null || true
+	# Keep the full serial transcript for post-mortem -- the tmpdir
+	# (and QEMU's snapshot state) is gone after cleanup.
+	cp "${_ota_tmpdir}/serial.log" \
+		"${MISE_CONFIG_ROOT}/.cache/agents/ota-serial-fail.log" 2>/dev/null || true
+	exit 1
+fi

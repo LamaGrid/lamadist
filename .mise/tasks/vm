@@ -8,6 +8,9 @@
 #USAGE flag "-c --ci" help="CI mode (headless login smoke test)"
 #USAGE flag "-H --headless" help="Headless-interactive mode: serial/monitor unix sockets + ssh port-forward"
 #USAGE flag "-p --ssh-port <port>" help="Host port forwarded to guest :22 (headless mode)" default="2222"
+#USAGE flag "-R --allow-reboot" help="Let the guest actually reset QEMU on reboot instead of exiting (needed to drive multi-reboot tests)"
+#USAGE flag "-s --snapshot" help="Discard all disk writes on exit (headless/interactive mode; CI mode always snapshots)"
+#USAGE flag "-T --tmpdir <tmpdir>" help="Reuse this dir for ephemeral VM state instead of creating one, so callers can predict socket paths"
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -17,6 +20,9 @@ _timeout="${usage_timeout:-300}"
 _ci="${usage_ci:-false}"
 _headless="${usage_headless:-false}"
 _ssh_port="${usage_ssh_port:-2222}"
+_allow_reboot="${usage_allow_reboot:-false}"
+_snapshot="${usage_snapshot:-false}"
+_tmpdir="${usage_tmpdir:-}"
 
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
@@ -27,15 +33,26 @@ _deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
 _ovmf_code="/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
 _ovmf_vars_template="/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
 
-# Temp directory for ephemeral state (OVMF vars, swtpm)
-_qemu_tmpdir=$(mktemp -d /tmp/qemu-lamadist.XXXXXX)
+# Temp directory for ephemeral state (OVMF vars, swtpm).  A caller
+# driving multi-reboot tests supplies --tmpdir so it knows the
+# socket paths ahead of time instead of parsing stdout.
+if [[ -n "${_tmpdir}" ]]; then
+	mkdir -p "${_tmpdir}"
+	_qemu_tmpdir="${_tmpdir}"
+else
+	_qemu_tmpdir=$(mktemp -d /tmp/qemu-lamadist.XXXXXX)
+fi
 
 cleanup() {
 	local pids=("${_spicy_pid:-}" "${_swtpm_pid:-}")
 	for pid in "${pids[@]}"; do
 		[[ -n "${pid}" ]] && kill "${pid}" 2>/dev/null || true
 	done
-	rm -rf "${_qemu_tmpdir}"
+	# Only remove a tmpdir this task created itself; a caller-supplied
+	# --tmpdir is documented (above) as reusable/predictable, so the
+	# caller owns its lifecycle (e.g. .mise/tasks/test-ota's own
+	# cleanup() removes the same directory).
+	[[ -z "${_tmpdir}" ]] && rm -rf "${_qemu_tmpdir}"
 }
 trap cleanup EXIT
 
@@ -109,6 +126,15 @@ if [[ "${_ci}" == "true" || "${_headless}" == "true" ]]; then
 	_netdev="${_netdev},hostfwd=tcp:127.0.0.1:${_ssh_port}-:22"
 fi
 
+# -no-reboot turns a guest-issued reboot into a QEMU exit, which is
+# right for the single-shot CI login smoke but wrong for multi-boot
+# tests (OTA install/rollback) that need QEMU to actually reset and
+# keep running.
+_reboot_args=(-no-reboot)
+if [[ "${_allow_reboot}" == "true" ]]; then
+	_reboot_args=()
+fi
+
 _qemu_args=(
 	"${_accel_args[@]}"
 	-machine q35
@@ -126,7 +152,7 @@ _qemu_args=(
 	-tpmdev 'emulator,id=tpm0,chardev=chrtpm'
 	-device 'tpm-crb,tpmdev=tpm0'
 	-usb -device usb-tablet
-	-no-reboot
+	"${_reboot_args[@]}"
 )
 
 # Serial console as a unix socket (server, no wait) with a mirror
@@ -137,6 +163,14 @@ _serial_sock="${_qemu_tmpdir}/serial.sock"
 _serial_log="${_qemu_tmpdir}/serial.log"
 _serial_chardev="socket,id=ser0,path=${_serial_sock},server=on,wait=off,logfile=${_serial_log}"
 
+# CI mode always snapshots (throwaway single-shot smoke run);
+# headless/interactive mode only snapshots on request, since a human
+# or agent driving --headless directly may want writes to persist.
+_snapshot_args=()
+if [[ "${_ci}" == "true" || "${_snapshot}" == "true" ]]; then
+	_snapshot_args=(-snapshot)
+fi
+
 if [[ "${_ci}" == "true" ]]; then
 	# --- CI mode: headless login smoke test with timeout ---
 	echo "==> CI login smoke test: image=${_wic_image}"
@@ -144,7 +178,7 @@ if [[ "${_ci}" == "true" ]]; then
 
 	timeout "$((_timeout + 30))" qemu-system-x86_64 \
 		"${_qemu_args[@]}" \
-		-snapshot \
+		"${_snapshot_args[@]}" \
 		-display none \
 		-chardev "${_serial_chardev}" \
 		-serial chardev:ser0 &
@@ -178,6 +212,7 @@ elif [[ "${_headless}" == "true" ]]; then
 
 	qemu-system-x86_64 \
 		"${_qemu_args[@]}" \
+		"${_snapshot_args[@]}" \
 		-display none \
 		-chardev "${_serial_chardev}" \
 		-serial chardev:ser0 \
@@ -196,6 +231,7 @@ else
 
 	qemu-system-x86_64 \
 		"${_qemu_args[@]}" \
+		"${_snapshot_args[@]}" \
 		-device qxl-vga \
 		-spice port="${_spice_port}",disable-ticketing=on \
 		-serial mon:stdio
