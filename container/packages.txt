@@ -64,3 +64,6 @@ python3-newt
 
 # Debug tools
 bind9-dnsutils
+
+# sb-dev key regeneration requirements (regen-dev-sb-keys.sh)
+efitools
