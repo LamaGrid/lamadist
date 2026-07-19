@@ -200,16 +200,16 @@ bootloader --ptable gpt --timeout=3 --append="rootwait"
 part /boot/efi --source bootimg-efi --sourceparams="loader=systemd-boot" --ondisk sda --label efi --active --align 1024 --fixed-size 512M --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b
 
 # Rootfs A (x86_64 UUID) - LUKS Container
-part / --source rootfs --ondisk sda --fstype=erofs --label rootfs_a --align 1024 --fixed-size 4G --part-type 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
+part / --source rootfs --ondisk sda --fstype=erofs --label rootfs_a --align 1024 --fixed-size 3G --part-type 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
 
 # Verity A (x86_64 Verity UUID)
-part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_a --align 1024 --fixed-size 128M --part-type 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
+part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_a --align 1024 --fixed-size 96M --part-type 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
 
 # Rootfs B (x86_64 UUID) - LUKS Container
-part --source rootfs --ondisk sda --fstype=erofs --label rootfs_b --align 1024 --fixed-size 4G --part-type 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
+part --source rootfs --ondisk sda --fstype=erofs --label rootfs_b --align 1024 --fixed-size 3G --part-type 4f68bce3-e8cd-4db1-96e7-fbcaf984b709
 
 # Verity B (x86_64 Verity UUID)
-part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_b --align 1024 --fixed-size 128M --part-type 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
+part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk sda --label hash_b --align 1024 --fixed-size 96M --part-type 2c7357ed-ebd2-46d9-aec1-23d437ec2bf5
 
 # Data (LUKS Container)
 part /var --ondisk sda --fstype=ext4 --label var --align 1024 --fixed-size 2G --part-type 4d21b016-b534-45c2-a9fb-5c16e091fd2d
