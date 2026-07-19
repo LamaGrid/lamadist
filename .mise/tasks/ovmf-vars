@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Build the enrolled OVMF vars artifact for --secureboot VM runs"
+#USAGE flag "-b --bsp <bsp>" help="BSP target to build vars for" default="x86_64" {
+#USAGE   choices "x86_64"
+#USAGE }
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# M4 W10 (stage B).  `.mise/tasks/vm --secureboot` needs a
+# pre-enrolled (PK/KEK/db, SecureBoot on) OVMF vars file next to the
+# WIC image.  This task builds it.
+#
+# Source-of-template decision: the ONLY edk2 vars template available
+# is host-side (`/usr/share/edk2/OvmfX64/OVMF_VARS.fd`, from HARD
+# RULE 6 -- no in-tree OVMF build).  The builder container has no
+# edk2 package and virt-fw-vars can only modify an EXISTING edk2
+# varstore (it detects the format by probing the input file, see
+# `virt.firmware.varstore.autodetect.open_varstore` -- there is no
+# "create from scratch" mode).  So this task copies the host template
+# into the deploy dir on the HOST first (making it visible inside the
+# container through the existing deploy-dir bind mount from
+# `run_in_container`), then runs virt-fw-vars INSIDE the container
+# (where `virt-firmware` is pip-installed, see container/pyproject.toml)
+# to enroll it in place.  The copy is always taken fresh from the
+# pristine host template, never from a previous run's output, so
+# re-running this task is idempotent (no accumulating duplicate
+# certs in db/KEK).
+#
+# The PK/KEK/db certs and their owner GUID come from W8
+# (meta-lamadist/files/sb-dev/); the GUID below is fixed there
+# (regen-dev-sb-keys.sh) precisely so this task does not need to
+# change when dev keys are rotated.
+
+_bsp="${usage_bsp:-x86_64}"
+
+# shellcheck source=.mise/tasks/_lib.sh
+source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
+_machine=$(bsp_to_machine "${_bsp}")
+_deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
+
+# Fixed owner GUID stamped into the sb-dev ESLs/certs by
+# meta-lamadist/files/sb-dev/regen-dev-sb-keys.sh.  Not derived here
+# on purpose -- see that script's header comment.
+_sb_dev_guid='0d648e51-9f2d-453a-bbc1-2200cf8ebe0e'
+
+_host_ovmf_vars_template='/usr/share/edk2/OvmfX64/OVMF_VARS.fd'
+_host_sb_dev_dir="${MISE_CONFIG_ROOT}/meta-lamadist/files/sb-dev"
+_vars_file="${_deploy_dir}/ovmf-vars-enrolled.fd"
+
+# --- Prerequisites (host-side; fail fast with a clear message) ---
+
+[[ -f "${_host_ovmf_vars_template}" ]] || {
+	echo "ERROR: OVMF VARS template not found at ${_host_ovmf_vars_template}"
+	exit 1
+}
+for _cert in pk kek db; do
+	[[ -f "${_host_sb_dev_dir}/${_cert}.cert.pem" ]] || {
+		echo "ERROR: ${_host_sb_dev_dir}/${_cert}.cert.pem not found (run W8's" \
+			"meta-lamadist/files/sb-dev/regen-dev-sb-keys.sh first)"
+		exit 1
+	}
+done
+unset _cert
+
+# --- Stage a fresh copy of the template into the deploy dir ---
+
+mkdir -p "${_deploy_dir}"
+cp "${_host_ovmf_vars_template}" "${_vars_file}"
+
+# --- Enroll PK/KEK/db and enable Secure Boot, inside the container ---
+# Paths below are container-side: MISE_CONFIG_ROOT is bind-mounted at
+# KAS_WORK_DIR and the deploy dir at KAS_WORK_DIR/deploy (see
+# run_in_container in _lib.sh).  The image's ENTRYPOINT is kas, so
+# reaching virt-fw-vars (installed via container/requirements.txt)
+# needs an --entrypoint override, same pattern as
+# container/builder/shell.
+
+_container_vars_file="${KAS_WORK_DIR}/deploy/images/${_machine}/ovmf-vars-enrolled.fd"
+_container_sb_dev_dir="${KAS_WORK_DIR}/meta-lamadist/files/sb-dev"
+
+echo "==> Enrolling PK/KEK/db + SecureBoot into ${_vars_file}"
+run_in_container --no-tty --entrypoint /bin/dumb-init -- virt-fw-vars \
+	--loglevel info \
+	--inplace "${_container_vars_file}" \
+	--set-pk "${_sb_dev_guid}" "${_container_sb_dev_dir}/pk.cert.pem" \
+	--add-kek "${_sb_dev_guid}" "${_container_sb_dev_dir}/kek.cert.pem" \
+	--add-db "${_sb_dev_guid}" "${_container_sb_dev_dir}/db.cert.pem" \
+	--sb
+
+echo "==> Verifying enrolled vars"
+_print_output="$(run_in_container --no-tty --entrypoint /bin/dumb-init -- virt-fw-vars \
+	--loglevel info \
+	--input "${_container_vars_file}" \
+	--print)"
+printf '%s\n' "${_print_output}"
+if ! printf '%s' "${_print_output}" | grep -q 'SecureBootEnable'; then
+	echo 'ERROR: enrolled vars carry no SecureBootEnable variable --' \
+		'virt-fw-vars --sb did not take effect'
+	exit 1
+fi
+
+# Record which host template produced this artifact.  Host edk2
+# upgrades silently change the template (the plan's Risks section
+# calls this out); vm --secureboot compares this sidecar against the
+# live template and demands a re-run on mismatch instead of booting
+# a stale-vars guest whose SB state no longer matches what the test
+# claims to exercise.
+sha256sum "${_host_ovmf_vars_template}" | awk '{print $1}' \
+	> "${_vars_file}.template.sha256"
+
+echo "==> Enrolled OVMF vars: ${_vars_file}"

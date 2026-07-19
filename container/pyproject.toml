@@ -13,4 +13,8 @@ dependencies = [
   "kas",
   "yamllint",
   "check-jsonschema",
+  # M4 W10 (ovmf-vars): enrolls PK/KEK/db and SecureBoot into the
+  # OVMF vars template to build the --secureboot test artifact; see
+  # .mise/tasks/ovmf-vars.
+  "virt-firmware",
 ]
