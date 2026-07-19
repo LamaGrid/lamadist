@@ -3,11 +3,20 @@
 header:
   version: 15
 
+# NOTE: meta-rockchip (wrynose) defines no upstream rk1/turing
+# machine.  meta-lamadist/conf/machine/rk1.conf is authored in the
+# gated M5 port work; until then this stub cannot reach a parseable
+# machine.
 machine: rk1
 target:
-  - secure-core-image
+  - lamadist-image-base
 
 repos:
   meta-arm:
     url: 'https://git.yoctoproject.org/meta-arm'
     path: 'ext/meta-arm'
+
+  meta-rockchip:
+    url: 'https://git.yoctoproject.org/meta-rockchip'
+    path: 'ext/meta-rockchip'
+    branch: wrynose

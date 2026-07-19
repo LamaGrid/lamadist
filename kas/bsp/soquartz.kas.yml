@@ -3,9 +3,13 @@
 header:
   version: 15
 
+# NOTE: upstream's machine for this board is soquartz-model-a; a
+# thin meta-lamadist/conf/machine/soquartz.conf requiring that chain
+# lands in the gated M5 port work.  Leaving `machine: soquartz64`
+# until then.
 machine: soquartz64
 target:
-  - secure-core-image
+  - lamadist-image-base
 
 repos:
   meta-arm:
@@ -18,4 +22,9 @@ repos:
 
 local_conf_header:
   30_soquartz: |
+    # TODO: undocumented landmine per the M5 abstraction-design
+    # review (section 4, MINOR): if meta-rockchip's default
+    # priority 1 genuinely loses a needed override, name the
+    # recipe collision this resolves here, or move the bump to a
+    # documented layer-conf mechanism instead.
     BBFILE_PRIORITY_rockchip = '4'

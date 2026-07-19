@@ -6,6 +6,9 @@ header:
 machine: jetson-orin-nano-devkit-nvme
 # machine: p3768-0000-p3767-0000.conf
 
+target:
+  - lamadist-image-base
+
 repos:
   meta-arm:
     url: 'https://git.yoctoproject.org/meta-arm'
@@ -14,16 +17,16 @@ repos:
   meta-tegra:
     url: 'https://github.com/OE4T/meta-tegra.git'
     path: 'ext/meta-tegra'
+    branch: wrynose
 
   meta-tegra-community:
     url: 'https://github.com/OE4T/meta-tegra-community.git'
     path: 'ext/meta-tegra-community'
+    branch: wrynose
 
-local_conf_header:
-  # TODO: Move GUIDs to a custom machine.conf when creating
-  # a LamaDist-specific machine config for the Orin NX.
-  # Currently kept here because the machine is defined in
-  # meta-tegra and we don't have a custom machine.conf.
-  30_orin_nx: |
-    DM_VERITY_ROOT_GUID ?= 'b921b045-1df0-41c3-af44-4c6f280d3fae'
-    DM_VERITY_RHASH_GUID ?= 'df3300ce-d69f-4c92-978c-9bfb0f38d820'
+# No GUID local_conf_header: the aarch64 dm-verity DPS GUIDs live
+# as per-arch overrides in
+# meta-lamadist/conf/machine/include/lamadist-dmverity.inc, which
+# the M5 backend refactor's thin-leaf LamaDist machine conf will
+# require.  The stock meta-tegra machine above does not include it,
+# and the ARM image build is gated on that same M5 work anyway.
