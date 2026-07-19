@@ -1,0 +1,60 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# ExecStart for lamadist-var-tpm2-enroll.service.  M4 plan W11,
+# DEVELOPMENT-ONLY behavior: adds a TPM2 PCR7 keyslot to the 'var'
+# partition ALONGSIDE the keyfile keyslot lamadist-var-encrypt
+# already wrote -- it does not remove, disable, or replace that
+# slot.  See files/README.md for why: on a non-dev build the
+# committed dev keyfile must not remain a live keyslot once TPM2
+# enrollment succeeds, and that removal/gating mechanism is still
+# pending security-owner sign-off (M4 plan D7 / Open questions).
+#
+# Runs against the raw PARTLABEL=var block device with
+# --unlock-key-file, which only needs to prove ownership of the
+# existing keyfile slot -- it never opens a mapping.  Nothing here
+# needs a "var"-named or transient mapper (see lamadist-var-encrypt's
+# MAPPER_NAME comment for why a transient open under a
+# crypttab-managed name cancels the boot transaction); this script
+# has no equivalent trap because it never calls `cryptsetup open`.
+
+set -eu
+
+DEV=/dev/disk/by-partlabel/var
+KEYFILE=/etc/lamadist/dev-var.key
+
+# DefaultDependencies=no (see the unit file) means udev is not
+# guaranteed to have settled, and the tpm_crb coldplug that creates
+# /dev/tpmrm0 is not guaranteed to have run, by the time this
+# executes.  Mirror lamadist-var-encrypt's udevadm settle, then wait
+# out the TPM probe specifically: `systemd-cryptenroll
+# --tpm2-device=auto` fails outright (no retry) if no /dev/tpmrm0
+# node exists yet.
+udevadm settle --timeout=30
+
+_tpm_wait_timeout=30
+_tpm_wait_delay=1
+_tpm_wait_elapsed=0
+while [ ! -e /dev/tpmrm0 ]; do
+	if [ "${_tpm_wait_elapsed}" -ge "${_tpm_wait_timeout}" ]; then
+		echo "lamadist-var-tpm2-enroll: no /dev/tpmrm0 after ${_tpm_wait_timeout}s, aborting" >&2
+		exit 1
+	fi
+	sleep "${_tpm_wait_delay}"
+	_tpm_wait_elapsed=$((_tpm_wait_elapsed + _tpm_wait_delay))
+done
+
+# Idempotence: systemd-cryptenroll records a LUKS2 token of type
+# "systemd-tpm2" for each TPM2 keyslot it adds, listed by luksDump
+# as "Tokens:\n  <id>: systemd-tpm2".  Matching that line means a
+# previously enrolled device (e.g. a reboot after this unit already
+# ran, or a device imaged from one that had) is a no-op rather than
+# growing a duplicate keyslot on every boot.
+if cryptsetup luksDump "${DEV}" 2>/dev/null | grep -Eq '^[[:space:]]*[0-9]+: systemd-tpm2$'; then
+	echo "lamadist-var-tpm2-enroll: TPM2 token already present on ${DEV}, skipping" >&2
+	exit 0
+fi
+
+echo "lamadist-var-tpm2-enroll: enrolling TPM2 PCR7 keyslot on ${DEV}" >&2
+systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 \
+	--unlock-key-file="${KEYFILE}" "${DEV}"

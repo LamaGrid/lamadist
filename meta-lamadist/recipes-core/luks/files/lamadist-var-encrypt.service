@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Must complete before /etc/crypttab's 'var' entry is ever opened
+# for real (systemd-cryptsetup@var.service, generated at boot by
+# systemd-cryptsetup-generator from the crypttab line in
+# lamadist-image.bbclass) -- otherwise that unit tries to open a
+# partition with no LUKS2 header yet and fails the boot.
+# cryptsetup-pre.target is systemd's documented hook for exactly
+# this, but it is a PASSIVE target: nothing in the boot activates
+# it on its own (the generated systemd-cryptsetup@.service only
+# orders After= it, with no Wants=), so being WantedBy it means
+# never running at all -- which is exactly how the first M4.A boot
+# failed.  Per systemd.special(7), the unit that wants to run
+# before encrypted devices must itself pull the passive target in
+# (Wants= + Before= below) and be wanted by an active target
+# (sysinit.target) to enter the transaction.
+#
+# DefaultDependencies=no keeps this out of the normal sysinit.target
+# ordering (which cryptsetup-pre.target itself precedes); the script
+# waits out any udev race on /dev/disk/by-partlabel/var itself
+# (see lamadist-var-encrypt) rather than hand-wiring a dependency on
+# the generated .device unit for that symlink.
+[Unit]
+Description=LamaDist first-boot LUKS2 format for the var partition
+DefaultDependencies=no
+Conflicts=shutdown.target
+Wants=cryptsetup-pre.target
+Before=cryptsetup-pre.target shutdown.target
+After=systemd-udevd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/lamadist/lamadist-var-encrypt
+
+[Install]
+WantedBy=sysinit.target

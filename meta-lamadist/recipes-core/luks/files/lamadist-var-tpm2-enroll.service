@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Must complete before /etc/crypttab's 'var' entry is opened for
+# real (systemd-cryptsetup@var.service, generated at boot by
+# systemd-cryptsetup-generator from the crypttab line in
+# lamadist-image.bbclass) -- that entry unlocks via
+# tpm2-device=auto, and a device with no TPM2 token yet would fail
+# to unlock (or, interactively, prompt) instead of using the
+# not-yet-enrolled TPM2 slot.  cryptsetup-pre.target is systemd's
+# documented hook for exactly this, but per systemd.special(7) it
+# is a PASSIVE target: nothing activates it on its own (the
+# generated systemd-cryptsetup@.service only orders After= it, with
+# no Wants=).  Wants=+Before= below pulls it in ourselves and
+# WantedBy=sysinit.target gets *this* unit into the boot
+# transaction -- the exact pattern lamadist-var-encrypt.service uses
+# and needed, for the same reason (see that unit's own comment).
+#
+# After=+Requires=lamadist-var-encrypt.service: the format service
+# must have already luksFormat'd the partition (Requires=, not just
+# After=, so a failed format -- no LUKS2 header to enroll a keyslot
+# into -- stops this unit from starting rather than running
+# systemd-cryptenroll against an unformatted device and failing
+# less clearly).  Both units are DefaultDependencies=no oneshots
+# WantedBy=sysinit.target, so ordinary systemd job-failure isolation
+# still applies: this unit failing does not fail sysinit.target
+# outright (DefaultDependencies=no), but it does leave 'var' still
+# unlockable, since the keyfile keyslot lamadist-var-encrypt wrote
+# stays a live fallback (DEVELOPMENT-ONLY, see files/README.md).
+#
+# After=systemd-udevd.service: same reasoning as
+# lamadist-var-encrypt.service -- DefaultDependencies=no means udev
+# (and here, the tpm_crb coldplug that creates /dev/tpmrm0) is not
+# guaranteed to have run yet.  The ExecStart script itself waits out
+# any remaining race (udevadm settle + a bounded /dev/tpmrm0 poll)
+# rather than relying on ordering alone.
+[Unit]
+Description=LamaDist first-boot TPM2 PCR7 keyslot enrollment for the var partition
+DefaultDependencies=no
+Conflicts=shutdown.target
+Wants=cryptsetup-pre.target
+Requires=lamadist-var-encrypt.service
+After=systemd-udevd.service lamadist-var-encrypt.service
+Before=cryptsetup-pre.target shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/lamadist/lamadist-var-tpm2-enroll
+
+[Install]
+WantedBy=sysinit.target
