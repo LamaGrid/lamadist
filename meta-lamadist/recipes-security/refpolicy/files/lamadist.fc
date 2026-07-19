@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# File context specifications for the lamadist local policy module
+# (see lamadist.te).
+#
+# Intentionally empty after the W12 triage: none of the residual
+# denials is fixed by a file-context entry here.  The natural
+# candidate was the persisted ssh host keys at /var/lib/ssh (a
+# sshd_key_t label would let refpolicy handle ssh_keygen_t/sshd_t
+# access natively, replacing the var_lib_t allows in lamadist.te),
+# but nothing relabels /var: /var/lib/ssh is created at runtime on
+# the LUKS /var (var_lib_t from its parent) and lamadist-var-encrypt
+# seeds /var with cp -a (label-preserving, no restorecon), so an fc
+# entry here would never be applied.  Making it effective would need
+# a restorecon of /var/lib/ssh, which lives in
+# classes/lamadist-image.bbclass (outside this recipe's file set) --
+# recorded for a later pass; the lamadist.te allows cover it for now.
+#
+# The /etc/ld.so.cache var_t mislabel that drove the denial storm is
+# fixed at its source -- lamadist-image.bbclass masks ldconfig.service,
+# so the cache is served correctly-labeled from the read-only lower --
+# not by a build-time fc entry, so it does not belong here either.  The
+# merged /etc root itself stays var_t (the overlay upperdir's type) and
+# is deliberately not relabeled: base refpolicy lets every domain
+# search a var_t dir, so it needs no fc entry.

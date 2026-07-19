@@ -1,0 +1,308 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Local SELinux policy module for LamaDist-specific domains and
+# file contexts that refpolicy-targeted does not already cover.
+#
+# refpolicy m4 module form (policy_module / gen_require) so refpolicy's
+# own build compiles this and links it into the monolithic targeted
+# policy: the refpolicy-targeted bbappend under meta-lamadist/recipes-
+# security/refpolicy drops it into policy/modules/system and enables it
+# in modules.conf.  This is a pure FORM conversion of the validated
+# loadable-module source -- only the module header (module lamadist
+# 1.0;) and the require { ... } block were rewritten to the m4 macros;
+# every allow rule below and its comment is preserved verbatim.
+# refpolicy links it with its own build-time semodule -B (rebuild_policy,
+# whose semanage.conf points setfiles and sefcontext_compile at the
+# native staging tools), so the module is in the store before
+# selinux-image.bbclass labels the rootfs.  There is no rootfs-time
+# semodule, so the offline native-tool relocations that broke the old
+# per-package postinst (the HLL pp, then setfiles) never arise.
+#
+# Stage B (M4.B, W12) flips DEFAULT_ENFORCING to 'enforcing'
+# (meta-lamadist/conf/distro/include/lamadist-security.inc).  Every
+# allow below is tied to the exact permissive-mode denial it fixes,
+# cited by its line in
+# .local/state/agents/avc-inventory-permissive.txt (Lxx) as
+# scontext -> tcontext:tclass { perms }, or by its row in the
+# Condition B dontaudit-off harvest report
+# (.local/state/agents/condition-b-harvest.md).  The var_t
+# ld.so.cache read storm (~15 domains mmapping /etc/ld.so.cache when
+# ldconfig regenerated it into the var_t overlay upper) is NOT ruled
+# here: lamadist-image.bbclass masks ldconfig.service, so the cache is
+# served correctly-labeled (ld_so_cache_t) from the read-only lower
+# and those reads never occur (see the note above the mount_t block).
+# What this module covers is the genuinely-novel residual.
+
+policy_module(lamadist, 1.0)
+
+gen_require(`
+	type mount_t;
+	type var_t;
+	type etc_t;
+	type etc_runtime_t;
+	type initrc_runtime_t;
+	type auditd_etc_t;
+	type systemd_update_run_t;
+	type lvm_t;
+	type init_t;
+	type initrc_t;
+	type klogd_t;
+	type syslogd_t;
+	type bin_t;
+	type system_dbusd_t;
+	type ofono_t;
+	type avahi_t;
+	type acpid_t;
+	type bluetooth_t;
+	type local_login_t;
+	type sshd_t;
+	type syslogd_runtime_t;
+	type ssh_keygen_t;
+	type var_lib_t;
+	type unconfined_t;
+	type systemd_machine_id_setup_t;
+	type fs_t;
+	type systemd_networkd_t;
+	type mount_runtime_t;
+	type udev_t;
+	type tpm_device_t;
+	class process { transition noatsecure rlimitinh siginh };
+	class dir { read write add_name remove_name create rename reparent
+		setattr relabelfrom relabelto rmdir mounton };
+	class file { getattr setattr create read write open unlink rename
+		link map execute mounton };
+	class chr_file { getattr open read write ioctl append lock create
+		unlink };
+	class filesystem { getattr };
+	class key { search };
+	class sem { associate read unix_read unix_write write };
+	class sock_file { write };
+	class dbus { send_msg };
+')
+
+########################################################################
+# The var_t /etc/ld.so.cache storm is NOT handled here -- it is fixed
+# at its source.  The overlay upperdir lives on the LUKS /var (var_t),
+# so a file CREATED through the merged /etc inherits var_t rather than
+# its proper type.  The only creator that mattered was ldconfig.service
+# regenerating /etc/ld.so.cache every boot: the new cache came up var_t,
+# and every dynamically-linked program mmapping it then tripped a
+# ~15-domain denial (the dominant permissive-corpus cluster, L59-L169).
+# lamadist-image.bbclass now MASKS ldconfig.service -- the linker cache
+# is baked complete on the read-only root and never goes stale, so the
+# regen was pointless churn -- and /etc/ld.so.cache is served from the
+# correctly-labeled (ld_so_cache_t) lower.  With no new var_t cache,
+# those ~15 domains' reads (left unruled here) never occur, and no
+# runtime relabel (and no mount_t relabel grant) is needed.
+
+########################################################################
+# mount_t: overlay copy-up + workdir writes on the fresh var_t /var.
+#
+# The overlay upperdir/workdir and the var-encrypt seed copy (its
+# cp/mount/mkfs all run as mount_t) write var_t objects on the freshly
+# formatted /var.  var_t here is the WRITE target, not the ld.so.cache
+# read the ldconfig mask removes, so these stay.
+allow mount_t var_t:dir { add_name remove_name create write rmdir
+	setattr };
+	# L9,L11,L13,L39,L43; rmdir from the boot-2 warm-/var harvest
+	# (avc-boot2): the overlay workdir/seed-mktemp cleanup removes a
+	# var_t dir on the writable upper.  setattr from the Condition B
+	# follow-up (condition-b-harvest.md section 6): overlayfs workdir
+	# setup at mount time chmods work/work to 000 and writes the
+	# trusted.overlay.uuid xattr -- both dir setattr with MOUNTER
+	# creds -- and refpolicy's `dontaudit mount_t mountpoint:dir
+	# { setattr write }` (var_t is a mountpoint type) hid the denial,
+	# so overlayfs silently fell back to a READ-ONLY /etc on every
+	# enforcing boot and no gate ever saw why.  Proven causal by an
+	# enforcing=0 direct-kernel boot of the same disk (rw, no
+	# errno-13).  A scoped overlay_workdir_t type would bound this
+	# tighter but adds a labeling lifecycle that can itself silently
+	# RO-fallback if it drifts; one perm on the existing bounded
+	# rule wins.  The smoke test now asserts /etc is rw.
+allow mount_t var_t:file { create rename unlink write open setattr };
+	# L10,L14,L16,L17,L19,L20,L21,L22,L33
+allow mount_t var_t:chr_file { create unlink };
+	# L15 (unlink of an overlay whiteout).  create is not in the
+	# permissive corpus but is the same whiteout mechanism: without
+	# it, deleting a lowerdir /etc file through the overlay (which
+	# writes a 0:0 char whiteout into the var_t upper) would be denied
+	# under enforcing.  Bounded to var_t (the upper).
+
+# systemd-tmpfiles, whose /etc file operations go through the overlay
+# with the mounter's (mount_t) credentials, creates the /etc subdirs it
+# owns (e.g. credstore) in the fresh upper AND sets their label at
+# create time -- so relabelfrom/relabelto are required (L25/L26), not
+# just create.  This is label-at-create by tmpfiles, distinct from the
+# (removed) restorecon relabel; it fires on every fresh-/var boot.
+allow mount_t etc_t:dir { create rename reparent setattr relabelfrom
+	relabelto };  # L24-L29
+
+# mount operations for the overlay + machine-id + seed mounts.
+allow mount_t etc_t:dir mounton;            # L12  overlay mount on /etc
+allow mount_t etc_runtime_t:file mounton;   # L18  /etc/machine-id bind
+allow mount_t initrc_runtime_t:dir mounton; # L3   var-encrypt seed mktemp
+
+########################################################################
+# Overlay mounter-cred access (W12 enforcing gate + the Condition B
+# dontaudit-off harvest, .local/state/agents/condition-b-harvest.md).
+# With override_creds on (the only mode this kernel accepts),
+# overlayfs performs BOTH a caller-cred check on the overlay inode
+# AND a mounter-cred (mount_t) check on the underlying layer inode,
+# for every layer op: the trusted.overlay.* metacopy/redirect
+# getxattr on the FIRST lookup of every lower entry (W12 round 1:
+# "overlayfs: failed to get metacopy (-13)", getty crash loops,
+# rauc off the bus), file CONTENT open/read (W12 round 2 selabel
+# mmap; harvest rows 1/4/19-23: rauc reading /etc/ssl certs at OTA
+# time, sshd at login, bluetoothd its conf -- all dontaudit-hidden
+# under the stock policy), and readdir/readlink.  The /etc lower
+# legitimately hosts ANY package's config type -- the harvest's
+# exhaustive sweep found 7 types outside the enumerated base-policy
+# set on today's image alone -- so the required set is unbounded by
+# design and per-type enumeration is structural whack-a-mole.
+# Grant bounded READ on all file types (read_file_perms on files +
+# list_dir_perms on dirs; subsumes the files_getattr_all_files that
+# previously sat here), metadata on pipes/sockets, and read on all
+# symlinks.  This does NOT weaken per-caller confinement: the
+# caller's own domain is still checked on the overlay inode, so a
+# confined domain gains nothing it did not already have.
+# allow_mount_anyfile stays OFF: a runtime tunable, and broader
+# (adds mounton) where this is shipped, bounded, and auditable.
+files_read_all_files(mount_t)
+files_getattr_all_pipes(mount_t)
+files_getattr_all_sockets(mount_t)
+files_read_all_symlinks(mount_t)
+
+# files_read_all_files reaches shadow_t (a file type) through
+# refpolicy's own optional auth_read_shadow; this explicit
+# attribute join keeps authlogin's
+# `neverallow ~can_read_shadow_passwords shadow_t:file read`
+# satisfied at the build-time link regardless of how that optional
+# block resolves.  Load-bearing forever, NOT first-boot insurance:
+# every PAM/login content read of /etc/shadow THROUGH the overlay
+# is double-checked against mount_t (see the mechanism note above).
+auth_can_read_shadow_passwords(mount_t)
+
+# selabel_open MMAPS file_contexts.bin, and `map` is not in
+# read_file_perms, so this interface stays for the map grant (W12
+# round 2: without it every systemd executor needing the SELinux
+# labeling handle -- any unit with credentials, RuntimeDirectory,
+# or private namespaces -- died pre-exec with EACCES, cascading
+# tmpfiles -> auditd -> health-gate reboot loops).
+seutil_read_file_contexts(mount_t)
+
+########################################################################
+# mount_t: overlay mounter-cred WRITES -- daemons whose /etc writes
+# go through the merged overlay (augenrules, systemd-update-done)
+# hit the same mounter-cred double-check as the reads above, on the
+# write side.  The per-type READ rules that used to sit here (the
+# "first-boot insurance" block: dbusd_etc_t, default_context_t,
+# udev_rules_t, systemd_user_unit_t, systemd_unit_t, shadow_t, and
+# the read halves of the two rules below) are subsumed by
+# files_read_all_files/files_read_all_symlinks above -- that is the
+# Condition A + Condition B reconciliation from the M4 security
+# review (harvest report section 2).  What remains is write-side
+# only, each bounded to a single /etc config type.
+allow mount_t auditd_etc_t:dir { write add_name create rename
+	reparent setattr };
+	# L34,L35,L40,L41,L44,L45,L46,L47,L48  (augenrules backing up rules)
+allow mount_t auditd_etc_t:file { write create link setattr };
+	# L30,L31,L32,L36,L37,L38,L42,L49,L50,L51
+allow mount_t systemd_update_run_t:file { create write rename setattr
+	unlink link };
+	# L68,L69,L72,L74,L76,L77  (systemd-update-done stamping /etc/.updated).
+	# unlink+link beyond the corpus: when /etc/.updated already exists and
+	# /usr is genuinely newer (any real OTA that bumps the /usr mtime),
+	# update-done rewrites the stamp with rename-over-existing, whose
+	# mounter-cred unlink of the old file the single-boot corpus (fresh
+	# /etc/.updated, no prior file) never exercised.  Without it the unit
+	# fails on the first post-OTA boot and the health gate turns that into
+	# a spurious rollback of a good update.
+
+########################################################################
+# lvm_t: cryptsetup/dmsetup in the first-boot LUKS format + TPM2
+# enroll services (lamadist-var-encrypt, lamadist-var-tpm2-enroll).
+allow lvm_t init_t:key search;
+	# L2   cryptsetup querying the kernel keyring init_t owns
+allow lvm_t initrc_t:sem { associate read unix_read unix_write write };
+	# L4,L5,L6,L7,L8   dmsetup's SysV semaphore against initrc_t
+
+# TPM2 unseal of the /var LUKS key.  NOT in the AVC corpus and could
+# not be: the corpus is a single FIRST boot, where lamadist-var-encrypt
+# had just opened the volume with the keyfile, leaving the volume key
+# cached in the kernel keyring (that cache IS the init_t:key search
+# above), so systemd-cryptsetup unlocked from the keyring and never
+# touched the TPM.  On every LATER boot -- including the gate's health-
+# check and OTA reboots -- there is no cached key, so systemd-cryptsetup
+# (lvm_t) must open /dev/tpmrm0 (tpm_device_t) to unseal against PCR7.
+# base refpolicy grants lvm_t nothing on tpm_device_t, so without this
+# the second boot's var.mount fails -> no /etc overlay, no ssh, headless
+# emergency mode.  Perms are refpolicy's dev_rw_tpm set.
+allow lvm_t tpm_device_t:chr_file { getattr open read write ioctl append
+	lock };
+
+########################################################################
+# klogd_t / syslogd_t: busybox multi-call exec.  klogd and syslogd are
+# busybox applets, so they exec /usr/bin/busybox.nosuid (bin_t) with no
+# klogd_exec_t/syslogd_exec_t entrypoint -- a refpolicy gap on a
+# busybox userland.  execve implicitly opens the binary, so map+read on
+# the already-open fd complete the set (no separate open needed).
+allow klogd_t bin_t:file { execute map read };    # L85,L88,L91
+allow syslogd_t bin_t:file { execute map read };  # L92,L94,L95
+
+########################################################################
+# syslog /dev/log socket: writers of the busybox syslogd datagram
+# socket (syslogd_runtime_t sock_file) -- another busybox-syslogd
+# refpolicy gap.
+allow { system_dbusd_t ofono_t local_login_t sshd_t klogd_t avahi_t
+	acpid_t bluetooth_t } syslogd_runtime_t:sock_file write;
+	# L107,L112,L153,L178; klogd_t from the W12 enforcing gate (its
+	# /dev/log write was timing-masked in all three permissive
+	# harvests: klogd connected before busybox syslogd's socket
+	# carried its runtime label, so no denial was ever logged);
+	# avahi_t/acpid_t/bluetooth_t from the Condition B dontaudit-off
+	# harvest (rows 3, 8, 11 -- dontaudit-hidden under stock, so
+	# those daemons silently lost syslog on every boot)
+
+########################################################################
+# ssh persistent host keys under /var/lib/ssh.  read_only_rootfs points
+# sshd at volatile keys; lamadist-image.bbclass moves them to
+# /var/lib/ssh (var_lib_t) so they survive reboots.  ssh-keygen writes
+# them there and sshd reads them back.
+allow ssh_keygen_t var_lib_t:dir { add_name remove_name write };
+	# L127,L135
+allow ssh_keygen_t var_lib_t:file { create getattr open read write rename
+	unlink setattr };
+	# L128,L130,L134 create/getattr/write/open of ssh_host_*.tmp; rename/
+	# unlink/setattr complete the write-tmp-then-rename-and-chmod the
+	# key generator does (the atomic finalize the corpus only partly
+	# captured -- without it the host key never lands and sshd fails).
+allow sshd_t var_lib_t:file { getattr open read };
+	# L172,L175,L177,L186,L189,L191  (sshd reading the persisted key)
+
+########################################################################
+# SSH interactive login transition.  On this targeted policy the
+# login user (lama) maps to unconfined_u/unconfined_t (same as the
+# serial console session), so sshd must transition the session shell
+# from sshd_t to unconfined_t.  base refpolicy does not grant this
+# here, so it is denied -- and because the OTA gate drives the guest
+# ENTIRELY over ssh, an enforcing boot without this rule fails at the
+# first remote command.  Found by a live permissive `rauc install`
+# harvest over ssh (avc-ota), NOT the serial login-smoke corpus,
+# which exercises local_login_t instead and never hits it.
+allow sshd_t unconfined_t:process { transition noatsecure rlimitinh siginh };
+
+########################################################################
+# Miscellaneous refpolicy gaps, judged individually.
+allow initrc_t unconfined_t:dbus send_msg;
+	# L170  a dbus method_return from an initrc-domain caller to an
+	# unconfined (interactive) client on the system bus
+allow systemd_machine_id_setup_t fs_t:filesystem getattr;
+	# L23  systemd-machine-id-setup statfs on pidfs (fs_t)
+allow systemd_networkd_t mount_runtime_t:file getattr;
+	# L1   networkd stat of /run/mount/utab
+allow udev_t var_t:file getattr;
+	# avc-ota: a udev worker stats the freshly-staged RAUC bundle in
+	# /var/cache/lamadist-ota (var_t) during `rauc install`.  Not
+	# load-bearing for the install (rauc does not depend on the udev
+	# probe), but bounded to getattr and left allowed to keep the
+	# audit log clean on every update.

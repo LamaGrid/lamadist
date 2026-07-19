@@ -1,0 +1,14 @@
+## <summary>
+##	LamaDist local policy module: LamaDist-specific domains and file
+##	contexts that refpolicy-targeted does not already cover (see the
+##	companion lamadist.te).
+## </summary>
+
+# SPDX-License-Identifier: Apache-2.0
+#
+# refpolicy's build requires a .if for every module: Rules.modular
+# assembles all_interfaces.conf from every module's .if, and
+# support/sedoctool.py reads the <summary> above when it regenerates
+# modules.conf on `make conf`.  lamadist exports no interfaces of its
+# own -- it only adds raw allow rules in lamadist.te -- so this file
+# carries just the module summary and defines no interfaces.
