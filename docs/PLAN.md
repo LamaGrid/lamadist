@@ -344,6 +344,17 @@ Pass 2 -- after pass 1 is green:
 - [ ] CMS-encrypted `crypt` bundles
 - [ ] Slot targets on decrypted mapper devices to preserve LUKS
   headers (depends on M4 LUKS work)
+- [ ] Standalone Fable failure-mode review of the A/B OTA + the
+  first-boot provisioning state machines.  Placed here (not the M4
+  fold) deliberately: this pass adds the most failure-prone
+  features -- casync resumable/partial transfers, crypt bundles,
+  mapper-device slots on the LUKS headers -- so a review of
+  behavior under interruption (power loss mid-install, partial
+  slot writes, double-fault where both slots go bad, warm-`/var`
+  edge cases) has the most material here, and it keeps one Fable
+  pass per stage.  The QEMU gate proves the happy path and one
+  forced rollback; this review targets what the gate cannot
+  exercise.
 
 **Exit criteria:**
 
@@ -353,19 +364,31 @@ Pass 2 -- after pass 1 is green:
 
 ### M4: Security Hardening Ramp
 
-**Status:** Not Started
+**Status:** COMPLETE except the fold (2026-07-19).  Enforcing
+Secure Boot + TPM2 + SELinux OTA gate GREEN on build 40, which
+also certifies the dontaudit-disabled Condition B pass (zero
+findings) and the read-write /etc overlay fix.  The policy change
+set passed its Fable review (ACCEPT-WITH-CHANGES, both findings
+documentation-level, applied in ac88eb2).  IMA appraisal ships
+log-only by design; enforcement is M6.  Remaining: the mechanical
+fold rebase.
 **Goal:** The security architecture becomes enforced reality on
 x86_64, verifiable in QEMU with OVMF and swtpm.
 
-- [ ] dm-verity end-to-end with the root hash embedded in the UKI
-- [ ] UKI packaging and direct UEFI boot
-- [ ] UEFI Secure Boot with project keys (re-enable
-  meta-efi-secure-boot) under OVMF
-- [ ] Measured Boot against swtpm; TPM2-sealed LUKS unlocking
-- [ ] LUKS2 on data partitions; OverlayFS for `/etc` and
-  application data
-- [ ] EROFS root filesystem
-- [ ] SELinux to enforcing; IMA/EVM appraisal enabled
+- [x] dm-verity end-to-end with the root hash embedded in the UKI
+- [x] UKI packaging and direct UEFI boot
+- [x] UEFI Secure Boot with project keys (sb-dev keys + sbsigned
+  loader/UKIs, in-guest SecureBoot efivar assertion) under OVMF
+- [x] Measured Boot against swtpm; TPM2-sealed LUKS unlocking
+  (PCR7, keyring-cache first boot, TPM unseal on every later boot)
+- [x] LUKS2 on data partitions; OverlayFS for `/etc` and
+  application data (read-write verified -- the smoke now asserts
+  it after the Condition B RO-/etc finding)
+- [x] EROFS root filesystem
+- [x] SELinux to enforcing (build 40, dontaudit-off certified);
+  IMA measurement + log-mode appraisal only -- appraisal
+  ENFORCEMENT deliberately deferred to M6 (signing + overlay
+  xattr story), recorded in SECURITY.md
 
 **Exit criteria:**
 
@@ -373,23 +396,179 @@ x86_64, verifiable in QEMU with OVMF and swtpm.
   and enforcing SELinux
 - The M3 update cycle still passes on the hardened profile
 
+**Milestone-close review (DONE 2026-07-17, pulled ahead of the
+fold):** the single Fable whole-body pass over the composed stack.
+Full report at `.local/state/agents/m4-security-review.md`.  It
+confirmed the boot chain, roothash/UKI coupling, and first-boot
+provisioning ordering are sound, RATIFIED the mount_t overlay
+posture (with two conditions), and found holes the per-piece gates
+missed.  Resolved already:
+
+- [x] BLOCKER-1 plaintext swap partition removed (77783ac)
+- [x] SECURITY.md false/overclaimed statements corrected (84ae88b):
+  the pbkdf2 "test-profile-only" claim was false (it is
+  unconditional), plus the scoped-claim and omission fixes
+
+Gate conditions folded into the M4 stage-B exit -- BOTH CLOSED
+2026-07-19 (evidence: `.local/state/agents/condition-b-harvest.md`,
+policy review `.local/state/agents/m4-policy-v2-review.md`):
+
+- [x] Condition B: dontaudit-disabled harvest run on build 39
+  (23 genuinely-missing rows), fixes landed (83782c2), and the
+  build-40 certification pass returned ZERO findings across a
+  full dontaudit-off exercise (reboot cycle, units, logins, real
+  `rauc install`, exhaustive /etc sweep).  The harvest also
+  surfaced the RO-/etc-every-boot defect (overlay workdir setattr,
+  dontaudit-concealed) -- fixed and now smoke-asserted.
+- [x] Condition A: reconciled INTO the Condition B fix rather than
+  dropped piecemeal -- the per-type insurance content reads were
+  reclassified as permanent mounter-cred double-checks and
+  subsumed by `files_read_all_files(mount_t)`; write-side rules
+  stay per-type.  Accepted by the Fable policy review.
+
+Recorded as decisions (brick paths, fix deferred to M6 on the
+homelab dev profile, but named per the review):
+
+- MAJOR-3 / W-a: TPM2 enroll does not assert Secure Boot is on
+  before sealing to PCR7.  M6 adds an `SecureBoot=1` efivar check
+  before enroll (fail loud otherwise).  Until then, provisioning
+  MUST occur in the final SB-enabled state.
+- W-b: crypttab is TPM-only with no boot-path keyfile fallback, so
+  a slow/absent TPM coldplug past the 30 s settle can reboot-loop a
+  pending first boot.  M6 decides the fallback; the ARM port (M5)
+  hits this first (fTPM not ready at first boot) and must wire a
+  fallback before reusing the crypttab logic.
+- MAJOR-4: no anti-rollback and the ESP loader entries are
+  unauthenticated (downgrade-to-old-signed-slot, entry DoS).  A
+  monotonic counter / retired-roothash dbx is M6 scope.
+- MINOR-1: exempt the never-yet-good first boot from
+  reboot-on-unhealthy (folds with the existing machine-id
+  follow-up as first-boot robustness work).
+
+One Fable pass per stage; this was M4's.
+
+### Post-M4 Checkpoint: Manual Validation
+
+This gate blocks M5 *implementation* (the actual ARM port) and the
+hardware/icecc work -- NOT the M5 research and design.  Per Lucas
+(directive 2026-07-17), the M5 research pre-work and the M5
+abstraction-design review are explicitly NOT gated on the manual
+sign-off: start both as soon as M4 is complete, before (and in
+parallel with) this checkpoint.  Intended order: research pre-work
+first, then the abstraction-design review, so the review is
+informed by the meta-tegra/meta-rockchip survey (agent's choice to
+adjust; series chosen because the review is stronger with the
+findings in hand).  Everything else below waits for Lucas.
+
+- [ ] Manual validation of the M4 image by Lucas
+- [ ] On success: install onto a local x86_64 device (manual,
+  hardware step -- outside the agent working constraints) to serve
+  as an icecc build helper (icecc preferred over distcc) and as a
+  live test target for future work
+
+Related, scheduled when it makes sense for the larger plan (not
+gated on the checkpoint): a seamless USB thumbdrive installer.
+Deserves a real AoA -- meta-anaconda vs. the meta-intel image
+installer vs. alternatives (e.g. bmaptool/dd raw image with
+first-boot repart) -- before any implementation.  See Future Work.
+
 ### M5: Second Platform
 
 **Status:** Not Started
 **Goal:** Prove the machine-config pattern ports cleanly to ARM and
 restore per-BSP parity.
 
-- [ ] Port the `intel.conf` pattern to RK1 first (closest to
-  mainline); create a real machine config in `meta-lamadist`.
-  Note: `kas/bsp/rk1.kas.yml` does not add meta-rockchip, the layer
-  that defines the `rk1` machine (soquartz has it; found by doc
-  verification 2026-07-14)
-- [ ] All BSP configs build `lamadist-image-base` (drop the upstream
-  `secure-core-image` targets)
-- [ ] Move Orin NX dm-verity GUIDs from the KAS file into a machine
-  include; decide Orin NX's fate based on meta-tegra's Wrynose
-  support
+The first two items -- research pre-work and the abstraction-design
+review -- were pulled ahead of M4 completion (Lucas, 2026-07-17,
+Fable-budget priority) and are DONE.  The port work below still
+waits for the manual sign-off.
+
+- [x] Research pre-work: both surveys complete
+  (`.local/state/agents/m5-survey-meta-tegra.md`,
+  `m5-survey-meta-rockchip.md`).  Headline: the OS-level stack
+  (erofs+dm-verity, LUKS /var, RAUC, SELinux, IMA) ports as-is;
+  every firmware-anchored property (systemd-boot+UKI, UEFI SB,
+  TPM2/PCR7, boot counters) is per-platform.  Tegra is the larger
+  divergence (EDK2 -> L4TLauncher -> signed extlinux, nvbootctrl
+  A/B, SWUpdate-blessed, RAUC zero integration); meta-rockchip has
+  an in-layer RAUC uboot-backend reference.  PROPRIETARY core boot
+  blobs on both ARM platforms (rkbin DDR/BL31/BL32; NVIDIA tegra
+  binaries + edk2-non-osi) -- flagged to Lucas per license policy.
+- [x] Fable abstraction-design review (M5's one Fable pass,
+  2026-07-17): full report at
+  `.local/state/agents/m5-abstraction-review.md`.  Decisions
+  ACCEPTED as the M5 design of record:
+  1. Platform seam: machine-selected `LAMADIST_BOOT_BACKEND` set
+     only in machine includes (`lamadist-boot-sdboot-uki.inc`,
+     `lamadist-boot-uboot.inc`, `lamadist-boot-l4t.inc` speced),
+     per-backend image classes via `IMAGE_CLASSES`, distro layer
+     keeps invariants only (EFI_PROVIDER/bootloader/UKI_SB_* move
+     OUT of distro includes).
+  2. Update backend: RAUC everywhere.  Rockchip = native uboot
+     backend; Tegra = custom nvbootctrl backend on the same
+     five-verb contract as the existing systemd-boot backend, with
+     NVIDIA's auto-verifier masked.  SWUpdate rejected.  TRIPWIRE:
+     if fused slot-pairing/ESRT proves unworkable under a custom
+     backend, fall back to SWUpdate behind the common health gate
+     -- escalate to Lucas (M5/M6 checkbox below).  Firmware
+     capsule OTA stays outside the OS bundle contract everywhere.
+  3. Boot chains: x86 unchanged (systemd-boot+UKI); Rockchip first
+     port = U-Boot extlinux/FIT + U-Boot-env bootcount (NO
+     verified boot initially -- state the regression in
+     SECURITY.md and the RK machine include); Tegra = L4TLauncher
+     + CMS-signed extlinux + nvbootctrl.  The five-point health
+     gate contract (trial/commit/burn/fallback/bad) is the
+     platform-invariant `test-ota` asserts.
+  4. kas rule: "kas selects and pins; layers define" -- explicit
+     branch pins, machine names that exist, target
+     lamadist-image-base, zero hardware policy in kas.
+  5. Machine pattern: thin leaf confs (vendor chain + dmverity.inc
+     + boot-<backend>.inc + tpm2.inc-iff-hardware); DPS GUIDs
+     become per-ARCH overrides in `lamadist-dmverity.inc`.
+  6. Port order: SOQuartz FIRST (upstream machine exists), RK1
+     second (stays the exit-criteria board), Orin demoted to
+     "speced, gated on meta-tegra wrynose-branch verification".
+
+Safe to start now (no gate, mechanical per review):
+
+- [x] kas stub fixes (d56c06f): rk1.kas.yml adds meta-rockchip,
+  both Rockchip targets -> `lamadist-image-base`, orin-nx gains
+  `target:` + explicit pins, authored-machine gaps annotated,
+  BBFILE_PRIORITY bump marked TODO
+- [x] Move DPS/dm-verity GUIDs to per-arch overrides in
+  `lamadist-dmverity.inc` (TRANSLATED_TARGET_ARCH overrides
+  x86-64/aarch64); deleted from intel.conf + orin kas; x86-64
+  expansion verified unchanged via bitbake -e
+- [x] Verify (2026-07-17): meta-tegra AND meta-tegra-community
+  both have wrynose branches (LAYERSERIES_COMPAT wrynose, L4T
+  39.2.0) -- Orin's branch question resolves positively, demotion
+  now rests only on divergence size and blob surface;
+  `rk3588-turing-rk1.dtb` mainlined in 6.7 and
+  `turing-rk1-rk3588_defconfig` in U-Boot 2024.10, both predate
+  our 6.18/2026.01 pins (file-level confirmation at first ARM
+  build)
+
+Gated on the manual sign-off (implementation):
+
+- [ ] Backend-class refactor: split lamadist-uki/esp-slot-a into
+  `lamadist-boot-sdboot-uki` backend class; un-hard-wire
+  `lamadist-image-base.bb` inherits; author
+  `lamadist-boot-sdboot-uki.inc` and re-prove the x86 gate
+- [ ] `rauc-conf` per-backend system.conf templating +
+  backend-neutral pending-detection in lamadist-health-check
+  (replace the loader-entry filename probe with `rauc status`)
+- [ ] `soquartz.conf` (thin leaf per pattern) +
+  `lamadist-boot-uboot.inc` + RK wks template (fixed-sector
+  prelude incl. REQUIRED uboot_env partition, A/B verity after
+  sector 32768); update PARTITIONING.md's Rockchip layout (it
+  omits uboot_env -- MAJOR doc finding)
+- [ ] `rk1.conf` authored in meta-lamadist (no upstream rk1
+  machine exists -- PLAN's earlier note corrected)
 - [ ] Boot smoke test for the ARM image under qemuarm64
+- [ ] M5 fold doc refresh: ARCHITECTURE.md/PARTITIONING.md still
+  describe aspirational LUKS rootfs slots, UKI-on-ESP for Orin,
+  and kernel 6.6 (actual: verity slots, LUKS /var only, no UKI
+  off-x86, kernel 6.18)
 
 Physical flashing and hardware testing remain out of scope until the
 working constraints are lifted.
@@ -398,6 +577,8 @@ working constraints are lifted.
 
 - RK1 image builds green and the image boots under qemuarm64
 - No BSP bypasses the LamaDist image or distro configuration
+- The nvbootctrl-vs-SWUpdate tripwire (review decision 2) is
+  either untriggered or resolved with Lucas before Orin work
 
 ### M6: Release Engineering
 
@@ -544,6 +725,22 @@ up.
   this plan, or a blocked note with diagnostics.  Nothing ends
   silently.
 
+### Review Policy (Fable reviewers)
+
+Per Lucas (2026-07-17):
+
+- At most ONE `claude-fable-5` reviewer per milestone stage --
+  either a whole-body review or a targeted critical-aspect review,
+  the orchestrator's choice.
+- Every milestone SHOULD close with one Fable whole-body reviewer
+  at the fold, generalizing the M4-fold pattern.  Milestone
+  sections may schedule that pass explicitly (M4 fold, M5 research
+  kickoff, M3 pass 2); where a milestone does not, the fold review
+  still applies by default.
+- Fable sub-agents remain restricted to planning, architecture,
+  and review; effort capped at xhigh.  All other sub-agent work
+  routes to haiku/sonnet/opus per the global routing table.
+
 ### Durable State and Resume
 
 - Git is the only source of truth for progress: commits on work
@@ -552,8 +749,9 @@ up.
   conversation memory.
 - In-flight scratch state (background task IDs, container names,
   deploy paths, log locations) is journaled to
-  `.cache/agents/worklog.md` (git-ignored) as it is created, not at
-  the end of a turn, so a compaction or crash loses nothing.
+  `.local/state/agents/journal.md` (git-ignored) as it is created,
+  not at the end of a turn, so a compaction or crash loses
+  nothing.
 - Multi-agent workflow scripts are persisted to files, and
   interrupted runs resume via the workflow runner's resume mechanism
   (completed agent calls replay from cache; identical script and
@@ -700,11 +898,31 @@ Deferred until the milestones above are complete:
 - Cluster orchestration beyond single-node k3s (multi-node, HA
   control plane)
 - Remaining BSPs beyond the reference x86_64 + first ARM board
-- Installer images (anaconda-based) and network install workflows
+- Installer images and network install workflows.  The USB
+  thumbdrive installer gets an AoA first (meta-anaconda vs. the
+  meta-intel image installer vs. alternatives); scheduled when it
+  fits the larger plan (see the Post-M4 Checkpoint note)
 - Ecosystem integration beyond M7/M8: additional exporters,
   dashboards, and cloud services
 - Performance profiling and tuning
 - LTS / backport policy and long-term maintenance tracks
+- Test-pyramid / coverage-gap review.  The suite is heavy on the
+  QEMU end-to-end end and thin on the data-type and unit layers
+  the working style calls for (the RAUC backend logic, the
+  boot-entry sort-key math, and the smoke-assertion parsing all
+  lack isolated tests).  A review to map where confidence looks
+  higher than it is; a good Fable fit but not gated to Fable.
+- RAUC deployment infrastructure -- the fleet/server side of OTA
+  the local QEMU install/rollback proof does not cover: a hosted
+  update server (hawkBit integration vs. a plain signed-bundle
+  HTTP endpoint -- an AoA, and hawkBit's EPL-2.0 license needs the
+  copyleft-policy check), the bundle build/sign/publish pipeline,
+  device registration and polling, and rollout/campaign
+  management.  Standalone infrastructure work (kept separate from
+  the coverage review above -- it is build, not review); the
+  server-vs-hawkBit design choice could warrant a design pass, but
+  the build itself is ordinary implementation, not necessarily
+  Fable.
 
 ---
 
