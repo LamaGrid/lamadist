@@ -11,16 +11,19 @@
 # classes in system.conf (recipes-core/rauc/, W4) and are raw-copied
 # straight from this build's dm-verity artifacts.  There is no
 # "bootfiles" slot: the ESP is a single shared vfat, not an A/B
-# slot, so its content (kernel, initramfs, microcode, and the
-# systemd-boot entry) travels as a plain bundle extra file and is
-# unpacked by files/lamadist-bundle-hook.sh's post-install
+# slot, so its content (both slots' UKIs -- lamadist-a.efi,
+# lamadist-b.efi, built by W2's lamadist-uki.bbclass -- plus the
+# systemd-boot entry template) travels as a plain bundle extra file
+# and is unpacked by files/lamadist-bundle-hook.sh's post-install
 # hook, keyed off whichever bootname RAUC just wrote to.
 #
-# The hook's entry file is templated from files/
-# lamadist-boot-entry.conf.in at bundle-build time (do_lamadist_
-# bootfiles, below): roothash/kernel/initrd are fixed for this
-# build and filled in here, but the target slot (a/b) is only known
-# at install time, so "@SLOT@" is left for the hook to substitute.
+# Per m4-plan.md D1/D2, roothash/kernel/initrd/microcode never
+# appear in the entry: they are baked into each slot's UKI cmdline
+# at UKI-build time.  files/lamadist-boot-entry.conf.in's only
+# placeholder is "@SLOT@", which is fixed at install time (the
+# target slot is not known here), so do_lamadist_bootfiles below
+# copies the template verbatim -- no substitution happens in this
+# recipe.
 
 DESCRIPTION = "LamaDist RAUC A/B update bundle"
 LICENSE = "Apache-2.0"
@@ -71,74 +74,48 @@ RAUC_CERT_FILE ??= "${@bb.utils.which(d.getVar('BBPATH'), 'files/rauc-dev/dev-ca
 
 LAMADIST_BOOT_ENTRY_TEMPLATE ?= "${UNPACKDIR}/lamadist-boot-entry.conf.in"
 
-# dm-verity-img.bbclass scopes this default to recipes that inherit
-# it; this recipe only reads the staged .env, so mirror the class
-# default (keep in sync with ext/meta-security's dm-verity-img).
-STAGING_VERITY_DIR ?= "${TMPDIR}/work-shared/${MACHINE}/dm-verity"
+# The two per-slot UKI build artifacts in DEPLOY_DIR_IMAGE, per
+# lamadist-uki.bbclass (W2) and m4-plan.md D2's naming.
+LAMADIST_UKI_FILENAMES ?= "lamadist-a.efi lamadist-b.efi"
 
-# Builds the ESP payload every RAUC update carries: kernel,
-# initramfs, microcode, and a boot-entry file with this build's
-# roothash already filled in (slot left as the literal "@SLOT@"
-# placeholder for the install-time hook -- see files/
-# lamadist-bundle-hook.sh).  Runs after do_unpack (SRC_URI content
-# in WORKDIR) and before do_configure (which collects
-# RAUC_BUNDLE_EXTRA_FILES into the bundle dir).  do_unpack already
-# depends on ${DM_VERITY_IMAGE}:do_image_complete (added by
-# bundle.bbclass's anonymous python for the rootfs/hash slots
-# above), which is what guarantees STAGING_VERITY_DIR's .env file
-# and DEPLOY_DIR_IMAGE's kernel/initramfs/microcode artifacts both
-# exist by the time this task runs.
+# Builds the ESP payload every RAUC update carries: both slots' UKIs
+# and the boot-entry template, copied verbatim (slot substitution
+# happens at install time -- see files/lamadist-bundle-hook.sh).
+# Runs after do_unpack (SRC_URI content in WORKDIR) and before
+# do_configure (which collects RAUC_BUNDLE_EXTRA_FILES into the
+# bundle dir).  do_unpack already depends on
+# ${DM_VERITY_IMAGE}:do_image_complete (added by bundle.bbclass's
+# anonymous python for the rootfs/hash slots above); DM_VERITY_IMAGE
+# is the same recipe (lamadist-image-base) that inherits
+# lamadist-uki.bbclass, whose lamadist_uki_build runs as a
+# do_image_wic prefunc (there is no separate oe-core uki.bbclass
+# addtask involved).  do_image_wic is itself a hard prerequisite of
+# that recipe's do_image_complete, so both UKI artifacts are
+# guaranteed to exist in DEPLOY_DIR_IMAGE by the time this task
+# runs.
 python do_lamadist_bootfiles () {
     import os
     import shutil
     import tarfile
 
     deploydir = d.getVar('DEPLOY_DIR_IMAGE')
-    staging_verity_dir = d.getVar('STAGING_VERITY_DIR')
-    verity_image = d.getVar('DM_VERITY_IMAGE')
-    verity_type = d.getVar('DM_VERITY_IMAGE_TYPE')
-    kernel = d.getVar('KERNEL_IMAGETYPE')
-    initramfs_image = d.getVar('INITRAMFS_IMAGE')
-    initramfs_fstypes = d.getVar('INITRAMFS_FSTYPES')
-    machine = d.getVar('MACHINE')
     workdir = d.getVar('WORKDIR')
     template_path = d.getVar('LAMADIST_BOOT_ENTRY_TEMPLATE')
-
-    env_path = os.path.join(staging_verity_dir,
-                             '%s.%s.verity.env' % (verity_image, verity_type))
-    roothash = None
-    with open(env_path) as f:
-        for line in f:
-            key, sep, val = line.strip().partition('=')
-            if sep and key == 'ROOT_HASH':
-                roothash = val
-                break
-    if not roothash:
-        bb.fatal("do_lamadist_bootfiles: ROOT_HASH not found in %s" % env_path)
+    uki_filenames = d.getVar('LAMADIST_UKI_FILENAMES').split()
 
     stage = os.path.join(workdir, 'bootfiles')
     bb.utils.remove(stage, recurse=True)
     bb.utils.mkdirhier(stage)
 
-    initramfs_file = '%s-%s.%s' % (initramfs_image, machine, initramfs_fstypes)
-    for name in (kernel, 'microcode.cpio', initramfs_file):
+    for name in uki_filenames:
         src = os.path.join(deploydir, name)
         if not os.path.exists(src):
-            bb.fatal("do_lamadist_bootfiles: missing %s in DEPLOY_DIR_IMAGE" % name)
+            bb.fatal("do_lamadist_bootfiles: missing %s in DEPLOY_DIR_IMAGE "
+                      "(did lamadist-uki.bbclass run?)" % name)
         shutil.copy(src, os.path.join(stage, name))
 
-    with open(template_path) as f:
-        template = f.read()
-
-    entry = (template
-             .replace('@ROOTHASH@', roothash)
-             .replace('@KERNEL@', kernel)
-             .replace('@MICROCODE@', 'microcode.cpio')
-             .replace('@INITRD@', initramfs_file))
+    shutil.copy(template_path, os.path.join(stage, 'lamadist-boot-entry.conf'))
     # @SLOT@ intentionally left unresolved; see the module comment.
-
-    with open(os.path.join(stage, 'lamadist-boot-entry.conf'), 'w') as f:
-        f.write(entry)
 
     tar_path = os.path.join(d.getVar('UNPACKDIR'), 'bootfiles.tar')
     with tarfile.open(tar_path, 'w') as tar:
@@ -146,5 +123,5 @@ python do_lamadist_bootfiles () {
             tar.add(os.path.join(stage, name), arcname=name)
 }
 do_lamadist_bootfiles[dirs] = "${WORKDIR}"
-do_lamadist_bootfiles[vardeps] += "LAMADIST_BOOT_ENTRY_TEMPLATE"
+do_lamadist_bootfiles[vardeps] += "LAMADIST_BOOT_ENTRY_TEMPLATE LAMADIST_UKI_FILENAMES"
 addtask lamadist_bootfiles after do_unpack before do_configure

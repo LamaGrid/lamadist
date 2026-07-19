@@ -1,6 +1,3 @@
-title   LamaDist (slot @SLOT@)
+title    LamaDist (slot @SLOT@)
 sort-key lamadist-20
-linux   /lamadist/@SLOT@/@KERNEL@
-initrd  /lamadist/@SLOT@/@MICROCODE@
-initrd  /lamadist/@SLOT@/@INITRD@
-options root=/dev/mapper/rootfs roothash=@ROOTHASH@ lamadist.slot=@SLOT@
+linux    /lamadist/@SLOT@/lamadist.efi

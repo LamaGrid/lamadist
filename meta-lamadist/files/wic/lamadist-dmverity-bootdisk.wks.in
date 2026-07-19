@@ -7,11 +7,12 @@
 # This .wks only works with the dm-verity-img class and separate hash data (DM_VERITY_SEPARATE_HASH).
 #
 # A/B layout: rootfs_a/hash_a are rawcopy'd from the build's
-# .ext4.verity/.ext4.vhash artifacts; rootfs_b/hash_b are empty,
-# fixed-size raw partitions RAUC writes into during an update.  Slot
-# discovery is by PARTLABEL + the kernel cmdline roothash (see
-# initramfs-framework-dm dmverity override), not by build-baked
-# PARTUUIDs, so the dm-verity-img class's generated
+# .${DM_VERITY_IMAGE_TYPE}.verity/.vhash artifacts; rootfs_b/hash_b
+# are empty, fixed-size raw partitions RAUC writes into during an
+# update.  Slot discovery is by PARTLABEL + the roothash embedded in
+# the slot's UKI cmdline (see initramfs-framework-dm dmverity
+# override and m4-plan.md D1/D2), not by build-baked PARTUUIDs, so
+# the dm-verity-img class's generated
 # ${STAGING_VERITY_DIR}/....wks.in fragment (single-slot, UUID-based)
 # is not included here.
 
@@ -19,24 +20,27 @@
 # partition is typed as Microsoft basic data and firmware need not
 # treat it as the EFI System Partition.
 #
-# --include-path seeds slot A's boot files and systemd-boot entry
-# (kernel, initramfs, microcode, loader/entries/lamadist-a+3.conf,
-# loader/loader.conf) so first boot uses the same PARTLABEL +
-# roothash discovery an OTA update to slot B will use later; see
-# classes/lamadist-esp-slot-a.bbclass (do_image_wic prefunc) for
-# what populates that directory.  Trailing "/." copies the
-# directory's contents, not the directory itself.
+# --include-path seeds slot A's boot content and systemd-boot entry
+# (lamadist/a/lamadist.efi -- a single unified kernel image carrying
+# kernel+initramfs+microcode+cmdline, per m4-plan.md D1/D2 --
+# loader/entries/lamadist-a+3.conf, loader/loader.conf) so first
+# boot uses the same PARTLABEL + roothash discovery an OTA update to
+# slot B will use later; see classes/lamadist-esp-slot-a.bbclass
+# (do_image_wic prefunc) for what populates that directory.
+# Trailing "/." copies the directory's contents, not the directory
+# itself.
 #
 # install-kernel-into-boot-dir=false and no initrd= sourceparam:
-# every loader entry references /lamadist/<slot>/ paths only, so
-# bootimg-efi's root-level kernel/initrd copies would be ~69 MB of
-# dead weight (the stock boot.conf that references them is
-# overwritten by the bbclass above).  --fixed-size is mandatory
-# with that: wic otherwise sizes the ESP from its build-time
-# content (slot A only), leaving no room for the RAUC bundle hook
-# to stage slot B's ~70 MB at update time.  512M holds two slots
-# (~70 MB each today) plus growth; resizing an ESP on fielded A/B
-# devices is not realistically possible, so oversize now.
+# every loader entry references /lamadist/<slot>/lamadist.efi only
+# (no separate initrd line -- see the boot-entry template), so
+# bootimg-efi's root-level kernel/initrd copies would be dead weight
+# (the stock boot.conf that references them is overwritten by the
+# bbclass above).  --fixed-size is mandatory with that: wic
+# otherwise sizes the ESP from its build-time content (slot A only),
+# leaving no room for the RAUC bundle hook to stage slot B's UKI at
+# update time.  512M holds two slots (~70 MB each today) plus
+# growth; resizing an ESP on fielded A/B devices is not realistically
+# possible, so oversize now.
 part /boot --source bootimg-efi --sourceparams="loader=systemd-boot,install-kernel-into-boot-dir=false" --ondisk sda --label msdos --active --align 1024 --fixed-size 512M --use-uuid --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b --include-path ${LAMADIST_ESP_SLOT_A_DIR}/.
 
 # Slot A: populated from this build's dm-verity artifacts.
@@ -48,11 +52,21 @@ part --source rawcopy --sourceparams="file=${DM_VERITY_DEPLOY_DIR}/${DM_VERITY_I
 part --ondisk sda --align 1024 --fixed-size ${DM_VERITY_ROOT_SIZE} --fstype=none --part-name rootfs_b --part-type="${DM_VERITY_ROOT_GUID}" --use-uuid
 part --ondisk sda --align 1024 --fixed-size ${DM_VERITY_HASH_SIZE} --fstype=none --part-name hash_b --part-type="${DM_VERITY_RHASH_GUID}" --use-uuid
 
-# root= moves to the per-slot systemd-boot entry (roothash=,
-# lamadist.slot=); only slot-independent args belong here.
+# root=/roothash=/lamadist.slot= move into each slot's UKI cmdline
+# (baked in at UKI-build time, per m4-plan.md D1/D2 -- the Type1
+# entries carry no options line at all); only slot-independent args
+# belong here.
 bootloader --ptable gpt --timeout=5 --append=""
 
-part swap --ondisk sda --size 44 --label swap1 --fstype=swap --use-uuid
+# No swap partition.  A plaintext swap on the same disk would defeat
+# the at-rest confidentiality story (the kernel can page decrypted
+# /var contents or the cached LUKS volume key to it), and this image
+# has no swap-dependent workload.  If a future workload needs swap,
+# add it through crypttab with a random per-boot key
+# (`swap PARTLABEL=swap /dev/urandom swap,cipher=...`), never as a
+# bare `--fstype=swap` partition (which wic types with the Linux
+# swap DPS GUID that systemd-gpt-auto-generator auto-activates in
+# the clear).  Found by the M4 Fable security review (BLOCKER-1).
 
 # Writable data partition mounted at /var via the fstab entry baked
 # into the image (lamadist-image.bbclass); DPS "Variable Data" type

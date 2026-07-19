@@ -18,9 +18,10 @@
 #
 # The ESP is not a RAUC slot (single shared vfat, both slots' boot
 # files live on it); this hook is how its per-slot content
-# (ESP/lamadist/<slot>/ plus the systemd-boot entry) gets written
-# after RAUC raw-writes the new rootfs, per the M3 plan's decision
-# 5.  RAUC_UPDATE_SOURCE is only populated for the deprecated
+# (ESP/lamadist/<slot>/lamadist.efi -- a UKI, not a bare kernel; see
+# m4-plan.md D1 -- plus the systemd-boot entry) gets written after
+# RAUC raw-writes the new rootfs, per the M3 plan's decision 5.
+# RAUC_UPDATE_SOURCE is only populated for the deprecated
 # [handlers] preinstall/postinstall mechanism, not for [hooks]
 # (confirmed against the pinned RAUC 1.15.1 source: run_bundle_hook()
 # in src/install.c and run_slot_hook_extra_env() in
@@ -77,13 +78,14 @@ slot-post-install)
 
     tmpdir=$(mktemp -d)
     trap 'rm -rf "${tmpdir}"' EXIT
-    tar -xf "${BOOTFILES_TAR}" -C "${tmpdir}"
+    # bootfiles.tar carries BOTH slots' UKIs (~70M each, per
+    # m4-plan.md D2) plus the entry template; extract only this
+    # slot's UKI and the template -- /tmp is RAM tmpfs (see
+    # fs-perms), so the other slot's ~70M should never land there.
+    tar -xf "${BOOTFILES_TAR}" -C "${tmpdir}" \
+        "lamadist-${slot}.efi" lamadist-boot-entry.conf
 
-    for f in "${tmpdir}"/*; do
-        name=$(basename "${f}")
-        [ "${name}" = "lamadist-boot-entry.conf" ] && continue
-        mv "${f}" "${slotdir}/${name}"
-    done
+    mv "${tmpdir}/lamadist-${slot}.efi" "${slotdir}/lamadist.efi"
 
     mkdir -p "${ESP}/loader/entries"
     # Remove any existing entry for this slot first -- once a slot is
@@ -94,11 +96,12 @@ slot-post-install)
     # first) keep resolving to the old, already-good entry instead of
     # the newly installed one.
     rm -f "${ESP}/loader/entries/lamadist-${slot}.conf" "${ESP}/loader/entries/lamadist-${slot}"+*.conf
-    # @SLOT@ is the only placeholder still unresolved in the
-    # bundle's copy of the template -- roothash/kernel/initrd were
-    # already baked in at bundle-build time (see lamadist-bundle.bb)
-    # since they are fixed for the build, but the target slot (a or
-    # b) is only known here, at install time.
+    # @SLOT@ is the template's only placeholder (see m4-plan.md D1:
+    # the entry carries no roothash/initrd/options -- those live in
+    # the UKI's embedded .cmdline, baked in per-slot at build time by
+    # lamadist-uki.bbclass); it is left unresolved by
+    # lamadist-bundle.bb because the target slot (a or b) is only
+    # known here, at install time.
     sed "s/@SLOT@/${slot}/g" "${tmpdir}/lamadist-boot-entry.conf" \
         > "${ESP}/loader/entries/lamadist-${slot}+3.conf"
 
