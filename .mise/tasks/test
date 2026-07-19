@@ -6,6 +6,7 @@
 #USAGE }
 #USAGE flag "-c --ci" help="CI mode"
 #USAGE flag "-n --no-boot" help="Skip the QEMU login smoke test"
+#USAGE flag "-S --secureboot" help="Run the login smoke AND the OTA cycle under Secure Boot firmware with the enrolled vars artifact (M4 stage-B gate); build it first with 'mise run ovmf-vars'"
 # TODO: Implement CI mode behavior (e.g., machine-readable output, stricter validation)
 set -o errexit
 set -o nounset
@@ -13,6 +14,7 @@ set -o pipefail
 
 _bsp="${usage_bsp:-x86_64}"
 _no_boot="${usage_no_boot:-false}"
+_secureboot="${usage_secureboot:-false}"
 
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
@@ -54,12 +56,24 @@ echo "==> Build artifact validation passed"
 # execution (see .mise/lib/smoke_login.py).  x86_64 only until
 # other BSPs get a QEMU story.
 if [ "${_bsp}" = "x86_64" ] && [ "${_no_boot}" != "true" ]; then
+	# 600s, not vm's 300s default: the first boot pays one-time
+	# costs (LUKS2 format of var, ssh hostkey generation) on top of
+	# the normal path, and the M4.A run that led here spent 4:50
+	# reaching login and was killed 7s later mid-assertion.
+	_vm_args=(--bsp "${_bsp}" --ci --timeout 600)
+	[ "${_secureboot}" = "true" ] && _vm_args+=(--secureboot)
+
 	echo "==> Running QEMU login smoke test"
-	mise run vm --bsp "${_bsp}" --ci
+	mise run vm "${_vm_args[@]}"
 
 	# OTA install/rollback test (see .mise/lib/ota_test.py): builds
 	# on the login smoke above, so it shares the same skip flag and
 	# x86_64-only gate rather than adding a second one.
+	# --secureboot extends here too: the M4 stage-B gate is the FULL
+	# OTA cycle under Secure Boot (see docs/PLAN.md), so this task
+	# with -S runs the complete hardened-profile gate in one shot.
+	_ota_args=(--bsp "${_bsp}")
+	[ "${_secureboot}" = "true" ] && _ota_args+=(--secureboot)
 	echo "==> Running QEMU OTA install/rollback test"
-	mise run test-ota --bsp "${_bsp}"
+	mise run test-ota "${_ota_args[@]}"
 fi

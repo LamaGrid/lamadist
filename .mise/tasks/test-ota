@@ -6,6 +6,7 @@
 #USAGE }
 #USAGE flag "-t --timeout <timeout>" help="Timeout in seconds for the RAUC install/reboot/rollback flow (a separate, equal-sized budget also bounds the pre-flight QEMU-boot wait)" default="2400"
 #USAGE flag "-p --ssh-port <port>" help="Host port forwarded to guest :22" default="2223"
+#USAGE flag "-S --secureboot" help="Run the whole OTA cycle under Secure Boot firmware with the enrolled vars artifact (M4 stage-B gate); build it first with 'mise run ovmf-vars'"
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -15,6 +16,7 @@ _bsp="${usage_bsp:-x86_64}"
 # cycles fit comfortably in 40 min; 900s dies mid-rollback.
 _timeout="${usage_timeout:-2400}"
 _ssh_port="${usage_ssh_port:-2223}"
+_secureboot="${usage_secureboot:-false}"
 
 # QEMU-driven OTA proof only exists for x86_64 (M3 pass 1 scope; see
 # docs/PLAN.md).
@@ -60,9 +62,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "==> Booting QEMU (headless, snapshot + reboot-capable)..."
-mise run vm --bsp "${_bsp}" --headless --allow-reboot --snapshot \
-	--tmpdir "${_ota_tmpdir}" --ssh-port "${_ssh_port}" \
+_vm_args=(--bsp "${_bsp}" --headless --allow-reboot --snapshot
+	--tmpdir "${_ota_tmpdir}" --ssh-port "${_ssh_port}")
+if [[ "${_secureboot}" == "true" ]]; then
+	_vm_args+=(--secureboot)
+	echo "==> Booting QEMU (headless, snapshot + reboot-capable, Secure Boot)..."
+else
+	echo "==> Booting QEMU (headless, snapshot + reboot-capable)..."
+fi
+mise run vm "${_vm_args[@]}" \
 	>"${_ota_tmpdir}/vm.log" 2>&1 &
 _vm_pid=$!
 

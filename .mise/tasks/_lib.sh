@@ -68,6 +68,40 @@ run_in_container() {
 		_userns_args=(--userns=keep-id --group-add keep-groups)
 	fi
 
+	# Memory containment: a runaway bitbake must die inside the
+	# container's cgroup instead of dragging the host into a global
+	# OOM sweep.  Wrapping the *client* process in a memory-capped
+	# unit does not work -- rootless podman detaches the container
+	# into its own libpod scope, outside the wrapper's cgroup -- so
+	# the cap has to ride on the container itself.
+	#
+	# Defaults auto-size to the host (90% of MemTotal; the swap
+	# ceiling adds 90% of SwapTotal) so large build servers are
+	# never artificially limited while small hosts still keep
+	# enough headroom to stay alive.  Override via
+	# PODMAN_RUN_MEMORY / PODMAN_RUN_MEMORY_SWAP (set both
+	# together; --memory-swap is the memory+swap TOTAL and must be
+	# >= --memory) in .mise.local.toml or the shell env.  Both
+	# podman and docker accept the flags.  No /proc/meminfo and no
+	# override means no limits at all.
+	local _memory_args=()
+	local _mem="${PODMAN_RUN_MEMORY:-}"
+	local _swap="${PODMAN_RUN_MEMORY_SWAP:-}"
+	if [[ -z "$_mem" || -z "$_swap" ]] && [[ -r /proc/meminfo ]]; then
+		local _mem_kb _swap_kb
+		_mem_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+		_swap_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)
+		if [[ -z "$_mem" ]]; then
+			_mem="$((_mem_kb * 90 / 100))k"
+		fi
+		if [[ -z "$_swap" ]]; then
+			_swap="$(((_mem_kb * 90 / 100) + (_swap_kb * 90 / 100)))k"
+		fi
+	fi
+	if [[ -n "$_mem" && -n "$_swap" ]]; then
+		_memory_args=(--memory "$_mem" --memory-swap "$_swap")
+	fi
+
 	# Optional local env file
 	local _env_local_args=()
 	if [[ -f "${MISE_CONFIG_ROOT}/.kas.env.local" ]]; then
@@ -82,6 +116,7 @@ run_in_container() {
 	# shellcheck disable=SC2086
 	"${LAMADIST_CONTAINER_CMD}" run --rm ${_interactive} \
 		--privileged \
+		"${_memory_args[@]}" \
 		"${_userns_args[@]}" \
 		-v "${LAMADIST_HOST_SSTATE_DIR}:${SSTATE_DIR}" \
 		-e "SSTATE_DIR=${SSTATE_DIR}" \

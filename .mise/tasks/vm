@@ -11,6 +11,7 @@
 #USAGE flag "-R --allow-reboot" help="Let the guest actually reset QEMU on reboot instead of exiting (needed to drive multi-reboot tests)"
 #USAGE flag "-s --snapshot" help="Discard all disk writes on exit (headless/interactive mode; CI mode always snapshots)"
 #USAGE flag "-T --tmpdir <tmpdir>" help="Reuse this dir for ephemeral VM state instead of creating one, so callers can predict socket paths"
+#USAGE flag "-S --secureboot" help="Boot Secure Boot firmware (OVMF_CODE.secboot.fd) with the pre-enrolled PK/KEK/db vars artifact (M4 stage B, W10); build the artifact first with .mise/tasks/ovmf-vars"
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -23,15 +24,44 @@ _ssh_port="${usage_ssh_port:-2222}"
 _allow_reboot="${usage_allow_reboot:-false}"
 _snapshot="${usage_snapshot:-false}"
 _tmpdir="${usage_tmpdir:-}"
+_secureboot="${usage_secureboot:-false}"
 
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 _machine=$(bsp_to_machine "${_bsp}")
 _deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
 
-# OVMF firmware paths
-_ovmf_code="/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
-_ovmf_vars_template="/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+# OVMF firmware paths.  --secureboot swaps in the SB-capable code
+# image and a pre-enrolled (PK/KEK/db) vars template instead of the
+# default unenrolled one; the enrolled-vars artifact is built by the
+# stage-B `.mise/tasks/ovmf-vars` task (M4 W10) into the same
+# per-machine deploy dir as the WIC image.  If that task has not been
+# run yet, --secureboot errors clearly: it fails the existing
+# firmware-presence check below with a clear message instead of doing
+# anything silently wrong.  Normal (no --secureboot) boots are
+# untouched.
+if [[ "${_secureboot}" == "true" ]]; then
+	_ovmf_code="/usr/share/edk2/OvmfX64/OVMF_CODE.secboot.fd"
+	_ovmf_vars_template="${_deploy_dir}/ovmf-vars-enrolled.fd"
+	echo "==> Secure Boot: OVMF_CODE.secboot.fd + enrolled vars (${_ovmf_vars_template})"
+	# Drift guard: the enrolled artifact is derived from the host's
+	# OVMF_VARS.fd template, and a host edk2 upgrade silently
+	# changes that template.  ovmf-vars records the template hash in
+	# a sidecar; a mismatch here means the artifact is stale and the
+	# SB state under test is no longer what it claims to be.
+	_vars_sidecar="${_ovmf_vars_template}.template.sha256"
+	if [[ -f "${_vars_sidecar}" ]]; then
+		_host_vars_hash=$(sha256sum /usr/share/edk2/OvmfX64/OVMF_VARS.fd | awk '{print $1}')
+		if [[ "${_host_vars_hash}" != "$(cat "${_vars_sidecar}")" ]]; then
+			echo "ERROR: host OVMF_VARS.fd changed since ovmf-vars-enrolled.fd was built;"
+			echo "       re-run 'mise run ovmf-vars' to rebuild the enrolled artifact"
+			exit 1
+		fi
+	fi
+else
+	_ovmf_code="/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+	_ovmf_vars_template="/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+fi
 
 # Temp directory for ephemeral state (OVMF vars, swtpm).  A caller
 # driving multi-reboot tests supplies --tmpdir so it knows the
@@ -185,8 +215,12 @@ if [[ "${_ci}" == "true" ]]; then
 	_qemu_pid=$!
 
 	_smoke_rc=0
+	_smoke_args=("${_serial_sock}" lama lamadist "${_timeout}")
+	# Stage-B gate: the smoke itself must prove Secure Boot is
+	# enabled in-guest, not just that SB firmware was selected.
+	[[ "${_secureboot}" == "true" ]] && _smoke_args+=(secureboot)
 	python3 "${MISE_CONFIG_ROOT}/.mise/lib/smoke_login.py" \
-		"${_serial_sock}" lama lamadist "${_timeout}" || _smoke_rc=$?
+		"${_smoke_args[@]}" || _smoke_rc=$?
 
 	kill "${_qemu_pid}" 2>/dev/null || true
 	wait "${_qemu_pid}" 2>/dev/null || true
