@@ -81,9 +81,20 @@ PAYLOAD_MNT=/run/lamadist-payload
 # by-label symlink (robust across busybox/util-linux blkid flag
 # differences); settle first so it exists.
 installer_mount_payload() {
-	udevadm settle --timeout=15 2>/dev/null || true
-	_part=$(readlink -f "/dev/disk/by-label/${PAYLOAD_LABEL}" 2>/dev/null || true)
-	[ -b "${_part}" ] || die "payload partition (LABEL=${PAYLOAD_LABEL}) not found"
+	# Poll for the payload partition: USB mass-storage enumerates
+	# asynchronously and a single settle can return before the stick
+	# has even triggered udev (observed: the installer raced the
+	# stick's SCSI attach).  Wait up to ~40s for the by-label symlink.
+	_part=""
+	_c=0
+	while [ "${_c}" -lt 40 ]; do
+		udevadm settle --timeout=5 2>/dev/null || true
+		_part=$(readlink -f "/dev/disk/by-label/${PAYLOAD_LABEL}" 2>/dev/null || true)
+		[ -b "${_part}" ] && break
+		sleep 1
+		_c=$(( _c + 1 ))
+	done
+	[ -b "${_part}" ] || die "payload partition (LABEL=${PAYLOAD_LABEL}) not found after 40s"
 	mkdir -p "${PAYLOAD_MNT}"
 	mount -o ro "${_part}" "${PAYLOAD_MNT}" || die "cannot mount payload ${_part}"
 	STICK_DISK=$(installer_part_to_disk "${_part}")
