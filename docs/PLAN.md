@@ -472,7 +472,10 @@ section below).
 
 ### Installer Pass (active, pulled forward 2026-07-23)
 
-**Status:** SPEC drafted; AoAs + Fable security review in flight.
+**Status:** Increment 1 (raw-image review installer) WORKING and
+verified end-to-end under QEMU Secure Boot (2026-07-23); security
+increments (in-flow enrollment, install-time provisioning, encrypted
+vault, headless + abort matrix) remain.
 **Goal:** ONE installer USB image artifact: the stick is both
 installer and manual; encrypted payload vault unlocked by a
 per-stick password issued through the secrets manager (fnox
@@ -504,23 +507,52 @@ Clevis+Tang+TPM2 pre-bound keys.
   re-review ACCEPT-WITH-CHANGES, findings applied in rev 3;
   reports in .local/state/agents/installer-spec-review*.md
 - [x] SECURITY.md extended with the installer attack surface
-- [ ] Stage 1: base image SB-enforcing boot regression (reuse
-  existing gate)
-- [ ] Stage 2: signing chain + enrollment path validates
-  (sbverify; blank-vars Setup Mode enrollment in QEMU)
-- [ ] Stage 3: vault unlock with fnox-issued password; recovery
-  keyslot + TPM2 keyslot both open the installed target;
-  dm-verity anchored per the Storage Immutability Spec
-- [ ] Stage 4: stick image boots in QEMU; manual + manifest
-  schema on the public partition; ESP carries only signed
-  artifacts
-- [ ] Stage 5: full user flow green -- scripted interactive
-  serial-console install AND headless manifest install, plus the
-  fail-closed abort matrix; target reboots into the signed,
-  encrypted system and passes the hardened smoke
 
-**Exit criteria:** every SPEC section 8 gate exit-0; one
+**Increment 1 -- raw-image review installer: WORKING (2026-07-23).**
+The pragmatic first deliverable, so Lucas can install and review the
+current hardened image now.  A populated LUKS vault cannot be built
+in the rootless bitbake fakeroot (no loop device, no /dev/mapper), so
+all cryptographic provisioning stays in-guest and the payload (the
+public hardened image) rides in a plain partition.  The installer is
+a purpose-built live userland in one signed installer UKI (ADR 0006)
+that writes the complete hardened full-disk image to the target and
+reboots; the installed system's own first-boot units do LUKS2/TPM2/
+relabel exactly as the base-image gate proves.  Implemented in
+`meta-lamadist/recipes-core/installer` + `.../images/lamadist-
+installer-{initramfs,image}.bb` + `kas/installer.kas.yml` +
+`.mise/tasks/installer`.  Verified end-to-end under QEMU+OVMF Secure
+Boot enforcing (evidence: `.local/state/agents/installer-test/`):
+
+- [x] Stage 1: base image SB-enforcing boot regression (reused gate,
+  GREEN)
+- [x] Installer UKI builds, is signed with the project db key, and
+  BOOTS under Secure Boot enforcing (OVMF verifies it)
+- [x] Interactive flow GREEN: in-guest Secure Boot trust gate,
+  payload discovery with the stick excluded, checksum verification,
+  fail-closed double confirmation, full-disk write
+- [x] Installed target boots under Secure Boot and passes the full
+  hardened smoke (login, exec, SELinux domain, sshd, erofs root,
+  LUKS /var, rw /etc overlay)
+
+**Security increments (remaining, layered on the working base):**
+
+- [ ] Stage 2 (signing): userland Secure Boot key enrollment from the
+  signed initramfs behind the in-UKI digest gate; blank-vars Setup
+  Mode + SB-off + wrong-PK + tampered-.auth QEMU harness cases
+- [ ] Stage 3 (provisioning + vault): install-time LUKS2 format,
+  argon2id recovery keyslot from the per-stick fnox password, and
+  TPM2 enrollment in-guest (systemd-cryptenroll); encrypt the payload
+  vault via a host-side Role-A provisioning step
+- [ ] Stage 4 (medium): PUBLIC/vault split; ESP carries only the
+  signed UKI plus the named unsigned enrollment inputs
+- [ ] Stage 5 (flows): headless manifest install + the full
+  fail-closed abort matrix (SPEC 3.3), consumed-stick refusal
+- [ ] ARM port of the installer (M5; enrollment stage is the only
+  x86-specific piece)
+
+**Exit criteria (full SPEC):** every SPEC section 8 gate exit-0; one
 documented command reproduces the stick from a clean checkout.
+Increment 1 already reproduces from `mise run installer`.
 
 ### Storage Immutability Spec (design of record, 2026-07-23)
 
