@@ -466,11 +466,56 @@ findings in hand).  Everything else below waits for Lucas.
   as an icecc build helper (icecc preferred over distcc) and as a
   live test target for future work
 
-Related, scheduled when it makes sense for the larger plan (not
-gated on the checkpoint): a seamless USB thumbdrive installer.
-Deserves a real AoA -- meta-anaconda vs. the meta-intel image
-installer vs. alternatives (e.g. bmaptool/dd raw image with
-first-boot repart) -- before any implementation.  See Future Work.
+Related, not gated on the checkpoint: the USB installer, pulled
+forward into an active pass 2026-07-23 (see the Installer Pass
+section below).
+
+### Installer Pass (active, pulled forward 2026-07-23)
+
+**Status:** SPEC drafted; AoAs + Fable security review in flight.
+**Goal:** ONE installer USB image artifact: the stick is both
+installer and manual; encrypted payload vault unlocked by a
+per-stick password issued through the secrets manager (fnox
+locally); minimal-input interactive flow AND fully headless
+manifest-driven install; Secure Boot key enrollment automated
+in-flow where firmware state permits.  Contract:
+`docs/installer/SPEC.md`.  Verification is QEMU+OVMF / Podman /
+static / unit only -- no physical flash, no real-machine
+provisioning, no batch tooling.  Priority order:
+non-destructiveness > Secure Boot integrity > reproducibility >
+image size.
+
+Operator-confirmed forks (2026-07-23): chain shape is the
+signing AoA's outcome; generic UEFI x86_64 target; fully-offline
+payload-on-stick; per-stick password persists as a LUKS2 recovery
+keyslot alongside TPM2 sealing (closes the W-b first-boot brick
+path), forward-compatible with Clevis+Tang+TPM2 pre-bound keys.
+
+- [x] SPEC.md drafted (user flow first) -- DRAFT until review
+- [ ] AoAs land: signing/enrollment (riskiest fork, deep search),
+  installer approach, secrets backend; recorded as ADRs
+- [ ] AT-SCALE.md design-only doc (RFC 8628 portal + JWT
+  device-enrollment variant; NOT built this pass)
+- [ ] Fable security review of the security-critical design
+  passes; SPEC leaves DRAFT
+- [ ] SECURITY.md extended with the installer attack surface
+- [ ] Stage 1: base image SB-enforcing boot regression (reuse
+  existing gate)
+- [ ] Stage 2: signing chain + enrollment path validates
+  (sbverify; blank-vars Setup Mode enrollment in QEMU)
+- [ ] Stage 3: vault unlock with fnox-issued password; recovery
+  keyslot + TPM2 keyslot both open the installed target;
+  dm-verity anchored per the Storage Immutability Spec
+- [ ] Stage 4: stick image boots in QEMU; manual + manifest
+  schema on the public partition; ESP carries only signed
+  artifacts
+- [ ] Stage 5: full user flow green -- scripted interactive
+  serial-console install AND headless manifest install, plus the
+  fail-closed abort matrix; target reboots into the signed,
+  encrypted system and passes the hardened smoke
+
+**Exit criteria:** every SPEC section 8 gate exit-0; one
+documented command reproduces the stick from a clean checkout.
 
 ### Storage Immutability Spec (design of record, 2026-07-23)
 
@@ -948,10 +993,12 @@ Deferred until the milestones above are complete:
 - Cluster orchestration beyond single-node k3s (multi-node, HA
   control plane)
 - Remaining BSPs beyond the reference x86_64 + first ARM board
-- Installer images and network install workflows.  The USB
-  thumbdrive installer gets an AoA first (meta-anaconda vs. the
-  meta-intel image installer vs. alternatives); scheduled when it
-  fits the larger plan (see the Post-M4 Checkpoint note)
+- Network install workflows and batch/fleet flashing.  The
+  single-USB installer itself was pulled forward 2026-07-23 into
+  the active Installer Pass (see that section); what remains here
+  is the at-scale build-out: the RFC 8628 password portal, JWT
+  device enrollment (designed in docs/installer/AT-SCALE.md, not
+  built), and Clevis+Tang+TPM2 pre-bound network unlocking
 - Ecosystem integration beyond M7/M8: additional exporters,
   dashboards, and cloud services
 - Performance profiling and tuning
