@@ -493,14 +493,17 @@ path to a console-recoverable halt on attended machines --
 unattended headless remains an M6 item), forward-compatible with
 Clevis+Tang+TPM2 pre-bound keys.
 
-- [x] SPEC.md drafted (user flow first) -- DRAFT until review
-- [ ] AoAs land: signing/enrollment (riskiest fork, deep search),
-  installer approach, secrets backend; recorded as ADRs
-- [ ] AT-SCALE.md design-only doc (RFC 8628 portal + JWT
+- [x] SPEC.md drafted (user flow first) -- now CURRENT, rev 3
+- [x] AoAs landed: signing/enrollment (riskiest fork, deep
+  search), installer approach, keystore backend; recorded as
+  ADRs 0006-0008
+- [x] AT-SCALE.md design-only doc (RFC 8628 portal + JWT
   device-enrollment variant; NOT built this pass)
-- [ ] Fable security review of the security-critical design
-  passes; SPEC leaves DRAFT
-- [ ] SECURITY.md extended with the installer attack surface
+- [x] Fable security review passed: round 1 REWORK (2 blockers,
+  10 majors) -> SPEC rev 2 + doc amendments -> targeted
+  re-review ACCEPT-WITH-CHANGES, findings applied in rev 3;
+  reports in .local/state/agents/installer-spec-review*.md
+- [x] SECURITY.md extended with the installer attack surface
 - [ ] Stage 1: base image SB-enforcing boot regression (reuse
   existing gate)
 - [ ] Stage 2: signing chain + enrollment path validates
