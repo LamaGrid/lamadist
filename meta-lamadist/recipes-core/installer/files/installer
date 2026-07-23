@@ -1,0 +1,154 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# initramfs-framework module: the LamaDist USB installer flow.
+# Installed as /init.d/50-installer.  Runs after udev (01) has
+# settled block devices.  Terminal: on success it reboots into the
+# freshly installed system; it never falls through to a rootfs pivot
+# (this initramfs has no rootfs).
+#
+# Implements the SPEC section 3 user flow for increment 1 (raw
+# full-disk image write).  Interactive and headless (manifest-driven)
+# paths share one pipeline; every abort is fail-closed -- no target
+# block device is written until the operator (or a complete manifest)
+# has confirmed the exact target disk id.
+
+installer_enabled() {
+	return 0
+}
+
+installer_run() {
+	. /usr/libexec/lamadist-installer.sh
+
+	# Payload image basename.  The stick image recipe stages the
+	# hardened full-disk image under this STABLE name (not the
+	# timestamped deploy name), so the installer needs no build-time
+	# substitution.
+	PAYLOAD_IMAGE="lamadist-payload.wic.xz"
+
+	msg "LamaDist installer starting"
+
+	installer_trust_gate
+	installer_mount_payload
+	installer_verify_payload
+
+	# Manifest (optional).  Parsed by the strict reader; a present but
+	# malformed manifest is fatal (fail-closed), never ignored.
+	MANIFEST="${PAYLOAD_MNT}/manifest.env"
+	INSTALLER_HEADLESS=no
+	_m_target=''
+	_m_confirm=''
+	if [ -f "${MANIFEST}" ]; then
+		_parsed=$(manifest-parse "${MANIFEST}") || die "manifest rejected (see reason above)"
+		while IFS='=' read -r _k _v; do
+			case "${_k}" in
+			HEADLESS)     [ "${_v}" = yes ] && INSTALLER_HEADLESS=yes ;;
+			TARGET_DISK)  _m_target="${_v}" ;;
+			CONFIRM)      _m_confirm="${_v}" ;;
+			esac
+		done <<-EOF
+		${_parsed}
+		EOF
+		msg "manifest loaded (headless=${INSTALLER_HEADLESS})"
+	fi
+
+	# Selection sets the global SELECTED_TARGET (avoids running the
+	# fail-closed logic inside a command substitution, where die's
+	# exec would only replace the subshell).
+	SELECTED_TARGET=''
+	if [ "${INSTALLER_HEADLESS}" = yes ]; then
+		installer_pick_headless "${_m_target}" "${_m_confirm}"
+	else
+		installer_pick_interactive
+	fi
+	[ -n "${SELECTED_TARGET}" ] || die "no target selected"
+
+	installer_write_target "${SELECTED_TARGET}"
+
+	msg "installation complete on ${SELECTED_TARGET}"
+	if [ "${INSTALLER_HEADLESS}" = yes ]; then
+		msg "rebooting into the installed system in 3s"
+		sleep 3
+		reboot -f
+	else
+		printf '%s: install done. Remove the stick, then press Enter to reboot.\n' "${_INST_TAG}"
+		read -r _ || true
+		reboot -f
+	fi
+}
+
+# True if $1 is an eligible target (in the enumerated set, i.e. not
+# the stick, writable, non-zero).
+installer_is_eligible() {
+	installer_list_targets | awk -v t="$1" '$1==t{f=1} END{exit f?0:1}'
+}
+
+# Headless target selection (SPEC 3.2): TARGET_DISK must be a present,
+# eligible disk and CONFIRM must byte-match it.  Sets SELECTED_TARGET.
+installer_pick_headless() {
+	_want="$1"
+	_confirm="$2"
+	[ -n "${_want}" ] || die "headless: TARGET_DISK missing from manifest"
+	[ "${_want}" = "${_confirm}" ] || die "headless: CONFIRM does not match TARGET_DISK"
+	# `auto` selects the sole eligible target, and ONLY when there is
+	# exactly one (single-disk appliance / automated gate).  More than
+	# one, or none, aborts fail-closed -- auto never guesses among
+	# candidates.  An explicit disk id is required otherwise.
+	if [ "${_want}" = auto ]; then
+		_count=$(installer_list_targets | wc -l)
+		[ "${_count}" -eq 1 ] || die "headless: TARGET_DISK=auto needs exactly one eligible target, found ${_count}"
+		SELECTED_TARGET=$(installer_list_targets | awk 'NR==1{print $1}')
+		msg "headless: auto-selected sole target ${SELECTED_TARGET}"
+		return 0
+	fi
+	_resolved=$(installer_resolve_disk "${_want}") || die "headless: TARGET_DISK ${_want} is not a present disk"
+	installer_is_eligible "${_resolved}" || die "headless: TARGET_DISK ${_want} is not an eligible target"
+	SELECTED_TARGET="${_resolved}"
+}
+
+# Resolve a user-supplied disk id (a /dev node or /dev/disk/by-id/*)
+# to a canonical /dev/<name>.
+installer_resolve_disk() {
+	_id="$1"
+	case "${_id}" in
+	/dev/disk/by-*)
+		_r=$(readlink -f "${_id}" 2>/dev/null || true)
+		[ -b "${_r}" ] || return 1
+		printf '%s\n' "${_r}"
+		;;
+	/dev/*)
+		[ -b "${_id}" ] || return 1
+		printf '%s\n' "${_id}"
+		;;
+	*)
+		return 1
+		;;
+	esac
+}
+
+# Interactive target selection (SPEC 3.1 step 6): enumerate, print,
+# read a choice, then require the operator to type the exact device
+# path back as confirmation.  Sets SELECTED_TARGET.
+installer_pick_interactive() {
+	_list=$(installer_list_targets)
+	[ -n "${_list}" ] || die "no eligible target disks found"
+
+	printf '\n%s: available target disks:\n' "${_INST_TAG}"
+	_n=0
+	echo "${_list}" | while read -r _dev _sz _model; do
+		_n=$(( _n + 1 ))
+		_gib=$(( _sz / 1073741824 ))
+		printf '  [%d] %s  %d GiB  %s\n' "${_n}" "${_dev}" "${_gib}" "${_model}"
+	done
+	printf '\n%s: THIS ERASES THE CHOSEN DISK COMPLETELY.\n' "${_INST_TAG}"
+	printf '%s: enter the device path to install onto (e.g. /dev/sda), blank aborts: ' "${_INST_TAG}"
+	read -r _choice
+	[ -n "${_choice}" ] || die "aborted at target selection"
+	_resolved=$(installer_resolve_disk "${_choice}") || die "not a block device: ${_choice}"
+	installer_is_eligible "${_resolved}" || die "${_resolved} is not an eligible target disk"
+
+	printf '%s: type the device path AGAIN to confirm erasing %s: ' "${_INST_TAG}" "${_resolved}"
+	read -r _again
+	[ "${_again}" = "${_resolved}" ] || die "confirmation mismatch (${_again} != ${_resolved})"
+	SELECTED_TARGET="${_resolved}"
+}

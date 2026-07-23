@@ -1,41 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
+#
+# LamaDist USB installer stick build (ADRs 0006-0008).  Retires the
+# earlier meta-anaconda scaffold (rejected in AOA-INSTALLER): the
+# installer is a purpose-built live userland in one signed UKI, built
+# by meta-lamadist alone.  Layers over the x86_64 BSP, so it builds
+# the hardened base image (the payload) and then the installer stick
+# that carries it.
 ---
 header:
   version: 15
   includes:
     - main.kas.yml
+    - bsp/x86_64.kas.yml
 
-distro: anaconda
-target: core-image-anaconda
-
-repos:
-  # Exception to the Wrynose migration (M2): meta-anaconda's newest
-  # release branch is whinlatter (verified 2026-07-15).  Revisit
-  # when a wrynose branch appears.
-  meta-anaconda:
-    path: 'ext/meta-anaconda'
-    url: 'https://git.yoctoproject.org/meta-anaconda'
-    branch: whinlatter
-
-  meta-openembedded:
-    layers:
-      meta-filesystems:
-      meta-gnome:
-      meta-initramfs:
-      meta-networking:
-
-local_conf_header:
-  50_installer_locale: |
-    # Limit Linux language support to save space, compile time.
-    # FIXME: meta-anaconda seems to require both en_US and en_GB.  Can it be fixed to only require en_US?
-    GLIBC_GENERATE_LOCALES = 'en_US.UTF-8 en_GB.UTF-8'
-    IMAGE_LINGUAS = 'en-us en-gb'
-
-  50_installer_anaconda: |
-    IMAGE_FSTYPES = 'ext4 wic'
-    INSTALLER_TARGET_BUILD = "${TOPDIR}/../build/tmp/deploy/images/genericx86-64/secure-core-image-${MACHINE}.ext4"
-    #KICKSTART_FILE = "${TOPDIR}/../files/installer.ks"
-
-  50_installer_selinux: |
-    # TODO: Create an SELinux policy for the installer.
-    DISTRO_FEATURES:remove = ' selinux'
+target:
+  - lamadist-image-base
+  - intel-microcode
+  - lamadist-installer-image

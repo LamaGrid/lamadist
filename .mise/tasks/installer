@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Build and test the LamaDist USB installer stick"
+#USAGE flag "-p --parse" help="Parse-only: validate recipes, no build"
+#USAGE flag "-n --no-build" help="Skip the build; test the existing stick image"
+#USAGE flag "-B --build-only" help="Build the stick; skip the QEMU install test"
+#USAGE flag "-s --size <gib>" help="Blank target disk size in GiB for the test" default="12"
+#USAGE flag "-t --timeout <secs>" help="Per-phase QEMU timeout" default="420"
+set -o errexit
+set -o nounset
+set -o pipefail
+
+_parse="${usage_parse:-false}"
+_no_build="${usage_no_build:-false}"
+_build_only="${usage_build_only:-false}"
+_size="${usage_size:-12}"
+_timeout="${usage_timeout:-420}"
+
+# shellcheck source=.mise/tasks/_lib.sh
+source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
+
+_machine=intel
+_deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
+_kas_config="${KAS_WORK_DIR}/kas/installer.kas.yml"
+
+# --- Parse-only ----------------------------------------------------
+if [[ "${_parse}" == "true" ]]; then
+	echo "==> Parsing recipes (bitbake -p) for the installer targets"
+	run_in_container --no-tty --entrypoint kas -- \
+		shell "${_kas_config}" -c "bitbake -p lamadist-installer-image lamadist-installer-initramfs"
+	echo "==> Parse OK"
+	exit 0
+fi
+
+# --- Build ---------------------------------------------------------
+if [[ "${_no_build}" != "true" ]]; then
+	echo "==> Building installer stick (base payload + installer UKI + stick wic)"
+	if ! output=$(mise run container:builder:verify 2>&1); then
+		status=$?
+		echo "${output}"
+		[[ "${status}" -eq 2 ]] && exit 1
+	fi
+	run_in_container build "${_kas_config}"
+fi
+
+if [[ "${_build_only}" == "true" ]]; then
+	echo "==> Build-only requested; skipping QEMU install test"
+	exit 0
+fi
+
+# --- Locate the stick image ----------------------------------------
+_stick=$(find "${_deploy_dir}" -maxdepth 1 -name 'lamadist-installer-image-*.wic' -printf '%T@ %p\n' \
+	| sort -n | tail -1 | cut -d' ' -f2-)
+[[ -n "${_stick}" ]] || { echo "ERROR: no installer stick .wic found in ${_deploy_dir}"; exit 1; }
+echo "==> Installer stick: ${_stick}"
+
+# --- QEMU install-and-verify harness -------------------------------
+# The install test drives the real interactive flow over a serial
+# socket (phase A), then boots the just-written target disk alone and
+# runs the hardened login smoke (phase B) to prove the install
+# produced a working system.  Secure Boot enforcing throughout, using
+# the project's enrolled OVMF variables (same as `mise run vm -S`).
+command -v qemu-system-x86_64 >/dev/null || { echo "ERROR: qemu-system-x86_64 not found"; exit 1; }
+command -v swtpm >/dev/null || { echo "ERROR: swtpm not found"; exit 1; }
+
+_ovmf_code="/usr/share/edk2/OvmfX64/OVMF_CODE.secboot.fd"
+_ovmf_vars_template="${_deploy_dir}/ovmf-vars-enrolled.fd"
+[[ -f "${_ovmf_code}" ]] || { echo "ERROR: ${_ovmf_code} not found"; exit 1; }
+[[ -f "${_ovmf_vars_template}" ]] || { echo "ERROR: enrolled OVMF vars not found; run 'mise run ovmf-vars'"; exit 1; }
+
+_tmp=$(mktemp -d /tmp/lamadist-installer.XXXXXX)
+cleanup() {
+	[[ -n "${_swtpm_pid:-}" ]] && kill "${_swtpm_pid}" 2>/dev/null || true
+	rm -rf "${_tmp}"
+}
+trap cleanup EXIT
+
+_target="${_tmp}/target.raw"
+qemu-img create -f raw "${_target}" "${_size}G" >/dev/null
+cp "${_ovmf_vars_template}" "${_tmp}/OVMF_VARS.fd"
+
+# swtpm for the install (a fresh TPM state the installed system seals to)
+mkdir -p "${_tmp}/tpm"
+swtpm socket --tpmstate dir="${_tmp}/tpm" \
+	--ctrl type=unixio,path="${_tmp}/tpm/sock" --tpm2 --daemon \
+	--pid file="${_tmp}/tpm/pid"
+for _ in $(seq 1 20); do [[ -S "${_tmp}/tpm/sock" ]] && break; sleep 0.1; done
+[[ -S "${_tmp}/tpm/sock" ]] || { echo "ERROR: swtpm failed to start"; exit 1; }
+_swtpm_pid=$(cat "${_tmp}/tpm/pid")
+
+_accel=(-cpu IvyBridge)
+[[ -r /dev/kvm ]] && _accel=(-enable-kvm -cpu host)
+
+_serial_sock="${_tmp}/serial.sock"
+_serial_log="${_tmp}/serial.log"
+
+echo "==> Phase A: booting installer stick + blank target (${_size} GiB), driving the flow"
+# Stick as USB mass-storage (so the installer sees it as the removable
+# stick), target on AHCI as /dev/sda.  -no-reboot: QEMU exits when the
+# installer reboots after a successful write.
+qemu-system-x86_64 \
+	"${_accel[@]}" -machine q35 -m 1024 -smp 4 \
+	-drive "if=pflash,format=raw,readonly=on,file=${_ovmf_code}" \
+	-drive "if=pflash,format=raw,file=${_tmp}/OVMF_VARS.fd" \
+	-drive "file=${_target},format=raw,if=none,id=hd0" \
+	-device ahci,id=ahci0 -device ide-hd,drive=hd0,bus=ahci0.0 \
+	-drive "file=${_stick},format=raw,if=none,id=usb0" \
+	-device qemu-xhci -device usb-storage,drive=usb0 \
+	-object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
+	-chardev "socket,id=chrtpm,path=${_tmp}/tpm/sock" \
+	-tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-crb,tpmdev=tpm0 \
+	-display none \
+	-chardev "socket,id=ser0,path=${_serial_sock},server=on,wait=off,logfile=${_serial_log}" \
+	-serial chardev:ser0 -no-reboot &
+_qemu_pid=$!
+
+_rc=0
+python3 "${MISE_CONFIG_ROOT}/.mise/lib/drive_installer.py" \
+	"${_serial_sock}" "${_timeout}" || _rc=$?
+kill "${_qemu_pid}" 2>/dev/null || true
+wait "${_qemu_pid}" 2>/dev/null || true
+
+if [[ "${_rc}" -ne 0 ]]; then
+	echo "==> Phase A (install) FAILED (rc=${_rc}); last 60 serial lines:"
+	tail -60 "${_serial_log}" 2>/dev/null || true
+	exit 1
+fi
+echo "==> Phase A install completed"
+
+echo "==> Phase B: booting the installed target disk under Secure Boot, running the hardened smoke"
+cp "${_ovmf_vars_template}" "${_tmp}/OVMF_VARS_B.fd"
+_serial_sock_b="${_tmp}/serialB.sock"
+_serial_log_b="${_tmp}/serialB.log"
+timeout "$((_timeout + 30))" qemu-system-x86_64 \
+	"${_accel[@]}" -machine q35 -m 512 -smp 4 \
+	-drive "if=pflash,format=raw,readonly=on,file=${_ovmf_code}" \
+	-drive "if=pflash,format=raw,file=${_tmp}/OVMF_VARS_B.fd" \
+	-drive "file=${_target},format=raw,if=none,id=hd0" \
+	-device ahci,id=ahci0 -device ide-hd,drive=hd0,bus=ahci0.0 \
+	-object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
+	-chardev "socket,id=chrtpm,path=${_tmp}/tpm/sock" \
+	-tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-crb,tpmdev=tpm0 \
+	-display none \
+	-chardev "socket,id=serB,path=${_serial_sock_b},server=on,wait=off,logfile=${_serial_log_b}" \
+	-serial chardev:serB -no-reboot &
+_qemu_b_pid=$!
+
+_rc_b=0
+python3 "${MISE_CONFIG_ROOT}/.mise/lib/smoke_login.py" \
+	"${_serial_sock_b}" lama lamadist "${_timeout}" secureboot || _rc_b=$?
+kill "${_qemu_b_pid}" 2>/dev/null || true
+wait "${_qemu_b_pid}" 2>/dev/null || true
+
+if [[ "${_rc_b}" -ne 0 ]]; then
+	echo "==> Phase B (installed-system smoke) FAILED (rc=${_rc_b}); last 60 serial lines:"
+	tail -60 "${_serial_log_b}" 2>/dev/null || true
+	exit 1
+fi
+
+echo "==> INSTALLER TEST PASSED: stick installed the hardened image and it booted under Secure Boot"

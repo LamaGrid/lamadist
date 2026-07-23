@@ -1,0 +1,86 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# Strict manifest reader for the LamaDist installer (SPEC section 5,
+# review MAJOR-6 / re-review NEW-4).  The manifest is a security
+# boundary: the CONFIRM == TARGET_DISK equality that guards a
+# destructive write is a byte-exact string compare and therefore the
+# grammar is pinned hard.  YAML was withdrawn precisely because it is
+# not safely parseable in a busybox userland.
+#
+# Usage:  manifest-parse <manifest-file>
+#
+# On success prints one `KEY=VALUE` line per recognized key to stdout
+# (values verbatim) and exits 0.  On ANY grammar or schema violation
+# it prints `manifest-error: <reason>` to stderr and exits non-zero --
+# the caller MUST treat a non-zero exit as fail-closed and write
+# nothing.
+#
+# Grammar (SPEC section 5, pinned):
+#   - LF line endings only; a CR byte anywhere aborts.
+#   - Each line is exactly `KEY=VALUE`, a full-line comment whose
+#     first byte is `#`, or empty.
+#   - No whitespace before the key, around `=`, or trailing the
+#     value.  No trimming, ever.
+#   - Keys are uppercase [A-Z_]+ drawn from the schema below only.
+#     Unknown key aborts; duplicate key aborts.
+#   - The value is the raw bytes to end of line; `#` is not a comment
+#     introducer after `=`.  Per-field character sets are enforced by
+#     the caller's semantic check, not here.
+
+set -eu
+
+_die() {
+	echo "manifest-error: $1" >&2
+	exit 1
+}
+
+[ $# -eq 1 ] || _die "usage: manifest-parse <file>"
+_file="$1"
+[ -f "${_file}" ] || _die "manifest not found: ${_file}"
+
+# Reject CR bytes outright (CRLF or lone CR).  tr -d then compare
+# size: any removed byte means a CR was present.
+if [ "$(wc -c <"${_file}")" != "$(tr -d '\r' <"${_file}" | wc -c)" ]; then
+	_die "CR byte present (LF-only line endings required)"
+fi
+
+# Recognized keys (SPEC section 5).  Space-delimited allow-list.
+_schema="MANIFEST_VERSION HOSTNAME NET_MODE NET_INTERFACE NET_ADDRESS \
+NET_GATEWAY NET_DNS TARGET_DISK CONFIRM UNLOCK_SOURCE UNLOCK_KEYFILE \
+ENROLL TPM_OPTIONAL HEADLESS"
+
+_seen=" "
+# Read raw lines; IFS cleared and -r so no whitespace stripping or
+# escape processing happens to the line.
+while IFS= read -r _line || [ -n "${_line}" ]; do
+	# Empty line: allowed.
+	[ -z "${_line}" ] && continue
+	# Full-line comment: first byte '#'.
+	case "${_line}" in
+	'#'*) continue ;;
+	esac
+	# Must contain '='.
+	case "${_line}" in
+	*'='*) : ;;
+	*) _die "line is neither KEY=VALUE, comment, nor blank: ${_line}" ;;
+	esac
+	_key="${_line%%=*}"
+	_val="${_line#*=}"
+	# Key must be uppercase [A-Z_]+ with no surrounding whitespace.
+	case "${_key}" in
+	'' ) _die "empty key" ;;
+	*[!A-Z_]*) _die "illegal key characters: ${_key}" ;;
+	esac
+	# Key must be in the schema.
+	case " ${_schema} " in
+	*" ${_key} "*) : ;;
+	*) _die "unknown key: ${_key}" ;;
+	esac
+	# Duplicate key aborts.
+	case "${_seen}" in
+	*" ${_key} "*) _die "duplicate key: ${_key}" ;;
+	esac
+	_seen="${_seen}${_key} "
+	printf '%s=%s\n' "${_key}" "${_val}"
+done <"${_file}"
