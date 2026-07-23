@@ -1,11 +1,13 @@
 # LamaDist USB Installer -- SPEC
 
-**Status:** DRAFT, revision 2 -- reworked per the Fable security
-review (`.local/state/agents/installer-spec-review.md`, verdict
-REWORK: both blockers and all majors addressed in this revision).
-Becomes CURRENT only after the targeted re-review passes and the
-three AoAs land as ADRs.  Sections marked `[AoA: ...]` are
-contractual slots filled by an ADR, not open questions.
+**Status:** CURRENT, revision 3 (2026-07-23).  Revision 2
+reworked the DRAFT per the Fable security review
+(`.local/state/agents/installer-spec-review.md`, verdict REWORK);
+the targeted re-review returned ACCEPT-WITH-CHANGES
+(`.local/state/agents/installer-spec-review-r2.md`) and its five
+findings are applied in this revision.  The AoA slots are filled
+by ADRs 0006 (installer approach), 0007 (chain and enrollment),
+and 0008 (keystore backend).
 
 **Scope of this pass:** ONE installer USB image artifact, built by
 kas/bitbake and verified exclusively under QEMU+OVMF with Secure
@@ -59,7 +61,10 @@ only (see `docs/installer/AT-SCALE.md`).
    stored through the secrets manager, and serves ONE install:
    after a successful install the stick is consumed (section 6)
    and must be re-provisioned by Role A (fresh password, new
-   vault) before it can install again.
+   vault) before it can install again.  The local
+   consumed-flag check is BEST-EFFORT (the flag is forgeable --
+   section 6); enforced one-stick-one-install is a portal-tier
+   property.
 5. Install-time input is minimal: hostname, network settings, and
    the unlock password.  Target-disk selection is input in
    interactive mode and manifest-supplied in headless mode.
@@ -118,7 +123,11 @@ The user flow is the primary deliverable; recipes serve it.
    alongside -- halts fail-closed with a diagnostic naming the
    mismatched variable.  This gate is the single mechanism
    closing the SB-off silent install, the foreign-trust-root
-   install, and the tampered-enrollment-payload cases.
+   install, and the tampered-enrollment-payload cases.  Scope
+   note: the gate checks PK/KEK/db, NOT dbx -- "expected chain
+   verified" makes no dbx claim (a foreign dbx is at worst an
+   availability issue on this same-machine flow; dbx management
+   is M6 anti-rollback scope).
 4. **Unlock.**  Prompt for the per-stick password (obtained by
    Role B from the secrets manager).  Three attempts; on
    exhaustion, halt with a diagnostic.  Nothing has been written.
@@ -150,9 +159,16 @@ The user flow is the primary deliverable; recipes serve it.
       that only ever hold CSPRNG secrets.)
    3. Enroll the TPM2 keyslot (PCR7) using the target's TPM,
       unlocking against the just-enrolled recovery slot.  The
-      provisioning boot's PCR7 matches the installed system's:
-      both are validated by the same db certificate under the
-      same enrolled variable state (asserted by step 3).
+      provisioning boot's PCR7 matches the installed system's
+      ONLY under a stated precondition: the installer UKI, the
+      stick's loader, the installed UKI, and the installed
+      loader are all signed by the SAME db certificate under the
+      same enrolled variable state (asserted by step 3); the
+      build MUST enforce single-cert signing across all four
+      artifacts.  A PCR7 mismatch at first boot
+      (enroll-succeeded-but-unseal-fails) is a distinct case
+      from TPM-absent and MUST route to the console
+      recovery-passphrase fallback, never a silent brick.
    4. `mkfs.ext4` and seed /var inside the opened volume,
       applying SELinux labels from the in-UKI `file_contexts`
       (setfiles).  Unlabeled files on an enforcing first boot
@@ -167,10 +183,14 @@ The user flow is the primary deliverable; recipes serve it.
    failed unless the manifest explicitly opts into
    recovery-only.  The existing first-boot units
    (`lamadist-var-encrypt`, `lamadist-var-tpm2-enroll`) gain an
-   installer-provisioned guard: when the volume is already
-   formatted and TPM2-enrolled they skip format/enroll and only
-   verify; ssh host keys and machine-id remain first-boot
-   (section 6).
+   installer-provisioned guard whose verification is defined
+   STRICTLY: the volume counts as provisioned only if the TPM2
+   unseal against the expected PCR7 policy SUCCEEDS; a mere
+   existence check (LUKS header + tpm2 token present) is
+   forbidden, because it would adopt an attacker-preformatted
+   volume.  Unseal failure on a volume claiming to be
+   provisioned fails closed (no re-format, no adoption); ssh
+   host keys and machine-id remain first-boot (section 6).
 9. **Configure.**  Hostname and network settings are written into
    the installed system's `/etc` overlay upper (the rw-by-design
    class), labeled via the same setfiles step.
@@ -223,9 +243,11 @@ appended to the stick log; exit is to a shell only in interactive
 mode (headless halts).  Distinct, individually tested abort
 paths: wrong password; consumed stick; SB-off halt; trust-gate
 digest mismatch (wrong-PK); tampered `.auth` payload; missing,
-unknown-key, duplicate-key, and malformed manifest; disk-ID
-mismatch; absent disk; payload checksum mismatch; TPM2-enroll
-failure (headless, without the opt-in); write error.
+unknown-key, duplicate-key, and malformed manifest (including
+CRLF line endings and leading/trailing-whitespace variants --
+section 5 grammar); disk-ID mismatch; absent disk; payload
+checksum mismatch; TPM2-enroll failure (headless, without the
+opt-in); write error.
 
 ## 4. Stick layout
 
@@ -273,9 +295,20 @@ parser is a security boundary and must be trivially strict in the
 installer's shell userland.  Rules, enforced by one named,
 reviewed reader (`manifest-parse`):
 
-- `KEY=VALUE`, one per line; `#` comments and blank lines only.
-- Unknown key: abort.  Duplicate key: abort.  Value with
-  characters outside its field's allowed set: abort.
+- Pinned lexical grammar (the `CONFIRM` == `TARGET_DISK` safety
+  property is a byte-exact string compare and depends on it):
+  - Line endings are LF only; any CR byte aborts.
+  - A line is exactly `KEY=VALUE`, a full-line comment whose
+    FIRST byte is `#`, or empty.  No whitespace before the key,
+    around the `=`, or trailing the value; any such whitespace
+    aborts (no trimming, ever).
+  - Keys are case-sensitive, uppercase `[A-Z_]+`, from the
+    schema below only.  Unknown key: abort.  Duplicate key:
+    abort.
+  - The value is the raw bytes to end-of-line; `#` is NOT a
+    comment introducer after `=`.  Per-field allowed character
+    sets apply; out-of-set bytes abort.  An empty value for a
+    field the active mode requires aborts at the semantic check.
 - No line continuations, no quoting, no expansion of any kind.
 
 ```sh
@@ -309,15 +342,22 @@ pre-fill the technician can override.
   password at stick creation and stores it in the secrets manager
   keyed by the stick's serial/label (collision-rejecting key
   normalization and retire-not-overwrite lifecycle per
-  AOA-SECRETS).  The printed label on the stick matches the key.
+  AOA-KEYSTORE).  The printed label on the stick matches the key.
   Locally the manager is fnox; the same object model scales to
   the portal (AT-SCALE.md).
 - **One stick, one install (requirement 2.4):** a successful
-  install consumes the stick; the flag is checked fail-closed at
-  unlock.  Re-provisioning by Role A issues a FRESH password and
-  rebuilds the vault, so each install's recovery credential is
-  unique to that target.  At scale, install-consumed triggers
-  rotation in the portal design.
+  install sets the consumed flag, and the installer refuses at
+  unlock while it is present.  Honest scope: the flag lives on
+  the writable PUBLIC FAT32 partition and is trivially clearable,
+  so locally it is an OPERATIONAL guard against accidental reuse,
+  not a security control -- with an inline/keyfile unlock source
+  a cleared flag lets the same password enroll as the recovery
+  credential of additional targets.  ENFORCED
+  one-stick-one-install exists only at the portal tier, where
+  every install requires a fresh lookup and consumption
+  retires the generation.  Re-provisioning by Role A issues a
+  FRESH password and rebuilds the vault, so each install's
+  recovery credential is unique to that target.
 - **Use at install:** the password opens the vault and is
   enrolled as the target's LUKS2 recovery keyslot (argon2id --
   section 3.1 step 8).
