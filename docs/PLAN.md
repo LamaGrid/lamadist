@@ -364,14 +364,14 @@ Pass 2 -- after pass 1 is green:
 
 ### M4: Security Hardening Ramp
 
-**Status:** COMPLETE except the fold (2026-07-19).  Enforcing
-Secure Boot + TPM2 + SELinux OTA gate GREEN on build 40, which
-also certifies the dontaudit-disabled Condition B pass (zero
-findings) and the read-write /etc overlay fix.  The policy change
-set passed its Fable review (ACCEPT-WITH-CHANGES, both findings
-documentation-level, applied in ac88eb2).  IMA appraisal ships
-log-only by design; enforcement is M6.  Remaining: the mechanical
-fold rebase.
+**Status:** COMPLETE (2026-07-19), folded into a 12-commit clean
+series (backup branch `backup/pre-fold-m4`, byte-identical tree
+verified).  Enforcing Secure Boot + TPM2 + SELinux OTA gate GREEN
+on build 40, which also certifies the dontaudit-disabled
+Condition B pass (zero findings) and the read-write /etc overlay
+fix.  The policy change set passed its Fable review
+(ACCEPT-WITH-CHANGES, both findings documentation-level, applied).
+IMA appraisal ships log-only by design; enforcement is M6.
 **Goal:** The security architecture becomes enforced reality on
 x86_64, verifiable in QEMU with OVMF and swtpm.
 
@@ -471,6 +471,52 @@ gated on the checkpoint): a seamless USB thumbdrive installer.
 Deserves a real AoA -- meta-anaconda vs. the meta-intel image
 installer vs. alternatives (e.g. bmaptool/dd raw image with
 first-boot repart) -- before any implementation.  See Future Work.
+
+### Storage Immutability Spec (design of record, 2026-07-23)
+
+Standing invariant for all platforms, adopted after the M4 close
+(Fable-reviewed wording; supersedes the earlier "EROFS and/or
+mounted read-only" phrasing, which named hygiene measures as the
+control).  Rationale: SELinux is a runtime policy layer; it does
+not govern offline media modification and is revocable by the same
+privileged domain it constrains.  Immutability must therefore be
+enforced at the storage layer with a root of trust independent of
+the running OS.
+
+Every storage entity (partition, volume, raw region) MUST be
+classified into exactly one of four classes; requirements bind per
+class:
+
+1. **Immutable** (active root slot, verity hash partitions, /etc
+   lower): MUST carry block-level cryptographic integrity
+   (dm-verity) whose root hash is anchored in a Secure-Boot-signed
+   artifact -- the UKI cmdline on x86_64, the signed FIT on ARM
+   (M5).  SHOULD additionally use a read-only-by-format filesystem
+   (EROFS) and be mounted read-only, as hygiene.  Runtime-revocable
+   controls (SELinux, the `ro` mount flag, `blockdev --setro`, GPT
+   read-only attributes) MUST NOT be the sole mechanism: none of
+   them detects substitution of the underlying media, and all are
+   reversible by a sufficiently privileged runtime domain.
+2. **Write-once** (LUKS format + TPM2 enrollment, ssh host keys,
+   machine-id): written only inside the guarded first-boot window,
+   sealed afterward.
+3. **Write-at-update** (inactive A/B slot, ESP UKI payloads):
+   written only inside an authenticated update window; the RAUC
+   bundle signature MUST be verified before any slot write.  The
+   inactive slot is raw-written with no filesystem mounted, so its
+   controls are device-level: block-device access confinement plus
+   verity verification when the slot is next booted.
+4. **Read-write by design** (/var, the merged /etc overlay, the
+   ESP boot ledger): no immutability requirement.  The ESP is
+   explicitly this class -- UEFI firmware requires FAT, and the
+   boot counter / mark-good ledger is written on every boot; its
+   protection is Secure Boot signature verification of the UKIs it
+   references, not medium immutability.
+
+Enforcement deltas are M6 scope (classification table in
+SECURITY.md, write-window audit); x86_64 already satisfies the
+immutable-class requirement via dm-verity with the root hash in
+the signed UKI.
 
 ### M5: Second Platform
 
@@ -594,6 +640,10 @@ working constraints are lifted.
 - [ ] Tag-triggered release workflow with notes generated from
   Conventional Commits
 - [ ] CVE monitoring cadence and a security-update SLA
+- [ ] Storage Immutability Spec enforcement: per-entity
+  classification table in SECURITY.md, plus a write-window audit
+  (RAUC signature check precedes every slot write; first-boot
+  write-once units are guarded and one-shot)
 
 **Exit criteria:**
 
