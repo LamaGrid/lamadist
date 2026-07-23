@@ -128,6 +128,16 @@ fi
 echo "==> Phase A install completed"
 
 echo "==> Phase B: booting the installed target disk under Secure Boot, running the hardened smoke"
+# swtpm exits once Phase A's qemu disconnected; start a fresh TPM for
+# Phase B (the installed system enrolls TPM2 on its own first boot).
+kill "${_swtpm_pid}" 2>/dev/null || true
+mkdir -p "${_tmp}/tpm-b"
+swtpm socket --tpmstate dir="${_tmp}/tpm-b" \
+	--ctrl type=unixio,path="${_tmp}/tpm-b/sock" --tpm2 --daemon \
+	--pid file="${_tmp}/tpm-b/pid"
+for _ in $(seq 1 20); do [[ -S "${_tmp}/tpm-b/sock" ]] && break; sleep 0.1; done
+[[ -S "${_tmp}/tpm-b/sock" ]] || { echo "ERROR: swtpm (phase B) failed to start"; exit 1; }
+_swtpm_pid=$(cat "${_tmp}/tpm-b/pid")
 cp "${_ovmf_vars_template}" "${_tmp}/OVMF_VARS_B.fd"
 _serial_sock_b="${_tmp}/serialB.sock"
 _serial_log_b="${_tmp}/serialB.log"
@@ -138,7 +148,7 @@ timeout "$((_timeout + 30))" qemu-system-x86_64 \
 	-drive "file=${_target},format=raw,if=none,id=hd0" \
 	-device ahci,id=ahci0 -device ide-hd,drive=hd0,bus=ahci0.0 \
 	-object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
-	-chardev "socket,id=chrtpm,path=${_tmp}/tpm/sock" \
+	-chardev "socket,id=chrtpm,path=${_tmp}/tpm-b/sock" \
 	-tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-crb,tpmdev=tpm0 \
 	-display none \
 	-chardev "socket,id=serB,path=${_serial_sock_b},server=on,wait=off,logfile=${_serial_log_b}" \
