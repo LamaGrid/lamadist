@@ -488,8 +488,10 @@ image size.
 Operator-confirmed forks (2026-07-23): chain shape is the
 signing AoA's outcome; generic UEFI x86_64 target; fully-offline
 payload-on-stick; per-stick password persists as a LUKS2 recovery
-keyslot alongside TPM2 sealing (closes the W-b first-boot brick
-path), forward-compatible with Clevis+Tang+TPM2 pre-bound keys.
+keyslot alongside TPM2 sealing (narrows the W-b first-boot brick
+path to a console-recoverable halt on attended machines --
+unattended headless remains an M6 item), forward-compatible with
+Clevis+Tang+TPM2 pre-bound keys.
 
 - [x] SPEC.md drafted (user flow first) -- DRAFT until review
 - [ ] AoAs land: signing/enrollment (riskiest fork, deep search),
