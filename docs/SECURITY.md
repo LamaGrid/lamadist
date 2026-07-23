@@ -233,6 +233,52 @@ the "degrades rather than loops" property is only the single-bad-slot
 case (both-slots-exhausted and a flaky first boot can loop -- see
 Known gaps).  See docs/OTA.md for the full state machine.
 
+## Installer surface (Installer Pass)
+
+The USB installer (docs/installer/SPEC.md, ADRs 0006-0008) adds
+an attack surface with its own trust model:
+
+- **Setup-Mode custody / TOFU.**  The real root of trust for key
+  enrollment is whoever boots first while the target is in Setup
+  Mode.  Physical custody of BOTH the stick and the target during
+  that window is a stated precondition; enrollment is
+  trust-on-first-install.  The in-UKI digest gate (expected
+  PK/KEK/db carried inside the signed installer UKI, asserted
+  with `SecureBoot=1` before any disk access) detects wrong-chain
+  enrollment and tampered on-ESP `.auth` payloads; it CANNOT
+  detect a fully attacker-controlled first boot.  The gate checks
+  PK/KEK/db only -- it makes no dbx claim.
+- **Unsigned enrollment inputs.**  The `.auth` files and loader
+  config on the installer ESP are unsigned FAT32 artifacts by
+  construction; their sole integrity control is the in-UKI hash
+  check above.
+- **Unlabeled installer runtime.**  The installer initramfs runs
+  without SELinux; its only protection is the Secure Boot
+  signature over the UKI.  Files it creates on the target are
+  labeled at creation from the in-UKI `file_contexts`.
+- **Per-stick recovery credential exposure.**  The per-stick
+  password becomes the target's LUKS2 recovery keyslot
+  (argon2id).  Role B learns it at install time and holds it
+  until rotated; rotation is a manual, CSPRNG-only procedure.
+  The local install-consumed flag is a best-effort operational
+  guard on a writable FAT32 partition, NOT a security control;
+  enforced one-stick-one-install (fresh lookup, generation
+  retirement) exists only at the portal tier (design-only, see
+  docs/installer/AT-SCALE.md).  The inline-password sidecar
+  downgrade makes a stolen stick self-unlocking: it yields the
+  payload and the recovery credential of that stick's target.
+- **The PUBLIC manual is untrusted input to the human.**  It is
+  an unauthenticated instruction channel (portal-URL rewrite,
+  "skip verification" phishing); the authoritative copy lives
+  inside the vault, and portal identity is pinned out-of-band.
+  The PUBLIC install log is forgeable convenience telemetry,
+  never an audit record.
+- **First-boot guard.**  Installer-provisioned volumes are
+  accepted at first boot only when TPM2 unseal against the
+  expected PCR7 succeeds; existence checks are forbidden
+  (adopting an attacker-preformatted volume) and unseal failure
+  fails closed to the console recovery path.
+
 ## Known gaps and accepted risks
 
 - Development keys in-tree (by design until M6; see above).
