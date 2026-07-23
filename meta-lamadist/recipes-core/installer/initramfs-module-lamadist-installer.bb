@@ -23,6 +23,7 @@ S = "${UNPACKDIR}"
 RDEPENDS:${PN} = "\
     busybox \
     coreutils \
+    udev \
     util-linux-blkid \
     util-linux-blockdev \
     xz \

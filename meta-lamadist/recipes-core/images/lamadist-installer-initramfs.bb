@@ -25,7 +25,6 @@ PACKAGE_INSTALL = "\
     e2fsprogs-mke2fs \
     util-linux-blkid \
     util-linux-blockdev \
-    util-linux-lsblk \
     coreutils \
     xz \
 "

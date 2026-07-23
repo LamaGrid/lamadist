@@ -60,9 +60,10 @@ installer_trust_gate() {
 	mount -t efivarfs efivarfs "${EFIVARS}" 2>/dev/null || true
 	_sb="${EFIVARS}/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
 	[ -r "${_sb}" ] || die "SecureBoot EFI variable not readable; cannot verify trust state"
-	# The variable is a 4-byte attribute prefix + 1 data byte; the
-	# last byte is 1 when Secure Boot is enabled.
-	_val=$(od -An -tu1 "${_sb}" | tr -s ' ' | sed 's/^ //' | cut -d' ' -f5)
+	# efivarfs prefixes 4 attribute bytes; the value byte follows.
+	# Skip the 4 attributes, read 1 byte (same form smoke_login.py
+	# uses), and trim whitespace.
+	_val=$(od -An -tu1 -j4 -N1 "${_sb}" | tr -d ' ')
 	if [ "${_val}" != "1" ]; then
 		die "Secure Boot is not enabled (SecureBoot=${_val:-?}); refusing to install.  Enable Secure Boot in firmware, or pass lamadist.installer.insecure for a lab run."
 	fi
@@ -76,10 +77,13 @@ PAYLOAD_MNT=/run/lamadist-payload
 
 # Locate the stick's payload partition by filesystem label, mount it
 # read-only, and set STICK_DISK to the whole-disk device that carries
-# it (so target enumeration can exclude the stick).
+# it (so target enumeration can exclude the stick).  Use udev's
+# by-label symlink (robust across busybox/util-linux blkid flag
+# differences); settle first so it exists.
 installer_mount_payload() {
-	_part=$(blkid -l -o device -t LABEL="${PAYLOAD_LABEL}" 2>/dev/null || true)
-	[ -n "${_part}" ] || die "payload partition (LABEL=${PAYLOAD_LABEL}) not found"
+	udevadm settle --timeout=15 2>/dev/null || true
+	_part=$(readlink -f "/dev/disk/by-label/${PAYLOAD_LABEL}" 2>/dev/null || true)
+	[ -b "${_part}" ] || die "payload partition (LABEL=${PAYLOAD_LABEL}) not found"
 	mkdir -p "${PAYLOAD_MNT}"
 	mount -o ro "${_part}" "${PAYLOAD_MNT}" || die "cannot mount payload ${_part}"
 	STICK_DISK=$(installer_part_to_disk "${_part}")

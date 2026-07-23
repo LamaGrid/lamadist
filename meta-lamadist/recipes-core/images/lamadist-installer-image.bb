@@ -34,7 +34,10 @@ UKI_SB_CERT ?= ""
 
 INSTALLER_INITRAMFS_IMAGE ?= "lamadist-installer-initramfs"
 BASE_PAYLOAD_IMAGE ?= "lamadist-image-base"
-INSTALLER_CMDLINE ?= "console=ttyS0,115200 console=tty0 lamadist.installer"
+# ttyS0 MUST be the LAST console= so /dev/console (userspace stdio,
+# where the installer prompts and the serial harness reads) is the
+# serial port, not the graphical tty0.  The kernel still logs to both.
+INSTALLER_CMDLINE ?= "console=tty0 console=ttyS0,115200 lamadist.installer"
 
 # Everything the staging prefunc consumes, ordered before do_image_wic.
 do_image_wic[depends] += "\
@@ -55,14 +58,11 @@ do_image_wic[depends] += "\
 # os-release must land in the recipe sysroot for ukify --os-release.
 DEPENDS += "os-release"
 
-# Manual + sample manifest shipped alongside the payload; they live
-# in the installer recipe's files dir (single-sourced with the module).
-FILESEXTRAPATHS:prepend := "${THISDIR}/../installer/files:"
-SRC_URI = "\
-    file://manifest.env.sample \
-    file://MANUAL.md \
-"
-SRC_URI[vardeps] += "INSTALLER_CMDLINE"
+# Manual + sample manifest shipped alongside the payload; single-
+# sourced with the module in the installer recipe's files dir.
+# Referenced directly (not via SRC_URI unpack, which image recipes do
+# not run for these) -- safe because do_image_wic is nostamp.
+INSTALLER_FILES_DIR := "${THISDIR}/../installer/files"
 
 lamadist_installer_stick_stage() {
 	set -eu
@@ -111,8 +111,8 @@ lamadist_installer_stick_stage() {
 	realsrc="$(readlink -f "${src}")"
 	cp "${realsrc}" "${stage}/payload/lamadist-payload.wic.xz"
 	( cd "${stage}/payload" && sha256sum lamadist-payload.wic.xz > lamadist-payload.wic.xz.sha256 )
-	cp "${UNPACKDIR}/manifest.env.sample" "${stage}/payload/manifest.env.sample"
-	cp "${UNPACKDIR}/MANUAL.md" "${stage}/payload/MANUAL.md"
+	cp "${INSTALLER_FILES_DIR}/manifest.env.sample" "${stage}/payload/manifest.env.sample"
+	cp "${INSTALLER_FILES_DIR}/MANUAL.md" "${stage}/payload/MANUAL.md"
 
 	# --- 3. Build the ESP (vfat) and payload (ext4) fs images -------
 	# Rootless: mkfs.vfat + mcopy (mtools), mkfs.ext4 -d.  Sized with
