@@ -4,6 +4,7 @@
 #USAGE flag "-p --parse" help="Parse-only: validate recipes, no build"
 #USAGE flag "-n --no-build" help="Skip the build; test the existing stick image"
 #USAGE flag "-B --build-only" help="Build the stick; skip the QEMU install test"
+#USAGE flag "-H --hw-console" help="Build for physical machines (graphics console primary); implies --build-only"
 #USAGE flag "-s --size <gib>" help="Blank target disk size in GiB for the test" default="12"
 #USAGE flag "-t --timeout <secs>" help="Per-phase QEMU timeout" default="420"
 set -o errexit
@@ -13,6 +14,7 @@ set -o pipefail
 _parse="${usage_parse:-false}"
 _no_build="${usage_no_build:-false}"
 _build_only="${usage_build_only:-false}"
+_hw_console="${usage_hw_console:-false}"
 _size="${usage_size:-12}"
 _timeout="${usage_timeout:-420}"
 
@@ -22,6 +24,17 @@ source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 _machine=intel
 _deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
 _kas_config="${KAS_WORK_DIR}/kas/installer.kas.yml"
+
+# Physical-machine variant: graphics-primary console.  The QEMU
+# harness drives the installer over serial stdio, which this variant
+# routes to the screen, so the install test cannot run against it.
+if [[ "${_hw_console}" == "true" ]]; then
+	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/hw-console.kas.yml"
+	if [[ "${_build_only}" != "true" && "${_parse}" != "true" ]]; then
+		echo "==> --hw-console implies --build-only (serial harness cannot drive a graphics-primary stick)"
+		_build_only="true"
+	fi
+fi
 
 # --- Parse-only ----------------------------------------------------
 if [[ "${_parse}" == "true" ]]; then

@@ -34,10 +34,12 @@ UKI_SB_CERT ?= ""
 
 INSTALLER_INITRAMFS_IMAGE ?= "lamadist-installer-initramfs"
 BASE_PAYLOAD_IMAGE ?= "lamadist-image-base"
-# ttyS0 MUST be the LAST console= so /dev/console (userspace stdio,
-# where the installer prompts and the serial harness reads) is the
-# serial port, not the graphical tty0.  The kernel still logs to both.
-INSTALLER_CMDLINE ?= "console=tty0 console=ttyS0,115200 lamadist.installer"
+# The LAST console= owns /dev/console (installer stdio).  The machine
+# default LAMADIST_CONSOLES (intel.conf) is the QEMU order, serial
+# last, which the serial install harness drives;
+# kas/extras/hw-console.kas.yml flips it so prompts land on the
+# screen of a physical machine.
+INSTALLER_CMDLINE ?= "${LAMADIST_CONSOLES} lamadist.installer"
 
 # Everything the staging prefunc consumes, ordered before do_image_wic.
 do_image_wic[depends] += "\

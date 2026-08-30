@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Physical-machine console order: the LAST console= owns
+# /dev/console, so installer prompts and password prompts land on
+# the screen instead of the serial port.  The QEMU serial harness
+# cannot drive a stick built with this overlay; the installer task
+# forces --build-only when it is selected.
+---
+header:
+  version: 15
+local_conf_header:
+  40_hw_console: |
+    LAMADIST_CONSOLES = "console=ttyS0,115200 console=tty0"
