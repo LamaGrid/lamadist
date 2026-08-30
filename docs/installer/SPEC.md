@@ -198,8 +198,17 @@ The user flow is the primary deliverable; recipes serve it.
     (disk written, payload checksum, keyslots enrolled, trust
     gate result), appends it to the install log on the stick's
     PUBLIC partition (convenience telemetry ONLY -- the log has
-    no integrity and is never an audit record), sets the
-    install-consumed flag, and reboots into the installed system.
+    no integrity and is never an audit record), registers the
+    installed disk with the firmware (retiring and recreating
+    Boot#### entries under the "LamaDist" label, prepending
+    BootOrder, and setting BootNext -- best-effort with a console
+    warning on failure, so a USB-first boot order does not
+    re-enter the stick), sets the install-consumed flag, and
+    reboots into the installed system.  BootNext is one-shot and
+    some firmware re-prioritizes removable media every boot; the
+    consumed flag remains the durable re-entry closure (the flag
+    is a PENDING increment -- increment 1 ships the firmware
+    registration only).
 
 ### 3.2 Headless flow
 
@@ -238,7 +247,11 @@ Identical pipeline, zero prompts.  Differences only:
 
 Every abort path satisfies: no block device other than the
 selected target has been written (stick-media log/consumed-flag
-exemption aside); the failure reason is on the console and
+exemption aside); firmware boot-state writes are confined to
+Setup-Mode enrollment (3.1 step 2) and, only after a successful
+target write, Boot#### entries under the "LamaDist" label plus
+BootOrder/BootNext (3.1 step 10); the failure reason is on the
+console and
 appended to the stick log; exit is to a shell only in interactive
 mode (headless halts).  Distinct, individually tested abort
 paths: wrong password; consumed stick; SB-off halt; trust-gate

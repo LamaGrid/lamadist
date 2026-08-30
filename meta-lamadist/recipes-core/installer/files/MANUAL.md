@@ -39,8 +39,11 @@ project's pre-enrolled OVMF variables).
 3. It lists eligible target disks (the stick itself is excluded).
 4. Type the device path (for example `/dev/sda`).  You will be asked
    to type it a second time to confirm.  THIS ERASES THE WHOLE DISK.
-5. The image is written and verified; remove the stick and press Enter
-   to reboot.
+5. The image is written and verified; the installer creates a
+   firmware boot entry for the installed disk, puts it first in the
+   boot order, and sets it as the next boot, so a USB-first firmware
+   does not re-enter the stick.  Remove the stick and press Enter to
+   reboot.
 
 ## Headless install
 
@@ -50,6 +53,14 @@ Put a `manifest.env` on the payload partition (see
 `TARGET_DISK=auto` / `CONFIRM=auto` when the machine has exactly one
 eligible disk.  A malformed, unknown-key, duplicate-key, or
 CRLF manifest aborts before any write.
+
+The headless reboot leaves the stick inserted.  The firmware
+registration above makes the next boot (and the stored boot order)
+point at the installed disk, but BootNext is one-shot and some
+firmware re-prioritizes removable media on every boot -- remove the
+stick promptly, or a later boot can re-enter the installer and
+reinstall.  The install-consumed flag closing this durably is a
+later increment.
 
 ## Recovery
 

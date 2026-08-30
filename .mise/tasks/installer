@@ -118,7 +118,7 @@ qemu-system-x86_64 \
 	-drive "file=${_target},format=raw,if=none,id=hd0" \
 	-device ahci,id=ahci0 -device ide-hd,drive=hd0,bus=ahci0.0 \
 	-drive "file=${_stick},format=raw,if=none,id=usb0" \
-	-device qemu-xhci -device usb-storage,drive=usb0 \
+	-device qemu-xhci -device usb-storage,drive=usb0,removable=on \
 	-object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
 	-chardev "socket,id=chrtpm,path=${_tmp}/tpm/sock" \
 	-tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-crb,tpmdev=tpm0 \

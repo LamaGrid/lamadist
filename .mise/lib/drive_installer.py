@@ -62,6 +62,11 @@ def main() -> None:
 
         # Write and completion.
         session.expect([r"write complete and synced"], "the image write to finish")
+
+        # Firmware boot registration must SUCCEED under OVMF -- the
+        # best-effort warn path passing silently is how a dead
+        # BootNext once shipped.
+        session.expect([r"BootNext -> Boot[0-9A-Fa-f]{4}"], "the BootNext registration")
         session.expect(
             [rf"installation complete on {re.escape(target)}"],
             "installation completion",

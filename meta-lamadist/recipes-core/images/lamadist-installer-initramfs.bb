@@ -11,6 +11,14 @@ inherit core-image
 # A live installer, not a rootfs-pivot initramfs: no dmverity, no
 # rootfs/finish modules.  The 50-installer module is terminal (it
 # reboots into the installed system).
+#
+# License note (project copyleft policy): efibootmgr is
+# GPL-2.0-or-later and its efivar dependency LGPL-2.1-or-later --
+# standalone exec'd tools, merely aggregated in an initramfs that
+# already ships coreutils (GPL-3.0-or-later); no linking into
+# project code.  Alternatives (hand-rolled efivar device-path
+# writes, bootctl set-oneshot) need a booted systemd or invite
+# binary-format bugs; efibootmgr is the standard tool.
 PACKAGE_INSTALL = "\
     initramfs-framework-base \
     initramfs-module-udev \
@@ -23,6 +31,7 @@ PACKAGE_INSTALL = "\
     kernel-modules \
     cryptsetup \
     e2fsprogs-mke2fs \
+    efibootmgr \
     util-linux-blkid \
     util-linux-blockdev \
     coreutils \

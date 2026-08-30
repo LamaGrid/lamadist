@@ -64,6 +64,7 @@ installer_run() {
 	[ -n "${SELECTED_TARGET}" ] || die "no target selected"
 
 	installer_write_target "${SELECTED_TARGET}"
+	installer_set_bootnext "${SELECTED_TARGET}"
 
 	msg "installation complete on ${SELECTED_TARGET}"
 	if [ "${INSTALLER_HEADLESS}" = yes ]; then
