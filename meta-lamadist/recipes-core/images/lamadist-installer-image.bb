@@ -41,6 +41,14 @@ BASE_PAYLOAD_IMAGE ?= "lamadist-image-base"
 # screen of a physical machine.
 INSTALLER_CMDLINE ?= "${LAMADIST_CONSOLES} lamadist.installer"
 
+# Optional manifest baked onto the payload partition as manifest.env
+# (path as seen in the build container).  Empty ships only the
+# sample, yielding an interactive stick.  A HEADLESS=yes manifest
+# makes the stick auto-install on boot -- see
+# kas/extras/headless-auto.kas.yml for the canonical wiring and its
+# warning.
+INSTALLER_MANIFEST ?= ""
+
 # Everything the staging prefunc consumes, ordered before do_image_wic.
 do_image_wic[depends] += "\
     ${INSTALLER_INITRAMFS_IMAGE}:do_image_complete \
@@ -115,6 +123,11 @@ lamadist_installer_stick_stage() {
 	( cd "${stage}/payload" && sha256sum lamadist-payload.wic.xz > lamadist-payload.wic.xz.sha256 )
 	cp "${INSTALLER_FILES_DIR}/manifest.env.sample" "${stage}/payload/manifest.env.sample"
 	cp "${INSTALLER_FILES_DIR}/MANUAL.md" "${stage}/payload/MANUAL.md"
+	if [ -n "${INSTALLER_MANIFEST}" ]; then
+		[ -f "${INSTALLER_MANIFEST}" ] || bbfatal "installer-stick: INSTALLER_MANIFEST ${INSTALLER_MANIFEST} not found"
+		cp "${INSTALLER_MANIFEST}" "${stage}/payload/manifest.env"
+		bbnote "installer-stick: baked manifest.env from ${INSTALLER_MANIFEST} (headless-capable stick)"
+	fi
 
 	# --- 3. Build the ESP (vfat) and payload (ext4) fs images -------
 	# Rootless: mkfs.vfat + mcopy (mtools), mkfs.ext4 -d.  Sized with

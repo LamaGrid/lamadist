@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Bake a headless auto-target manifest onto the installer stick's
+# payload partition.  The resulting stick installs to the SOLE
+# eligible internal disk of whatever machine boots it, with zero
+# prompts -- build it deliberately, label it, and treat it like the
+# destructive tool it is.  The interactive QEMU harness cannot drive
+# such a stick; the installer task forces --build-only.
+---
+header:
+  version: 15
+local_conf_header:
+  46_headless_auto: |
+    INSTALLER_MANIFEST = "${TOPDIR}/../meta-lamadist/recipes-core/installer/files/manifest-headless-auto.env"

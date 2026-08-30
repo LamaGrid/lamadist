@@ -217,7 +217,9 @@ Identical pipeline, zero prompts.  Differences only:
 - The manifest must be complete: hostname, network, target disk
   ID, a `CONFIRM` token that must exactly match the target disk
   ID, and explicit enrollment consent (`ENROLL=yes`) for the
-  Setup-Mode branch.  Any missing, unknown, duplicate, or
+  Setup-Mode branch.  `TARGET_DISK=auto` (with `CONFIRM=auto`)
+  selects the sole eligible fixed disk and aborts on any other
+  count -- auto never guesses among candidates.  Any missing, unknown, duplicate, or
   malformed field aborts before any write, with the reason on
   the console and in the stick log.
 - Ordering note: because enrollment is userland-owned, manifest
@@ -332,8 +334,12 @@ NET_INTERFACE=auto       # auto | interface name
 NET_ADDRESS=             # static only, CIDR
 NET_GATEWAY=             # static only
 NET_DNS=                 # static only, space-separated
-TARGET_DISK=             # stable ID under /dev/disk/by-id
+TARGET_DISK=             # stable ID under /dev/disk/by-id, or
+                         # `auto`: the sole eligible fixed disk
+                         # (any other count aborts; auto never
+                         # guesses among candidates)
 CONFIRM=                 # must equal TARGET_DISK exactly
+                         # (`auto` pairs with `auto`)
 UNLOCK_SOURCE=prompt     # prompt | keyfile | inline
 UNLOCK_KEYFILE=          # keyfile: path on the key stick
 ENROLL=                  # yes required for headless Setup-Mode
