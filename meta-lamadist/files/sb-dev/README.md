@@ -10,6 +10,18 @@ zero protection against a malicious image, so it can never serve as
 a production root of trust.  M6 owns the real PK/KEK/db and their
 (offline, non-repository) key material.
 
+**Lab-machine exception (operator-approved 2026-08-30).**  A
+dedicated lab or test machine counts as part of this dev/CI loop:
+enrolling the dev PK/KEK/db into its firmware is allowed.  The
+consequences carry over unchanged -- Secure Boot on that machine
+authenticates nothing (anyone with a repo clone can sign a bootable
+image), and its TPM2/PCR 7 sealing anchors to this public root.
+Such a machine may hold no production data or duties, and moving it
+to any other role requires clearing these keys from its firmware
+and re-provisioning under the M6 chain.  Production devices remain
+prohibited.  The lab flash procedure is
+`docs/installer/FLASHING-LAB.md`.
+
 - `pk.key.pem` / `pk.cert.pem` -- Platform Key.  Self-signed CA,
   CN "LamaDist Development PK", 20-year validity, RSA-4096.  The PK
   is the Secure Boot root of trust: whoever holds `pk.key.pem` can

@@ -83,6 +83,15 @@ keys, committed to this repository on purpose:
   with offline keys, dev profile keeps these keys.  Nothing in
   the image derives trust from key SECRECY today; the design only
   assumes the enrolled firmware db matches the signing keys.
+- Lab exception (operator-approved 2026-08-30): a dedicated
+  lab/test machine counts as part of the dev/CI loop and MAY
+  enroll the dev PK/KEK/db (`meta-lamadist/files/sb-dev/
+  README.md`).  On such a machine every verified-boot property is
+  exercise-only, and TPM2/PCR 7 sealing anchors to the public dev
+  root; the machine may hold no production data or duties, and a
+  role change requires clearing these keys from firmware and
+  re-provisioning under the M6 chain.  The procedure is
+  docs/installer/FLASHING-LAB.md.
 
 ## Data at rest: /var on LUKS2 + TPM2
 
