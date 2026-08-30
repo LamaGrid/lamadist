@@ -69,6 +69,17 @@ write_dynamic_overlay() {
 			    DISTRO_VERSION = '${DISTRO_VERSION}'
 		OVERLAY
 	fi
+	# Host-local parallelism cap (LAMADIST_MAX_LOCAL_JOBS, e.g. from
+	# .mise.local.toml): bounds bitbake task count and make jobs for
+	# every local build.  Under --icecc the same value caps iceccd's
+	# local slots while ICECC_PARALLEL_MAKE raises per-recipe make
+	# jobs for the remote pool.
+	if [[ -n "${LAMADIST_MAX_LOCAL_JOBS:-}" ]]; then
+		cat >> "${_dynamic_overlay}" <<- OVERLAY
+			    BB_NUMBER_THREADS = '${LAMADIST_MAX_LOCAL_JOBS}'
+			    PARALLEL_MAKE = '-j ${LAMADIST_MAX_LOCAL_JOBS}'
+		OVERLAY
+	fi
 }
 
 # Resolve the Yocto MACHINE name from a LamaDist BSP name.

@@ -8,6 +8,7 @@
 #USAGE flag "-q --qa" help="QA mode: zstd compression for faster QA/PR builds"
 #USAGE flag "-r --release" help="Release mode: machine-default xz compression, CVE checks"
 #USAGE flag "-s --include-scans" help="Enable security scans (CVE manifest generation)"
+#USAGE flag "-I --icecc" help="Distribute compiles via the icecc lab helpers (local dev only)"
 #MISE depends=["info"]
 set -o errexit
 set -o nounset
@@ -18,6 +19,7 @@ _ci="${usage_ci:-false}"
 _qa="${usage_qa:-false}"
 _release="${usage_release:-false}"
 _include_scans="${usage_include_scans:-false}"
+_icecc="${usage_icecc:-false}"
 
 # --release implies --include-scans
 if [ "${_release}" = "true" ]; then
@@ -48,6 +50,11 @@ if [ "${_include_scans}" = "true" ]; then
 	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/cve.kas.yml"
 fi
 
+# icecc overlay: distributed compiles via the lab helper machines
+if [ "${_icecc}" = "true" ]; then
+	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/icecc.kas.yml"
+fi
+
 # Record scan marker for pre-push hook
 if [ "${_include_scans}" = "true" ]; then
 	mkdir -p "${MISE_CONFIG_ROOT}/.cache"
@@ -56,6 +63,9 @@ fi
 
 if [ "${_ci}" = "true" ]; then
 	# CI mode: run kas directly (already inside builder container)
+	if [ "${_icecc}" = "true" ]; then
+		echo "==> --icecc ignored in CI mode (no lab scheduler reachable)"
+	fi
 	mkdir -p "${SSTATE_DIR}"
 	kas build --force-checkout --update "${_kas_config}"
 else
@@ -70,5 +80,24 @@ else
 		fi
 	fi
 
-	run_in_container build "${_kas_config}"
+	if [ "${_icecc}" = "true" ]; then
+		# icecc needs a local daemon.  Run one inside the container:
+		# --no-remote because behind the rootless-podman NAT it cannot
+		# accept jobs from other machines, -s because UDP scheduler
+		# discovery does not cross the container network namespace.
+		# LAMADIST_MAX_LOCAL_JOBS (optional; set it in
+		# .mise.local.toml) caps the daemon's local compile slots,
+		# matching the cap the dynamic overlay puts on plain
+		# builds; unset means all container cores.
+		run_in_container --entrypoint /bin/dumb-init -- /bin/bash -c "
+			mkdir -p /tmp/iceccd
+			/usr/sbin/iceccd -d --no-remote \
+				${LAMADIST_MAX_LOCAL_JOBS:+-m ${LAMADIST_MAX_LOCAL_JOBS}} \
+				-s '${LAMADIST_ICECC_SCHEDULER:-172.16.0.1}' \
+				-b /tmp/iceccd -l /tmp/iceccd/iceccd.log
+			exec kas build '${_kas_config}'
+		"
+	else
+		run_in_container build "${_kas_config}"
+	fi
 fi

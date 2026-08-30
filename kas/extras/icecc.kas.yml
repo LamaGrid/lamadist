@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Distributed C/C++ compiles via icecream (lab helper machines).
+# Requires a reachable scheduler and a local iceccd; the build task
+# starts one inside the container (--icecc flag).  All ICECC_* vars
+# are in BB_BASEHASH_IGNORE_VARS, but inheriting the class itself
+# changes task signatures, so icecc and non-icecc builds do not
+# share task hashes (both stay cached in sstate).
+---
+header:
+  version: 15
+local_conf_header:
+  40_icecc: |
+    INHERIT += 'icecc'
+    ICECC_PARALLEL_MAKE = '-j 52'
