@@ -65,5 +65,10 @@ python3-newt
 # Debug tools
 bind9-dnsutils
 
+# Distributed C/C++ compiles (mise run build --icecc); patchelf is
+# required by icecc-create-env when packing toolchain environments
+icecc
+patchelf
+
 # sb-dev key regeneration requirements (regen-dev-sb-keys.sh)
 efitools
