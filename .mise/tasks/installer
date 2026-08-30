@@ -8,6 +8,7 @@
 #USAGE flag "-A --headless-auto" help="Bake the headless auto-target manifest onto the stick (DESTRUCTIVE stick: auto-installs on boot); implies --build-only"
 #USAGE flag "-s --size <gib>" help="Blank target disk size in GiB for the test" default="12"
 #USAGE flag "-t --timeout <secs>" help="Per-phase QEMU timeout" default="420"
+#MISE depends=["info"]
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -26,6 +27,12 @@ source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 _machine=intel
 _deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
 _kas_config="${KAS_WORK_DIR}/kas/installer.kas.yml"
+
+# Version stamping: emit the dynamic overlay from the 'info' task's
+# gitversion env so /etc/os-release carries the real HEAD version
+# (see write_dynamic_overlay in _lib.sh).
+write_dynamic_overlay
+_kas_config="${_kas_config}:${KAS_WORK_DIR}/.cache/dynamic.kas.yml"
 
 # Test builds always bake the cached test SSH public key for the
 # lama user (read-only rootfs: keys only enter at build time).
