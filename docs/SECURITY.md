@@ -83,6 +83,17 @@ keys, committed to this repository on purpose:
   with offline keys, dev profile keeps these keys.  Nothing in
   the image derives trust from key SECRECY today; the design only
   assumes the enrolled firmware db matches the signing keys.
+- Baked test SSH key (2026-08-30): every test/dev installer build
+  bakes the build host's cached test public key
+  (`.local/share/lamadist/test-ssh/`, generated once, uncommitted,
+  unencrypted) as an authorized key for the wheel user `lama`
+  (`LAMADIST_SSH_AUTHORIZED_KEYS`, default-on in the installer
+  task only).  Honest chain: whoever holds that host's private
+  half gets SSH as `lama` on every lab install, and root via
+  `sudo` with the PUBLIC fixed dev password.  Rotation: delete the
+  directory and rebuild (the taskhash tracks key content, so
+  sstate cannot serve a stale key).  Production builds leave the
+  variable empty.
 - Lab exception (operator-approved 2026-08-30): a dedicated
   lab/test machine counts as part of the dev/CI loop and MAY
   enroll the dev PK/KEK/db (`meta-lamadist/files/sb-dev/

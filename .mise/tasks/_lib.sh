@@ -5,6 +5,21 @@
 # Source this file from any task that needs to invoke the build container:
 #   source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 
+# Ensure the host-cached TEST SSH key pair exists and print the
+# public key's host path.  Generated once, cached indefinitely,
+# never committed (.local/ is gitignored); consumed by
+# kas/extras/test-ssh-key.kas.yml, which bakes the PUBLIC half into
+# dev/test images as an authorized key for the lama user.
+ensure_test_ssh_key() {
+	local _dir="${MISE_CONFIG_ROOT}/.local/share/lamadist/test-ssh"
+	if [[ ! -f "${_dir}/id_ed25519.pub" ]]; then
+		mkdir -p "${_dir}"
+		ssh-keygen -q -t ed25519 -N '' -C 'lamadist-test' -f "${_dir}/id_ed25519"
+		echo "==> Generated test SSH key (cached): ${_dir}/id_ed25519" >&2
+	fi
+	echo "${_dir}/id_ed25519.pub"
+}
+
 # Resolve the Yocto MACHINE name from a LamaDist BSP name.
 # Reads the machine: field from the BSP's KAS YAML file.
 bsp_to_machine() {

@@ -25,6 +25,11 @@ _machine=intel
 _deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
 _kas_config="${KAS_WORK_DIR}/kas/installer.kas.yml"
 
+# Test builds always bake the cached test SSH public key for the
+# lama user (read-only rootfs: keys only enter at build time).
+ensure_test_ssh_key > /dev/null
+_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/test-ssh-key.kas.yml"
+
 # Physical-machine variant: graphics-primary console.  The QEMU
 # harness drives the installer over serial stdio, which this variant
 # routes to the screen, so the install test cannot run against it.

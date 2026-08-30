@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Bake the host-cached TEST SSH public key into the image as an
+# authorized key for the lama user (dev/test builds only; the
+# installer task generates the pair into .local/share/lamadist/
+# test-ssh/ on first use and caches it indefinitely).  TOPDIR is the
+# in-container build dir, one level under the repo mount.
+---
+header:
+  version: 15
+local_conf_header:
+  45_test_ssh_key: |
+    LAMADIST_SSH_AUTHORIZED_KEYS = "${TOPDIR}/../.local/share/lamadist/test-ssh/id_ed25519.pub"
