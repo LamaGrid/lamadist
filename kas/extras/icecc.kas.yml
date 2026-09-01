@@ -15,8 +15,10 @@ local_conf_header:
     # 40 remote slots; with ICECC_REMOTE_CPP=0 every job still costs
     # a local preprocessor pass, so -j52 meant up to 52 local cpp
     # processes on 12 threads.  -j40 loses little against the pool
-    # and caps the local-fallback blast radius.
-    ICECC_PARALLEL_MAKE = '-j 40'
+    # and caps the local-fallback blast radius.  Weak default: hosts
+    # with tighter memory (CI pods: 9 GiB) override via
+    # LAMADIST_ICECC_JOBS, which the dynamic overlay hard-assigns.
+    ICECC_PARALLEL_MAKE ?= '-j 40'
     # cmake bypasses the shims structurally: toolchain.cmake sets
     # CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY with roots that exclude
     # ICE_PATH (it lives under WORKDIR), so the compiler resolves to

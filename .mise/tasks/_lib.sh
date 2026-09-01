@@ -80,6 +80,16 @@ write_dynamic_overlay() {
 			    PARALLEL_MAKE = '-j ${LAMADIST_MAX_LOCAL_JOBS}'
 		OVERLAY
 	fi
+	# Host-local icecc fan-out cap (LAMADIST_ICECC_JOBS): overrides
+	# the icecc overlay's weak -j40 default.  Every icecc job costs
+	# a local preprocessor pass (ICECC_REMOTE_CPP=0), so
+	# memory-tight hosts (9 GiB CI pods) must bound it or the
+	# build OOMs its own cgroup.  Hash-ignored; no sstate impact.
+	if [[ -n "${LAMADIST_ICECC_JOBS:-}" ]]; then
+		cat >> "${_dynamic_overlay}" <<- OVERLAY
+			    ICECC_PARALLEL_MAKE = '-j ${LAMADIST_ICECC_JOBS}'
+		OVERLAY
+	fi
 }
 
 # Resolve the Yocto MACHINE name from a LamaDist BSP name.

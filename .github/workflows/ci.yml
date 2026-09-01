@@ -164,6 +164,10 @@ jobs:
           # pod's 6-CPU cgroup limit; remote icecc slots carry the
           # rest (ICECC_PARALLEL_MAKE in kas/extras/icecc.kas.yml).
           LAMADIST_MAX_LOCAL_JOBS: "6"
+          # Bound the icecc fan-out for the 9 GiB pod: each remote
+          # job runs a local preprocessor, and the overlay's -j40
+          # default OOM-killed the job cgroup (run 33470552892).
+          LAMADIST_ICECC_JOBS: "12"
 
       # TODO: Upload build artifacts when ready
       # - name: Upload artifacts
