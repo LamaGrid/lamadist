@@ -6,11 +6,11 @@ Accepted
 
 ## Context
 
-The Post-M4 plan calls for lab machines to contribute compile power
-to LamaDist builds, with icecream (icecc) preferred over distcc
-(docs/PLAN.md, Post-M4 Checkpoint).  Two Ubuntu lab helpers
-(`lamalab-75`, `lamalab-103`, 28 threads combined) now run `iceccd`,
-with the scheduler on the bitbake host (172.16.0.1).
+The Post-M4 plan calls for helper machines to contribute compile
+power to LamaDist builds, with icecream (icecc) preferred over
+distcc (docs/PLAN.md, Post-M4 Checkpoint).  Two Ubuntu helpers
+(28 threads combined) now run `iceccd`, with the scheduler on the
+bitbake host.
 
 Yocto's icecc integration (`icecc.bbclass` plus the
 `icecc-create-env` recipe) was dropped from openembedded-core on
@@ -42,9 +42,10 @@ with two local changes marked `LamaDist:` in the class (provenance
 header; `ICECC_SDK_HOST_TASK` emptied because
 `nativesdk-icecc-toolchain` is not vendored).  Enable per build via
 `kas/extras/icecc.kas.yml` behind `mise run build --icecc`, which
-also starts an in-container `iceccd --no-remote` pointed at the lab
+also starts an in-container `iceccd --no-remote` pointed at the
 scheduler (broadcast discovery does not cross the rootless-podman
-network namespace).
+network namespace).  The scheduler address is site configuration
+(`LAMADIST_ICECC_SCHEDULER`), never committed.
 
 ## Alternatives considered
 
@@ -55,7 +56,7 @@ network namespace).
 - **A community icecc layer**: searched; none exists
   post-removal.
 - **Do nothing (sstate only)**: sstate covers warm builds but does
-  nothing for cold rebuilds, which are exactly the case the lab
+  nothing for cold rebuilds, which are exactly the case the
   helpers target.
 
 ## Consequences
