@@ -153,13 +153,17 @@ jobs:
       - name: Build
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" = "push" ]; then
-            mise run build --bsp x86_64 --ci --release
+            mise run build --bsp x86_64 --ci --release --icecc
           else
-            mise run build --bsp x86_64 --ci --qa --include-scans
+            mise run build --bsp x86_64 --ci --qa --include-scans --icecc
           fi
         env:
           GITVERSION_INFO_VERSION: ${{ needs.version.outputs.informationalVersion }}
           GITVERSION_FULL_SEM_VER: ${{ needs.version.outputs.fullSemVer }}
+          # Cap bitbake/make/iceccd-local parallelism to the job
+          # pod's 6-CPU cgroup limit; remote icecc slots carry the
+          # rest (ICECC_PARALLEL_MAKE in kas/extras/icecc.kas.yml).
+          LAMADIST_MAX_LOCAL_JOBS: "6"
 
       # TODO: Upload build artifacts when ready
       # - name: Upload artifacts

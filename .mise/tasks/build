@@ -8,7 +8,7 @@
 #USAGE flag "-q --qa" help="QA mode: zstd compression for faster QA/PR builds"
 #USAGE flag "-r --release" help="Release mode: machine-default xz compression, CVE checks"
 #USAGE flag "-s --include-scans" help="Enable security scans (CVE manifest generation)"
-#USAGE flag "-I --icecc" help="Distribute compiles via the icecc lab helpers (local dev only)"
+#USAGE flag "-I --icecc" help="Distribute compiles via the icecc lab helpers"
 #MISE depends=["info"]
 set -o errexit
 set -o nounset
@@ -73,7 +73,18 @@ fi
 if [ "${_ci}" = "true" ]; then
 	# CI mode: run kas directly (already inside builder container)
 	if [ "${_icecc}" = "true" ]; then
-		echo "==> --icecc ignored in CI mode (no lab scheduler reachable)"
+		# CI job pods run on the lab nodes, which reach the desktop
+		# scheduler (172.16.0.1) and the helper daemons directly.
+		# Same root-socket rule as the local path: bitbake gives
+		# tasks a throwaway HOME, so only the root daemon's
+		# /var/run/icecc socket is findable.  Daemon failure is
+		# non-fatal -- compiles fall back to local at the icecc
+		# parallelism, contained by the pod's cgroup caps.
+		sudo -n mkdir -p /var/run/icecc 2> /dev/null || true
+		sudo -n /usr/sbin/iceccd -d --no-remote \
+			${LAMADIST_MAX_LOCAL_JOBS:+-m ${LAMADIST_MAX_LOCAL_JOBS}} \
+			-s "${LAMADIST_ICECC_SCHEDULER:-172.16.0.1}" ||
+			echo "==> WARNING: iceccd failed to start; compiles stay local"
 	fi
 	mkdir -p "${SSTATE_DIR}"
 	kas build --force-checkout --update "${_kas_config}"
