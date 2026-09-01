@@ -85,13 +85,19 @@ else
 		# --no-remote because behind the rootless-podman NAT it cannot
 		# accept jobs from other machines, -s because UDP scheduler
 		# discovery does not cross the container network namespace.
-		# LAMADIST_MAX_LOCAL_JOBS (optional; set it in
+		# The daemon MUST run as root: a non-root iceccd binds its
+		# unix socket at HOME/.iceccd.socket, but bitbake gives
+		# every task a private throwaway HOME, so clients never find
+		# it and silently compile locally.  Root binds
+		# /var/run/icecc/iceccd.socket, the first path every client
+		# checks.  LAMADIST_MAX_LOCAL_JOBS (optional; set it in
 		# .mise.local.toml) caps the daemon's local compile slots,
 		# matching the cap the dynamic overlay puts on plain
 		# builds; unset means all container cores.
 		run_in_container --entrypoint /bin/dumb-init -- /bin/bash -c "
 			mkdir -p /tmp/iceccd
-			/usr/sbin/iceccd -d --no-remote \
+			sudo -n mkdir -p /var/run/icecc
+			sudo -n /usr/sbin/iceccd -d --no-remote \
 				${LAMADIST_MAX_LOCAL_JOBS:+-m ${LAMADIST_MAX_LOCAL_JOBS}} \
 				-s '${LAMADIST_ICECC_SCHEDULER:-172.16.0.1}' \
 				-b /tmp/iceccd -l /tmp/iceccd/iceccd.log
