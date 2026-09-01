@@ -12,4 +12,24 @@ header:
 local_conf_header:
   40_icecc: |
     INHERIT += 'icecc'
-    ICECC_PARALLEL_MAKE = '-j 52'
+    # 40 remote slots; with ICECC_REMOTE_CPP=0 every job still costs
+    # a local preprocessor pass, so -j52 meant up to 52 local cpp
+    # processes on 12 threads.  -j40 loses little against the pool
+    # and caps the local-fallback blast radius.
+    ICECC_PARALLEL_MAKE = '-j 40'
+    # cmake bypasses the shims structurally: toolchain.cmake sets
+    # CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY with roots that exclude
+    # ICE_PATH (it lives under WORKDIR), so the compiler resolves to
+    # the real cross gcc and gets cached as an absolute path -- zero
+    # distribution while still inheriting the raised PARALLEL_MAKE.
+    # Interim: keep cmake recipes local at normal -j until the
+    # compiler-launcher fix in the class lands and is smoke-tested.
+    ICECC_CLASS_DISABLE += 'cmake'
+    # native/cross cmake recipes (llvm-native worst) capture the
+    # compiler as an absolute hosttools path at configure time,
+    # bypassing the PATH shims -- the class then still raises
+    # PARALLEL_MAKE to ICECC_PARALLEL_MAKE, so they thrash the
+    # local host at -j52 with zero distribution.  Restrict icecc
+    # to target recipes (the payoff case for the lab helpers).
+    # ICECC_* vars are hash-ignored, so this changes no task sigs.
+    ICECC_CLASS_DISABLE += 'native nativesdk cross crosssdk cross-canadian'
