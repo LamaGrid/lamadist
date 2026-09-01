@@ -55,6 +55,15 @@ if [ "${_icecc}" = "true" ]; then
 	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/icecc.kas.yml"
 fi
 
+# Non-release builds bake the cached test SSH public key for the
+# lama user, same as the installer task (read-only rootfs: keys
+# only enter at build time).  Without it an OTA image deployed to
+# a lab machine drops key auth, leaving only the dev password.
+if [ "${_release}" != "true" ]; then
+	ensure_test_ssh_key > /dev/null
+	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/test-ssh-key.kas.yml"
+fi
+
 # Record scan marker for pre-push hook
 if [ "${_include_scans}" = "true" ]; then
 	mkdir -p "${MISE_CONFIG_ROOT}/.cache"
