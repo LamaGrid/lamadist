@@ -263,3 +263,12 @@ lamadist_persist_ssh_hostkeys() {
 IMAGE_PREPROCESS_COMMAND:append = " lamadist_persist_ssh_hostkeys; "
 
 LICENSE = "Apache-2.0"
+
+# Image-scope zstd level.  The global ZSTD_COMPRESSION_LEVEL stays
+# a small bare integer (package_rpm int()-parses it for the RPM
+# payload compressor); only image artifacts pay for the heavy
+# level.  --ultra is required by the zstd CLI for levels > 19 and
+# is a no-op below that.  LAMADIST_IMAGE_ZSTD_LEVEL: distro
+# default 22, QA overlay 3.
+ZSTD_COMPRESSION_LEVEL = "${LAMADIST_IMAGE_ZSTD_LEVEL}"
+ZSTD_DEFAULTS:append = " --ultra"

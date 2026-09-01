@@ -86,11 +86,21 @@ IMAGE_FSTYPES ?= 'ext4 wic wic.xz wic.zst wic.bmap'
 # from the perms tables (VOLATILE_LOG_DIR is gone).
 FILESYSTEM_PERMS_TABLES = "files/fs-perms.txt files/fs-perms-volatile-tmp.txt"
 
-# Release-quality xz compression; constrained machines can override
-# in their machine config, and KAS overlays (debug, qa) override for
-# faster dev builds
-XZ_INTEGRITY_CHECK = 'sha256'
-XZ_COMPRESSION_LEVEL = '-9e'
+# Release-quality compression policy.  Weak assignments: KAS
+# overlays and local.conf parse before distro conf, so ?= lets
+# them win -- a plain = here silently beats every overlay.  Image
+# artifacts use zstd (wic.zst); the xz policy stays for any other
+# .xz conversion.
+#
+# ZSTD_COMPRESSION_LEVEL stays at the upstream global default (a
+# BARE integer -- package_rpm int()-parses it for the RPM payload
+# compressor, so flag strings break parsing and level 22 would
+# slow every do_package_write_rpm).  The heavy level applies only
+# in image-recipe scope, wired through this variable (image
+# recipes consume it; overlays override it).
+XZ_INTEGRITY_CHECK ?= 'sha256'
+XZ_COMPRESSION_LEVEL ?= '-9e'
+LAMADIST_IMAGE_ZSTD_LEVEL ?= '22'
 
 require conf/distro/include/lamadist-gcsections.inc
 
