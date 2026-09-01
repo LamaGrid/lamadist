@@ -20,6 +20,67 @@ ensure_test_ssh_key() {
 	echo "${_dir}/id_ed25519.pub"
 }
 
+# Effective CPU count for the build.  Inside a cgroup-namespaced
+# container (CI pod, capped podman) cpu.max is the truth; nproc
+# sees every node core because pod CPU limits are CFS quota, not
+# an affinity mask.
+_detect_cpus() {
+	local _quota _period
+	if [[ -r /sys/fs/cgroup/cpu.max ]]; then
+		read -r _quota _period < /sys/fs/cgroup/cpu.max
+		if [[ "$_quota" != "max" && -n "$_period" ]]; then
+			echo $(((_quota + _period - 1) / _period))
+			return
+		fi
+	fi
+	nproc
+}
+
+# Effective memory envelope in whole GiB.  Preference order:
+# cgroup limit (visible only inside a capped container), then the
+# podman cap the build container will run under, then host
+# MemTotal.
+_detect_mem_gb() {
+	local _v
+	if [[ -r /sys/fs/cgroup/memory.max ]]; then
+		_v=$(< /sys/fs/cgroup/memory.max)
+		if [[ "$_v" != "max" ]]; then
+			echo $((_v / 1073741824))
+			return
+		fi
+	fi
+	_v="${PODMAN_RUN_MEMORY:-}"
+	case "$_v" in
+		*[gG]) echo "${_v%[gG]}" && return ;;
+		*[mM]) echo $((${_v%[mM]} / 1024)) && return ;;
+		*[kK]) echo $((${_v%[kK]} / 1048576)) && return ;;
+	esac
+	awk '/^MemTotal:/ {printf "%d", $2 / 1048576}' /proc/meminfo
+}
+
+# Per-recipe make-job cuts for the measured heavy compilers, only
+# when the memory envelope is tight (< 24 GiB).  Child ru_maxrss
+# per compile process (buildstats 2026-09-01): cargo-native 3.0G,
+# linux-yocto 2.5G, llvm-native 2.3G, clang-native 2.0G, rust
+# ~1.5G, gcc 1.4G, spirv-llvm-translator-native 1.4G.  At -j6 one
+# such recipe holds 6-12 GB alone and OOMs an 11 GiB cgroup even
+# with BB_NUMBER_THREADS already reduced (observed: clang-native
+# cc1plus kill in the 11 GiB validation build).  PARALLEL_MAKE is
+# hash-ignored, so these change no task signatures.
+_emit_heavy_recipe_caps() {
+	local _overlay="$1" _cpus="$2" _mem_gb="$3"
+	((_mem_gb < 24)) || return 0
+	local _j=$((_mem_gb / 3)) _r
+	((_j >= 2)) || _j=2
+	((_j <= _cpus)) || _j=$_cpus
+	for _r in clang-native llvm-native spirv-llvm-translator-native \
+		gcc linux-yocto cargo-native rust-native; do
+		cat >> "$_overlay" <<- OVERLAY
+			    PARALLEL_MAKE:pn-${_r} = '-j ${_j}'
+		OVERLAY
+	done
+}
+
 # Write the dynamic KAS overlay (.cache/dynamic.kas.yml) carrying
 # version and build-stats settings, sourced from the gitversion env
 # file stamped by the 'info' task.  A file stamped for a different
@@ -69,17 +130,51 @@ write_dynamic_overlay() {
 			    DISTRO_VERSION = '${DISTRO_VERSION}'
 		OVERLAY
 	fi
-	# Host-local parallelism cap (LAMADIST_MAX_LOCAL_JOBS, e.g. from
-	# .mise.local.toml): bounds bitbake task count and make jobs for
-	# every local build.  Under --icecc the same value caps iceccd's
-	# local slots while ICECC_PARALLEL_MAKE raises per-recipe make
-	# jobs for the remote pool.
+	# Parallelism.  LAMADIST_MAX_LOCAL_JOBS (e.g. .mise.local.toml)
+	# is an explicit cap and wins outright.  Otherwise auto-size
+	# from the detected envelope: N tasks, make jobs N+2 with a
+	# load-average brake at N+4 (-l guards CPU thrash only; memory
+	# is governed by the class caps below).  Under --icecc the same
+	# cap bounds iceccd's local slots while ICECC_PARALLEL_MAKE
+	# raises per-recipe make jobs for the remote pool.
+	local _cpus _mem_gb
+	_cpus=$(_detect_cpus)
+	_mem_gb=$(_detect_mem_gb)
 	if [[ -n "${LAMADIST_MAX_LOCAL_JOBS:-}" ]]; then
 		cat >> "${_dynamic_overlay}" <<- OVERLAY
 			    BB_NUMBER_THREADS = '${LAMADIST_MAX_LOCAL_JOBS}'
 			    PARALLEL_MAKE = '-j ${LAMADIST_MAX_LOCAL_JOBS}'
 		OVERLAY
+	else
+		cat >> "${_dynamic_overlay}" <<- OVERLAY
+			    BB_NUMBER_THREADS = '${_cpus}'
+			    PARALLEL_MAKE = '-j $((_cpus + 2)) -l $((_cpus + 4))'
+		OVERLAY
 	fi
+	# Memory-aware caps for the measured outliers (buildstats,
+	# 2026-09-01; see ADR 0009 follow-up).  do_create_spdx is the
+	# one class that is both fat (pooled p95 3.4 GB with sources
+	# on) and numerous (~650 instances): cap its concurrency by
+	# the memory envelope.  number_threads is scheduling-only --
+	# no task-signature impact.  Compressor thread counts default
+	# to cpu_count(), which sees every node core from inside a
+	# pod, so pin them to the detected envelope.
+	local _spdx_threads
+	if [[ -n "${LAMADIST_SPDX_THREADS:-}" ]]; then
+		_spdx_threads="${LAMADIST_SPDX_THREADS}"
+	elif ((_mem_gb < 16)); then
+		_spdx_threads=1
+	elif ((_mem_gb < 32)); then
+		_spdx_threads=2
+	else
+		_spdx_threads=4
+	fi
+	cat >> "${_dynamic_overlay}" <<- OVERLAY
+		    do_create_spdx[number_threads] = '${_spdx_threads}'
+		    XZ_THREADS = '${_cpus}'
+		    ZSTD_THREADS = '${_cpus}'
+	OVERLAY
+	_emit_heavy_recipe_caps "${_dynamic_overlay}" "${_cpus}" "${_mem_gb}"
 	# Host-local icecc fan-out cap (LAMADIST_ICECC_JOBS): overrides
 	# the icecc overlay's weak -j40 default.  Every icecc job costs
 	# a local preprocessor pass (ICECC_REMOTE_CPP=0), so
