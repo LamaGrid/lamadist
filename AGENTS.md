@@ -118,3 +118,31 @@ docs/                   # Documentation
 - **Layer compatibility errors**: All KAS repos must target the same Yocto
   release series (currently `wrynose`). Check `kas/main.kas.yml` branch
   settings if a layer reports incompatibility.
+
+## Agent Monitoring Gotchas
+
+Hard-won rules for background monitors and pollers (builds, CI runs,
+lab hosts).  All of these caused real missed or false alarms.
+
+- **Sandboxed scripts cannot reach private hosts, and fail silently.**
+  Monitor-tool scripts and sandboxed shell commands are blocked from
+  hosts outside the sandbox network allowlist; `nc` and `ssh` return
+  rc 0 with empty output, so the watch arms, never fires, and looks
+  identical to "no event yet".  Any probe of private infrastructure
+  (build helpers, target devices) must run as an unsandboxed
+  background command.
+- **GitHub polling works sandboxed.**  `api.github.com` is on the
+  sandbox allowlist, so `gh`-based CI watches are safe inside the
+  Monitor tool.  Poll at ~60s; slower cadences plus GitHub API lag
+  delivered failure notices minutes late.
+- **Emit an ARMED liveness event first.**  The first stdout line of
+  every monitor must announce that it is armed, and the round trip
+  must be confirmed before trusting it.  A dead monitor is silent,
+  and silence is indistinguishable from "still waiting".
+- **Match every terminal state.**  A filter that greps only the
+  success marker stays silent through failure, cancellation, and
+  hangs.  Emit on `success|failure|cancelled|timeout`, always.
+- **Never discard stderr in probes.**  An SSH poller that drops
+  stderr turns "Permission denied" into a bare timeout and sends the
+  diagnosis down the wrong path (this hid a missing authorized key
+  during the first hardware OTA).
