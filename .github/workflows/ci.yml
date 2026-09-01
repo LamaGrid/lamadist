@@ -160,10 +160,14 @@ jobs:
         env:
           GITVERSION_INFO_VERSION: ${{ needs.version.outputs.informationalVersion }}
           GITVERSION_FULL_SEM_VER: ${{ needs.version.outputs.fullSemVer }}
-          # Cap bitbake/make/iceccd-local parallelism to the job
+          # Cap bitbake/make/iceccd-local parallelism below the job
           # pod's 6-CPU cgroup limit; remote icecc slots carry the
           # rest (ICECC_PARALLEL_MAKE in kas/extras/icecc.kas.yml).
-          LAMADIST_MAX_LOCAL_JOBS: "6"
+          # 4, not 6: run 33476191076 OOM'd the 9 GiB pod in the
+          # rust phase (rustc is 1-2G+ per process and never
+          # distributes), so peak RSS -- not CPU -- is the binding
+          # constraint.
+          LAMADIST_MAX_LOCAL_JOBS: "4"
           # Bound the icecc fan-out for the 9 GiB pod: each remote
           # job runs a local preprocessor, and the overlay's -j40
           # default OOM-killed the job cgroup (run 33470552892).
