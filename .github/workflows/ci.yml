@@ -160,6 +160,10 @@ jobs:
         env:
           GITVERSION_INFO_VERSION: ${{ needs.version.outputs.informationalVersion }}
           GITVERSION_FULL_SEM_VER: ${{ needs.version.outputs.fullSemVer }}
+          # Site configuration: the scheduler address is a repo
+          # Actions variable, never committed.  Unset means the
+          # build task disables icecc and compiles locally.
+          LAMADIST_ICECC_SCHEDULER: ${{ vars.LAMADIST_ICECC_SCHEDULER }}
           # Cap bitbake/make/iceccd-local parallelism below the job
           # pod's 6-CPU cgroup limit; remote icecc slots carry the
           # rest (ICECC_PARALLEL_MAKE in kas/extras/icecc.kas.yml).

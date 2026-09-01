@@ -8,7 +8,7 @@
 #USAGE flag "-q --qa" help="QA mode: zstd compression for faster QA/PR builds"
 #USAGE flag "-r --release" help="Release mode: machine-default xz compression, CVE checks"
 #USAGE flag "-s --include-scans" help="Enable security scans (CVE manifest generation)"
-#USAGE flag "-I --icecc" help="Distribute compiles via the icecc lab helpers"
+#USAGE flag "-I --icecc" help="Distribute compiles via the icecc helper pool"
 #MISE depends=["info"]
 set -o errexit
 set -o nounset
@@ -24,6 +24,15 @@ _icecc="${usage_icecc:-false}"
 # --release implies --include-scans
 if [ "${_release}" = "true" ]; then
 	_include_scans="true"
+fi
+
+# The icecc scheduler address is site configuration and never lives
+# in the repo.  Set LAMADIST_ICECC_SCHEDULER in .mise.local.toml
+# (local dev) or a CI variable; without it --icecc degrades to a
+# plain local build.
+if [ "${_icecc}" = "true" ] && [ -z "${LAMADIST_ICECC_SCHEDULER:-}" ]; then
+	echo "==> WARNING: LAMADIST_ICECC_SCHEDULER not set; building without icecc"
+	_icecc="false"
 fi
 
 # shellcheck source=.mise/tasks/_lib.sh
@@ -73,8 +82,8 @@ fi
 if [ "${_ci}" = "true" ]; then
 	# CI mode: run kas directly (already inside builder container)
 	if [ "${_icecc}" = "true" ]; then
-		# CI job pods run on the lab nodes, which reach the desktop
-		# scheduler (172.16.0.1) and the helper daemons directly.
+		# CI job pods reach the icecc scheduler and the helper
+		# daemons directly.
 		# Same root-socket rule as the local path: bitbake gives
 		# tasks a throwaway HOME, so only the root daemon's
 		# /var/run/icecc socket is findable.  Daemon failure is
@@ -83,7 +92,7 @@ if [ "${_ci}" = "true" ]; then
 		sudo -n mkdir -p /var/run/icecc 2> /dev/null || true
 		sudo -n /usr/sbin/iceccd -d --no-remote \
 			${LAMADIST_MAX_LOCAL_JOBS:+-m ${LAMADIST_MAX_LOCAL_JOBS}} \
-			-s "${LAMADIST_ICECC_SCHEDULER:-172.16.0.1}" ||
+			-s "${LAMADIST_ICECC_SCHEDULER}" ||
 			echo "==> WARNING: iceccd failed to start; compiles stay local"
 	fi
 	mkdir -p "${SSTATE_DIR}"
@@ -119,7 +128,7 @@ else
 			sudo -n mkdir -p /var/run/icecc
 			sudo -n /usr/sbin/iceccd -d --no-remote \
 				${LAMADIST_MAX_LOCAL_JOBS:+-m ${LAMADIST_MAX_LOCAL_JOBS}} \
-				-s '${LAMADIST_ICECC_SCHEDULER:-172.16.0.1}' \
+				-s '${LAMADIST_ICECC_SCHEDULER}' \
 				-b /tmp/iceccd -l /tmp/iceccd/iceccd.log
 			exec kas build '${_kas_config}'
 		"
