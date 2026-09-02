@@ -30,6 +30,13 @@ concurrency:
 
 env:
   MISE_COLOR: 'false'
+  # Persist mise's tool installs in the shared runner toolcache PV
+  # (same chain the GitVersion action uses: PVC -> runner
+  # _work/_tool -> job container /__w/_tool).  Both scale sets
+  # share the RWO volume; mise's own file locking handles
+  # concurrent jobs.
+  MISE_DATA_DIR: /__w/_tool/mise/data
+  MISE_CACHE_DIR: /__w/_tool/mise/cache
   BUILDSTATS_BASE: /__w/_buildstats
   SSTATE_DIR: /__w/_sstate
   LAMADIST_HOST_BUILDSTATS_BASE: /__w/_buildstats
