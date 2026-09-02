@@ -42,7 +42,20 @@ source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 # the 'info' dependency task's gitversion env file (see _lib.sh).
 write_dynamic_overlay
 
-_kas_config="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${_bsp}.kas.yml:${KAS_WORK_DIR}/.cache/dynamic.kas.yml:${KAS_WORK_DIR}/kas/extras/sbom.kas.yml"
+_kas_config="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${_bsp}.kas.yml:${KAS_WORK_DIR}/.cache/dynamic.kas.yml"
+
+# SBOM fidelity split: every build generates SPDX (distro default
+# SPDX_INCLUDE_SOURCES=0 -- cheap, parallel, keeps the CVE scan
+# fed), but only release builds pull the sbom overlay that turns
+# on full per-source-file inventory.  Sources change SPDX task
+# signatures, so release re-runs the SPDX chain cold while reusing
+# all compile sstate.  LAMADIST_SPDX_HEAVY tells the dynamic
+# overlay to cap do_create_spdx concurrency (2-3 GB per task with
+# sources on).
+if [ "${_release}" = "true" ]; then
+	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/sbom.kas.yml"
+	export LAMADIST_SPDX_HEAVY=1
+fi
 
 # Append build-stage overlays:
 #   --qa:      zstd compression (QA/PR builds)

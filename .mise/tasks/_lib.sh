@@ -67,6 +67,26 @@ _detect_mem_gb() {
 # with BB_NUMBER_THREADS already reduced (observed: clang-native
 # cc1plus kill in the 11 GiB validation build).  PARALLEL_MAKE is
 # hash-ignored, so these change no task signatures.
+# do_create_spdx concurrency cap, or empty for "schedule freely".
+# LAMADIST_SPDX_THREADS forces a value; LAMADIST_SPDX_HEAVY (set
+# by the build task for release builds, where full source
+# inventory makes each task hold 2-3 GB) selects from the memory
+# table.
+_spdx_thread_cap() {
+	local _mem_gb="$1"
+	if [[ -n "${LAMADIST_SPDX_THREADS:-}" ]]; then
+		echo "${LAMADIST_SPDX_THREADS}"
+	elif [[ -n "${LAMADIST_SPDX_HEAVY:-}" ]]; then
+		if ((_mem_gb < 16)); then
+			echo 1
+		elif ((_mem_gb < 32)); then
+			echo 2
+		else
+			echo 4
+		fi
+	fi
+}
+
 _emit_heavy_recipe_caps() {
 	local _overlay="$1" _cpus="$2" _mem_gb="$3"
 	((_mem_gb < 24)) || return 0
@@ -151,26 +171,24 @@ write_dynamic_overlay() {
 			    PARALLEL_MAKE = '-j $((_cpus + 2)) -l $((_cpus + 4))'
 		OVERLAY
 	fi
-	# Memory-aware caps for the measured outliers (buildstats,
-	# 2026-09-01; see ADR 0009 follow-up).  do_create_spdx is the
-	# one class that is both fat (pooled p95 3.4 GB with sources
-	# on) and numerous (~650 instances): cap its concurrency by
-	# the memory envelope.  number_threads is scheduling-only --
-	# no task-signature impact.  Compressor thread counts default
-	# to cpu_count(), which sees every node core from inside a
-	# pod, so pin them to the detected envelope.
+	# Memory-aware cap for the measured outlier (buildstats,
+	# 2026-09-01): with full source inventory on (release builds;
+	# LAMADIST_SPDX_HEAVY set by the build task), do_create_spdx
+	# holds 2-3 GB per task across ~650 instances, so cap its
+	# concurrency by the memory envelope.  number_threads is
+	# scheduling-only -- no task-signature impact.  Source-free
+	# SPDX (dev/QA default) is a few hundred MB per task and
+	# schedules freely.  Compressor thread counts default to
+	# cpu_count(), which sees every node core from inside a pod,
+	# so pin them to the detected envelope.
 	local _spdx_threads
-	if [[ -n "${LAMADIST_SPDX_THREADS:-}" ]]; then
-		_spdx_threads="${LAMADIST_SPDX_THREADS}"
-	elif ((_mem_gb < 16)); then
-		_spdx_threads=1
-	elif ((_mem_gb < 32)); then
-		_spdx_threads=2
-	else
-		_spdx_threads=4
+	_spdx_threads=$(_spdx_thread_cap "${_mem_gb}")
+	if [[ -n "${_spdx_threads}" ]]; then
+		cat >> "${_dynamic_overlay}" <<- OVERLAY
+			    do_create_spdx[number_threads] = '${_spdx_threads}'
+		OVERLAY
 	fi
 	cat >> "${_dynamic_overlay}" <<- OVERLAY
-		    do_create_spdx[number_threads] = '${_spdx_threads}'
 		    XZ_THREADS = '${_cpus}'
 		    ZSTD_THREADS = '${_cpus}'
 	OVERLAY
