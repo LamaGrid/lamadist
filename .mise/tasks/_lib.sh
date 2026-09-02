@@ -188,9 +188,17 @@ write_dynamic_overlay() {
 			    do_create_spdx[number_threads] = '${_spdx_threads}'
 		OVERLAY
 	fi
+	# Compressor threads are memory-bound, not CPU-bound, at the
+	# heavy presets: zstd --ultra -22 holds ~0.85 GB per thread
+	# (measured: 12 threads OOM-killed an 11 GiB cgroup finishing
+	# do_image_wic), xz -9e ~0.9 GB.  Half a GiB-per-GB envelope
+	# keeps the worst preset near mem/2 GB total.
+	local _zstd_threads=$((_mem_gb / 2))
+	((_zstd_threads >= 2)) || _zstd_threads=2
+	((_zstd_threads <= _cpus)) || _zstd_threads=$_cpus
 	cat >> "${_dynamic_overlay}" <<- OVERLAY
-		    XZ_THREADS = '${_cpus}'
-		    ZSTD_THREADS = '${_cpus}'
+		    XZ_THREADS = '${_zstd_threads}'
+		    ZSTD_THREADS = '${_zstd_threads}'
 	OVERLAY
 	_emit_heavy_recipe_caps "${_dynamic_overlay}" "${_cpus}" "${_mem_gb}"
 	# Host-local icecc fan-out cap (LAMADIST_ICECC_JOBS): overrides
