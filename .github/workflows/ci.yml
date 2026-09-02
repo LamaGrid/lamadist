@@ -168,9 +168,11 @@ jobs:
           GITVERSION_INFO_VERSION: ${{ needs.version.outputs.informationalVersion }}
           GITVERSION_FULL_SEM_VER: ${{ needs.version.outputs.fullSemVer }}
           # Site configuration: the scheduler address is a repo
-          # Actions variable, never committed.  Unset means the
-          # build task disables icecc and compiles locally.
-          LAMADIST_ICECC_SCHEDULER: ${{ vars.LAMADIST_ICECC_SCHEDULER }}
+          # Actions secret (not a variable) so run logs mask the
+          # value.  Unset -- including fork PRs, which never
+          # receive secrets -- means the build task disables icecc
+          # and compiles locally.
+          LAMADIST_ICECC_SCHEDULER: ${{ secrets.LAMADIST_ICECC_SCHEDULER }}
           # No static parallelism pin: the build task auto-sizes
           # threads, make jobs, and per-class memory caps from the
           # pod's own cgroup limits (see write_dynamic_overlay in
