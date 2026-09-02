@@ -171,16 +171,12 @@ jobs:
           # Actions variable, never committed.  Unset means the
           # build task disables icecc and compiles locally.
           LAMADIST_ICECC_SCHEDULER: ${{ vars.LAMADIST_ICECC_SCHEDULER }}
-          # Cap bitbake/make/iceccd-local parallelism below the job
-          # pod's 6-CPU cgroup limit; remote icecc slots carry the
-          # rest (ICECC_PARALLEL_MAKE in kas/extras/icecc.kas.yml).
-          # 4, not 6: run 33476191076 OOM'd the 9 GiB pod in the
-          # rust phase (rustc is 1-2G+ per process and never
-          # distributes), so peak RSS -- not CPU -- is the binding
-          # constraint.
-          LAMADIST_MAX_LOCAL_JOBS: "4"
-          # Bound the icecc fan-out for the 9 GiB pod: each remote
-          # job runs a local preprocessor, and the overlay's -j40
+          # No static parallelism pin: the build task auto-sizes
+          # threads, make jobs, and per-class memory caps from the
+          # pod's own cgroup limits (see write_dynamic_overlay in
+          # .mise/tasks/_lib.sh).
+          # Bound the icecc fan-out for the pod: each remote job
+          # runs a local preprocessor, and the overlay's -j40
           # default OOM-killed the job cgroup (run 33470552892).
           LAMADIST_ICECC_JOBS: "12"
 
