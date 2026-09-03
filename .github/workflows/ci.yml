@@ -39,6 +39,10 @@ env:
   MISE_CACHE_DIR: /__w/_tool/mise/cache
   BUILDSTATS_BASE: /__w/_buildstats
   SSTATE_DIR: /__w/_sstate
+  # Dedicated downloads PV (pvc-yocto-downloads); the yocto work
+  # volume itself is ephemeral per-job since the runner storage
+  # split, so DL_DIR must live outside it to stay warm.
+  DL_DIR: /__w/_downloads
   LAMADIST_HOST_BUILDSTATS_BASE: /__w/_buildstats
   LAMADIST_HOST_SSTATE_DIR: /__w/_sstate
   LAMADIST_CONTAINER_IMAGE: lamadist-builder:latest
