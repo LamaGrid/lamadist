@@ -28,9 +28,19 @@ fi
 
 # The icecc scheduler address is site configuration and never lives
 # in the repo.  Set LAMADIST_ICECC_SCHEDULER in .mise.local.toml
-# (local dev) or a CI variable; without it --icecc degrades to a
-# plain local build.
+# (local dev) or a CI secret.  Locally a missing address degrades
+# to a plain build; in CI it is a hard error, because inheriting
+# the icecc class changes every compile-task signature, so a
+# silent degrade flips the whole build into the other sstate
+# signature universe and rebuilds ~1100+ tasks inside a green run
+# (runs 33688358723 vs 33717639647).
 if [ "${_icecc}" = "true" ] && [ -z "${LAMADIST_ICECC_SCHEDULER:-}" ]; then
+	if [ "${_ci}" = "true" ]; then
+		echo "==> ERROR: --icecc requested but LAMADIST_ICECC_SCHEDULER is unset." >&2
+		echo "==> Refusing to silently flip the sstate signature universe;" >&2
+		echo "==> restore the CI secret or drop --icecc from the workflow." >&2
+		exit 1
+	fi
 	echo "==> WARNING: LAMADIST_ICECC_SCHEDULER not set; building without icecc"
 	_icecc="false"
 fi
