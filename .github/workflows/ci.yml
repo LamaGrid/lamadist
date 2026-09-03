@@ -177,6 +177,11 @@ jobs:
           # receive secrets -- means the build task disables icecc
           # and compiles locally.
           LAMADIST_ICECC_SCHEDULER: ${{ secrets.LAMADIST_ICECC_SCHEDULER }}
+          # Private hash-equivalence server (see kas/main.kas.yml
+          # 10_cache).  Also a masked secret: infrastructure names
+          # stay out of public run logs.  Unset falls back to
+          # OEBasicHash, same as any third-party build.
+          LAMADIST_HASHSERVE: ${{ secrets.LAMADIST_HASHSERVE }}
           # No static parallelism pin: the build task auto-sizes
           # threads, make jobs, and per-class memory caps from the
           # pod's own cgroup limits (see write_dynamic_overlay in

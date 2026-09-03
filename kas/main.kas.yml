@@ -11,6 +11,11 @@ env:
   BUILDSTATS_BASE:
   DISTRO_VERSION:
   DISPLAY:
+  # Site-config address of a private hash-equivalence server
+  # (host:port).  Empty/unset keeps OEBasicHash -- the default for
+  # anyone building outside our infrastructure.  Never commit an
+  # address; CI injects it the same way as the icecc scheduler.
+  LAMADIST_HASHSERVE:
 
 build_system: oe
 
@@ -136,27 +141,21 @@ local_conf_header:
   10_rauc: |
     DISTRO_FEATURES:append = ' rauc'
 
-  # FIXME: Create a private sstate-cache and hashserv server.  Trusting
-  # public servers is insecure.  When a private hashserv is deployed,
-  # set BB_HASHSERVE = 'auto', re-add
-  # BB_HASHSERVE_DB_DIR = "${SSTATE_DIR}" (the db must sit beside the
-  # shared sstate dir, not the per-build TOPDIR, or sstate reuse
-  # breaks), and remove the BB_SIGNATURE_HANDLER override below so
-  # bitbake.conf's OEEquivHash default applies again.
   10_cache: |
     # NOTE: SSTATE_DIR is set via env var (container mount at
     # /sstate); do not hardcode it here.
-    # Hash equivalence is explicitly disabled until a private
-    # hashserv exists (see FIXME above).  Wrynose defaults
-    # BB_SIGNATURE_HANDLER to 'OEEquivHash', which hard-requires
-    # BB_HASHSERVE (bb.fatal otherwise), so BB_HASHSERVE = '' alone
-    # is not enough -- the handler must drop to 'OEBasicHash' too.
-    # This also silences sanity.bbclass's "local hash equivalence
-    # server ... sstate mirror" warning, which only fires for
-    # OEEquivHash.  Connecting to the public upstream hashserv during
-    # bitbake init can cause a 60 s timeout when DNS or TCP is
-    # unreachable from inside the build container.
-    BB_HASHSERVE = ''
-    # BB_HASHSERVE_UPSTREAM = 'hashserv.yocto.io:8687'
-    BB_SIGNATURE_HANDLER = 'OEBasicHash'
+    # Hash equivalence follows LAMADIST_HASHSERVE (site config, see
+    # the env: block).  Set: a private remote hashserv (TCP
+    # host:port) with its database server-side, and the wrynose
+    # default OEEquivHash handler applies.  Unset: hash equivalence
+    # stays off -- BB_HASHSERVE = '' hard-requires dropping the
+    # handler to OEBasicHash (OEEquivHash bb.fatals without a
+    # server), which also silences sanity.bbclass's "local hash
+    # equivalence server ... sstate mirror" warning.  A public
+    # upstream hashserv is deliberately not used: trusting public
+    # equivalence servers is insecure, and connecting out during
+    # bitbake init can hang 60 s when DNS or TCP is unreachable
+    # from inside the build container.
+    BB_HASHSERVE = "${@os.getenv('LAMADIST_HASHSERVE') or ''}"
+    BB_SIGNATURE_HANDLER = "${@'OEEquivHash' if os.getenv('LAMADIST_HASHSERVE') else 'OEBasicHash'}"
     SSTATE_MIRRORS = 'file://.* https://sstate.yoctoproject.org/PATH;downloadfilename=PATH'
