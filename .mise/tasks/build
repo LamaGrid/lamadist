@@ -48,6 +48,17 @@ fi
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 
+# Release builds turn on full SPDX source inventory (sbom overlay
+# below), which makes do_create_spdx hold 2-3 GB per task.
+# LAMADIST_SPDX_HEAVY tells write_dynamic_overlay to cap that
+# task's concurrency, so it MUST be exported before the overlay is
+# written: run 33820793420 exported it afterwards, three fat
+# do_create_spdx tasks ran at once, and the 11 GiB pod was
+# OOM-killed 24 min in.
+if [ "${_release}" = "true" ]; then
+	export LAMADIST_SPDX_HEAVY=1
+fi
+
 # Emit the dynamic KAS overlay (version + build-stats settings) from
 # the 'info' dependency task's gitversion env file (see _lib.sh).
 write_dynamic_overlay
@@ -59,12 +70,10 @@ _kas_config="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${_bsp}.ka
 # fed), but only release builds pull the sbom overlay that turns
 # on full per-source-file inventory.  Sources change SPDX task
 # signatures, so release re-runs the SPDX chain cold while reusing
-# all compile sstate.  LAMADIST_SPDX_HEAVY tells the dynamic
-# overlay to cap do_create_spdx concurrency (2-3 GB per task with
-# sources on).
+# all compile sstate.  The matching do_create_spdx concurrency cap
+# is LAMADIST_SPDX_HEAVY, exported above.
 if [ "${_release}" = "true" ]; then
 	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/sbom.kas.yml"
-	export LAMADIST_SPDX_HEAVY=1
 fi
 
 # Append build-stage overlays:
