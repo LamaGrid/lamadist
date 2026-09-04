@@ -189,11 +189,14 @@ write_dynamic_overlay() {
 		OVERLAY
 	fi
 	# Compressor threads are memory-bound, not CPU-bound, at the
-	# heavy presets: zstd --ultra -22 holds ~0.85 GB per thread
-	# (measured: 12 threads OOM-killed an 11 GiB cgroup finishing
-	# do_image_wic), xz -9e ~0.9 GB.  Half a GiB-per-GB envelope
-	# keeps the worst preset near mem/2 GB total.
-	local _zstd_threads=$((_mem_gb / 2))
+	# heavy presets.  zstd --ultra -22 holds ~1.6 GB per thread once
+	# the per-worker job buffers are counted (measured: 5 threads =
+	# 8.03 GB anon RSS, OOM-killed an 11 GiB cgroup in do_image_wic
+	# with one SPDX task still resident; run 33823958778), xz -9e
+	# ~0.9 GB.  A quarter-GiB-per-GB envelope keeps the worst preset
+	# near mem/2.5 GB total, leaving room for the task graph to
+	# overlap image compression with SPDX stragglers.
+	local _zstd_threads=$((_mem_gb / 4))
 	((_zstd_threads >= 2)) || _zstd_threads=2
 	((_zstd_threads <= _cpus)) || _zstd_threads=$_cpus
 	cat >> "${_dynamic_overlay}" <<- OVERLAY
