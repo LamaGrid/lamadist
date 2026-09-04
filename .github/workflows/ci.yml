@@ -147,7 +147,10 @@ jobs:
       image: registry.local/lamagrid/lamadist-builder:latest
     env:
       KAS_WORK_DIR: ${{ github.workspace }}
-    timeout-minutes: 480
+    # Release builds (main push) serialize the SPDX chain at the
+    # 11 GiB pod ceiling: measured ~6.4 h for SPDX alone (run
+    # 33823958778), so the default 480 leaves no margin.
+    timeout-minutes: 720
     steps:
       - name: Checkout
         uses: actions/checkout@v4
