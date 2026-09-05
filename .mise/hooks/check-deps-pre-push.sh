@@ -1,26 +1,35 @@
 #!/usr/bin/env bash
-# Wrapper for check-deps in pre-push hook
-# Allows exit code 1 (updates available) but fails on 2 (stale) or other errors
+# Wrapper for check-deps in the pre-push hook.
+#
+# `mise run container:builder:verify` exits 5 when
+# container/check_updates.sh finds available updates, 2 when the apt
+# lockfile is stale, 3 when the builder image is missing, and 1 when
+# no container runtime is found.  Updates warn; everything else
+# blocks the push.
 
 set -o errexit
 set -o nounset
 set -o pipefail
 
-if ! output=$(mise run container:builder:verify 2>&1); then
+# `$?` inside `if ! cmd; then` is the negated status (always 0), so
+# capture the real status on the failure branch instead.
+if output=$(mise run container:builder:verify 2>&1); then
+	status=0
+else
 	status=$?
-	echo "$output"
-	if [ "$status" -eq 1 ]; then
-		# Updates available - warn but allow push
+fi
+echo "$output"
+
+case "$status" in
+	0) ;;
+	5)
 		echo "WARNING: Dependencies have available updates. Consider running 'mise run container:builder:lock'."
-		exit 0
-	elif [ "$status" -eq 2 ]; then
-		# Stale - fail push
+		;;
+	2)
 		echo "ERROR: Dependencies are stale (>7 days). You must run 'mise run container:builder:lock' before pushing."
 		exit 1
-	else
-		# Other error
+		;;
+	*)
 		exit "$status"
-	fi
-else
-	echo "$output"
-fi
+		;;
+esac
