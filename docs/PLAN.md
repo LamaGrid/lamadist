@@ -38,11 +38,13 @@ if a status is wrong, fixing it is part of the current milestone.
 
 ### Working Constraints
 
-Until lifted, build and test operations are limited to Podman, QEMU,
-static analysis, and unit tests.  No physical hardware testing, and
-no k3s in CI or test infrastructure (k3s as an optional image
-feature is in scope; see M7).  Milestones are sequenced so that
-everything through M4 is verifiable entirely in QEMU.
+Until lifted, CI build and test operations are limited to Podman,
+QEMU, static analysis, and unit tests.  No physical hardware testing
+in CI (the live test device is a local target only; see the Post-M4
+Checkpoint), and no k3s in CI or test infrastructure (k3s as an
+optional image feature is in scope; see M7).  Milestones are
+sequenced so that everything through M4 is verifiable entirely in
+QEMU.
 
 ---
 
@@ -447,24 +449,49 @@ homelab dev profile, but named per the review):
 
 One Fable pass per stage; this was M4's.
 
-### Post-M4 Checkpoint: Manual Validation
+### Post-M4 Checkpoint: Live Device and Automated Validation
 
-This gate blocks M5 *implementation* (the actual ARM port) and the
-hardware/icecc work -- NOT the M5 research and design.  Per Lucas
-(directive 2026-07-17), the M5 research pre-work and the M5
-abstraction-design review are explicitly NOT gated on the manual
-sign-off: start both as soon as M4 is complete, before (and in
-parallel with) this checkpoint.  Intended order: research pre-work
-first, then the abstraction-design review, so the review is
-informed by the meta-tegra/meta-rockchip survey (agent's choice to
-adjust; series chosen because the review is stronger with the
-findings in hand).  Everything else below waits for Lucas.
+The M4 image is installed on the live test device (2026-08-30), and
+the icecc build helpers are up (ADR 0009).  What remains before M5 is
+not a manual pass over one image.  It is an automated suite that
+makes the same assertions on every build, on both the emulated target
+and the live device.
 
-- [ ] Manual validation of the M4 image by Lucas
-- [ ] On success: install onto a local x86_64 device (manual,
-  hardware step -- outside the agent working constraints) to serve
-  as an icecc build helper (icecc preferred over distcc) and as a
-  live test target for future work
+Manual validation is superseded.  A hand check proves one image once,
+proves nothing about the next one, and cannot run in CI.  The
+automated live validation suite replaces it: see
+`docs/validation/AOA-VALIDATION.md` and ADR 0010 (accepted
+2026-09-05).  In short: an in-repo pytest suite whose checks are
+Gherkin feature files, driving both targets over SSH, with the
+image's own native auditors as the check bodies.  Cinc Auditor
+was evaluated and rejected -- the live-device probe (no package
+database, sudo needs a password, read-only rootfs) removes most of
+what a compliance framework provides.
+
+- [x] Install the M4 image onto the local x86_64 test device
+  (2026-08-30; first hardware OTA committed)
+- [x] Bring up the icecc build helpers for the shared compile pool
+  (ADR 0009)
+- [x] Probe the live device for validation constraints; recorded in
+  `docs/validation/AOA-VALIDATION.md` section 2
+- [x] Accept or amend ADR 0010 (accepted 2026-09-05; decisions 2
+  through 6 in AoA section 10 remain open)
+- [ ] Land increment 1 of the validation suite: the ten checks in
+  `docs/validation/AOA-VALIDATION.md` section 7.6, green on the
+  emulated target and on the live device
+- [ ] Wire `mise run validate` into the test chain, and into CI
+  against the emulated target only, with credentials masked
+- [ ] Extend to the remaining security properties, the post-OTA
+  snapshot diff, and the ssh-audit posture check (checks 11+)
+
+**Gate on M5.**  The M5 port implementation stays blocked until
+increment 1 is green on both targets.  The sign-off is the suite's
+result, not a person's reading of a console.  Goal 2 is only partly
+covered by increment 1 -- the dynamic OTA cycle stays in
+`.mise/lib/ota_test.py` until checks 12 and 13 land -- so a green
+run gates M5 but is not by itself an OTA guarantee.
+
+Re-imaging the device follows `docs/installer/FLASHING-LAB.md`.
 
 Related, not gated on the checkpoint: the USB installer, pulled
 forward into an active pass 2026-07-23 (see the Installer Pass
@@ -609,7 +636,8 @@ restore per-BSP parity.
 The first two items -- research pre-work and the abstraction-design
 review -- were pulled ahead of M4 completion (Lucas, 2026-07-17,
 Fable-budget priority) and are DONE.  The port work below still
-waits for the manual sign-off.
+waits for the Post-M4 validation gate (increment 1 of the validation
+suite green on both targets).
 
 - [x] Research pre-work: both surveys complete
   (`.local/state/agents/m5-survey-meta-tegra.md`,
@@ -676,7 +704,7 @@ Safe to start now (no gate, mechanical per review):
   our 6.18/2026.01 pins (file-level confirmation at first ARM
   build)
 
-Gated on the manual sign-off (implementation):
+Gated on the Post-M4 validation gate (implementation):
 
 - [ ] Backend-class refactor: split lamadist-uki/esp-slot-a into
   `lamadist-boot-sdboot-uki` backend class; un-hard-wire
@@ -1066,6 +1094,10 @@ Deferred until the milestones above are complete:
   milestones.  The prior Phase 0 (architecture documentation and
   tooling baseline) completed in March 2026 and is preserved in git
   history.
+- **2026-09**: Post-M4 checkpoint rewritten.  Manual validation is
+  superseded by the automated live validation suite (ADR 0010,
+  accepted 2026-09-05, with the checks as Gherkin feature files); the
+  live x86_64 test device has been installed since 2026-08-30.
 
 ---
 
