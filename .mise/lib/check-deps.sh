@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Wrapper for check-deps in the pre-push hook.
+# Container dependency freshness gate, run by `mise run check`.
 #
 # `mise run container:builder:verify` exits 5 when
 # container/check_updates.sh finds available updates, 2 when the apt
 # lockfile is stale, 3 when the builder image is missing, and 1 when
 # no container runtime is found.  Updates warn; everything else
-# blocks the push.
+# fails the check.
 
 set -o errexit
 set -o nounset
@@ -26,7 +26,7 @@ case "$status" in
 		echo "WARNING: Dependencies have available updates. Consider running 'mise run container:builder:lock'."
 		;;
 	2)
-		echo "ERROR: Dependencies are stale (>7 days). You must run 'mise run container:builder:lock' before pushing."
+		echo "ERROR: Dependencies are stale (>7 days). Run 'mise run container:builder:lock'."
 		exit 1
 		;;
 	*)

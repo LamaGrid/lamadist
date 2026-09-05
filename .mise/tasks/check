@@ -24,7 +24,10 @@ if [ "${_ci}" = "true" ]; then
 	mkdir -p "${SSTATE_DIR}"
 	kas dump "${_kas_config}"
 else
-	# Local dev: run kas inside container via podman/docker
+	# Local dev: container dependency freshness, then kas inside the
+	# container via podman/docker
+	echo "==> Checking container dependency freshness..."
+	"${MISE_CONFIG_ROOT}/.mise/lib/check-deps.sh"
 	# shellcheck source=.mise/tasks/_lib.sh
 	source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 	run_in_container dump "${_kas_config}"

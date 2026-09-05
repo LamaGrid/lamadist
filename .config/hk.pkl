@@ -50,10 +50,6 @@ hooks {
         check = ".mise/hooks/check-scans.sh"
         interactive = true
       }
-      ["check-deps"] {
-        check = ".mise/hooks/check-deps-pre-push.sh"
-        interactive = true
-      }
     }
   }
   ["fix"] {
