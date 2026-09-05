@@ -16,14 +16,28 @@ if ! command -v "$_container_cmd" &> /dev/null; then
 	fi
 fi
 
-# 0. Check lockfile age
+# 0. Check lockfile age.  Age is the time since the lockfile last
+# changed in git history, not the file's mtime: mtime resets on every
+# clone and checkout.  A lockfile with uncommitted changes was just
+# regenerated and counts as fresh.  A shallow clone reports its
+# boundary commit's date, which can read fresher than the truth.
 _lock_file="${MISE_CONFIG_ROOT}/container/packages.lock"
 if [ ! -f "$_lock_file" ]; then
 	echo "Error: $_lock_file not found." >&2
 	exit 2
 fi
 
-file_age=$(($(date +%s) - $(date -r "$_lock_file" +%s)))
+if [ -n "$(git -C "${MISE_CONFIG_ROOT}" status --porcelain -- "$_lock_file")" ]; then
+	lock_time=$(date +%s)
+else
+	lock_time=$(git -C "${MISE_CONFIG_ROOT}" log -1 --format=%ct -- "$_lock_file")
+fi
+if [ -z "$lock_time" ]; then
+	echo "Error: $_lock_file has no git history. Run 'mise run container:builder:lock' and commit it." >&2
+	exit 2
+fi
+
+file_age=$(($(date +%s) - lock_time))
 days_old=$((file_age / 86400))
 
 if [ "$days_old" -gt 7 ]; then
