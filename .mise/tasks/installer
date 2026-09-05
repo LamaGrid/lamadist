@@ -72,11 +72,14 @@ fi
 # --- Build ---------------------------------------------------------
 if [[ "${_no_build}" != "true" ]]; then
 	echo "==> Building installer stick (base payload + installer UKI + stick wic)"
-	if ! output=$(mise run container:builder:verify 2>&1); then
+	# `$?` inside `if !` is the negated status; capture the real one.
+	if output=$(mise run container:builder:verify 2>&1); then
+		status=0
+	else
 		status=$?
 		echo "${output}"
-		[[ "${status}" -eq 2 ]] && exit 1
 	fi
+	[[ "${status}" -eq 2 ]] && exit 1
 	run_in_container build "${_kas_config}"
 fi
 

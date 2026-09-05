@@ -132,13 +132,16 @@ if [ "${_ci}" = "true" ]; then
 else
 	# Local dev: run kas inside container via podman/docker
 
-	# Check dependency lockfile freshness
-	if ! output=$(mise run container:builder:verify 2>&1); then
+	# Check dependency lockfile freshness.  `$?` inside `if !` is the
+	# negated status, so capture the real one on the failure branch.
+	if output=$(mise run container:builder:verify 2>&1); then
+		status=0
+	else
 		status=$?
 		echo "${output}"
-		if [ "${status}" -eq 2 ]; then
-			exit 1
-		fi
+	fi
+	if [ "${status}" -eq 2 ]; then
+		exit 1
 	fi
 
 	if [ "${_icecc}" = "true" ]; then
