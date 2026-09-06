@@ -79,7 +79,7 @@ against a current build before they are relied on.
 | --- | --- | --- |
 | C1 | `package_db: NONE` -- no rpm, opkg, or dpkg binary and no database | Every candidate's `package` resource is dead weight.  Package-presence assertions are impossible and must not be written. |
 | C2 | sudo requires a password: `%wheel ALL=(ALL:ALL) ALL`, no NOPASSWD (`meta-lamadist/classes/lamadist-image.bbclass`, `lamadist_sudoers_wheel()`) | Root is acquired by piping a password to `sudo -S -p ''`.  Any tool that assumes passwordless sudo or a root login fails. |
-| C3 | No `sftp-server` on the probed image (*re-confirm*) | `scp` must be forced into legacy protocol mode with `-O`: without it, OpenSSH 9.0 and later negotiate SFTP and fail on a target that lacks `sftp-server`.  `.mise/lib/ota_test.py:132-137` builds its `scp` argv without `-O` today and has only been exercised against the emulated target; that is a latent gap to close (R7), not a precedent to copy.  Anything that hard-requires SFTP is out. |
+| C3 | `sftp-server` is present at `/usr/libexec/sftp-server` (confirmed on the live device 2026-09-05; the 2026-09-04 probe looked only under `/usr/lib/openssh`) | `scp` in its default SFTP mode works; `-O` is not required.  `.mise/lib/ota_test.py` copies over SFTP on both targets to copy.  Anything that hard-requires SFTP is out. |
 | C4 | Read-only rootfs; only `/etc` (overlay), `/var`, `/tmp`, and `/var/tmp` are writable | No agent, profile bundle, or runner can be installed into the image.  Anything staged goes to `/tmp` and is removed. |
 | C5 | SELinux enforcing, but the login path is `unconfined_t` | Checks run unconfined, so a check passing is not evidence that a confined service could do the same thing.  Do not read check success as policy coverage. |
 | C6 | `python3` 3.14.5 is present only as a side effect of the SELinux tooling | On-image Python is not a contract.  No candidate may depend on it.  All Python runs host-side. |
@@ -678,7 +678,7 @@ hook in section 7.5.
 | R4 | Two targets drift: a check passes on the emulated target and fails on the device, or the reverse. | Both run the same feature files.  Any check that cannot run on both is tagged target-specific, and the count of target-specific checks is reported. |
 | R5 | Credentials or site addresses leak into a CI artifact. | Section 7.5 rule 7 is a conftest hook, plus masked secrets (7.9). |
 | R6 | The suite becomes the thing being maintained instead of the image. | Six files, two dependencies, and checks as scenarios.  If the suite needs its own abstractions, that is the signal to stop. |
-| R7 | The existing `scp` path omits `-O` (C3) and has only run against the emulated target. | Add `-O` when `push` is introduced; it is harmless where `sftp-server` exists.  Re-confirm the absence of `sftp-server` on a current build (R1). |
+| R7 | Resolved 2026-09-05: `sftp-server` exists on the image, so the `scp` path needs no `-O` (C3).  Kept as a record of the wrong-path probe finding. | None.  Should a future image drop `sftp-server`, `scp -O` is the fallback. |
 | R8 | The feature-file generator is bespoke: 52 lines the repo maintains that a plugin would otherwise own (6.3). | It wraps the reference parser and does nothing a Cucumber pickle does not describe; ceiling about one hundred lines.  A maintained Gherkin-to-pytest plugin that runs warning-free on the pinned pytest is the trigger to swap it in, with the feature files and step vocabulary unchanged. |
 
 Open questions:
