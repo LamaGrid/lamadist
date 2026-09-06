@@ -14,13 +14,13 @@
 Feature: SSH cryptographic posture
 
   @P16
-  Scenario: P16 sshd offers strong, post-quantum crypto and a modern host key (ADR 0010 rule 6)
+  Scenario: P16 sshd offers post-quantum crypto and a post-quantum host key (ADR 0010 rule 6)
     Then the SSH server offers no algorithm rated fail by ssh-audit
-    And the SSH server offers a "ssh-ed25519" host key
+    And the SSH server offers a "ssh-mldsa44-ed25519@openssh.com" host key
     And the SSH server offers only post-quantum key exchange
 
   @P16 @negative
   Scenario: P16 negative control
     Then the sample ssh-audit report "stock-image" rates an algorithm as fail
-    And the sample ssh-audit report "stock-image" offers no "ssh-ed25519" host key
+    And the sample ssh-audit report "stock-image" offers no "ssh-mldsa44-ed25519@openssh.com" host key
     And the sample ssh-audit report "stock-image" offers a classical key exchange

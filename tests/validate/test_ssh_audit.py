@@ -42,10 +42,13 @@ STOCK: dict[str, Any] = {
 
 HARDENED: dict[str, Any] = {
     "kex": [{"algorithm": "mlkem768x25519-sha256", "notes": {"info": []}}],
-    "key": [{"algorithm": "ssh-ed25519", "notes": {"info": []}}],
+    "key": [{"algorithm": "ssh-mldsa44-ed25519@openssh.com", "notes": {"info": []}}],
     "enc": [{"algorithm": "aes256-gcm@openssh.com", "notes": {"info": []}}],
     "mac": [{"algorithm": "hmac-sha2-256-etm@openssh.com", "notes": {"info": []}}],
-    "fingerprints": [{"hostkey": "ssh-ed25519", "hash_alg": "SHA256", "hash": "z"}],
+    # ssh-audit cannot complete a post-quantum-only handshake, so a real
+    # report of this server carries no fingerprint; posture keys on the
+    # offered "key" algorithms above, not on fingerprints.
+    "fingerprints": [],
 }
 
 
@@ -55,15 +58,15 @@ def test_stock_image_has_fail_rated_algorithms() -> None:
     assert set(audit.failed) == {"ecdsa-sha2-nistp256", "hmac-sha1-etm@openssh.com"}
 
 
-def test_stock_image_offers_no_ed25519_host_key() -> None:
+def test_stock_image_offers_no_post_quantum_host_key() -> None:
     audit = parse(STOCK)
-    assert "ssh-ed25519" not in audit.offered["key"]
+    assert "ssh-mldsa44-ed25519@openssh.com" not in audit.offered["key"]
 
 
 def test_hardened_report_passes_the_posture_check() -> None:
     audit = parse(HARDENED)
     assert not audit.has_failures()
-    assert "ssh-ed25519" in audit.offered["key"]
+    assert "ssh-mldsa44-ed25519@openssh.com" in audit.offered["key"]
     assert audit.is_post_quantum_kex()
 
 

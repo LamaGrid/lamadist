@@ -11,13 +11,17 @@
 # kas/extras/test-ssh-key.kas.yml, which bakes the PUBLIC half into
 # dev/test images as an authorized key for the lama user.
 ensure_test_ssh_key() {
+	# Post-quantum test key: ssh-mldsa44-ed25519, a hybrid of the
+	# ML-DSA-44 signature with Ed25519, matching the image's
+	# authentication policy.  Requires ssh-keygen from OpenSSH 10.4+.
 	local _dir="${MISE_CONFIG_ROOT}/.local/share/lamadist/test-ssh"
-	if [[ ! -f "${_dir}/id_ed25519.pub" ]]; then
+	if [[ ! -f "${_dir}/id_mldsa44-ed25519.pub" ]]; then
 		mkdir -p "${_dir}"
-		ssh-keygen -q -t ed25519 -N '' -C 'lamadist-test' -f "${_dir}/id_ed25519"
-		echo "==> Generated test SSH key (cached): ${_dir}/id_ed25519" >&2
+		ssh-keygen -q -t mldsa44-ed25519 -N '' -C 'lamadist-test' \
+			-f "${_dir}/id_mldsa44-ed25519"
+		echo "==> Generated test SSH key (cached): ${_dir}/id_mldsa44-ed25519" >&2
 	fi
-	echo "${_dir}/id_ed25519.pub"
+	echo "${_dir}/id_mldsa44-ed25519.pub"
 }
 
 # Effective CPU count for the build.  Inside a cgroup-namespaced
