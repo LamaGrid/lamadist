@@ -40,13 +40,19 @@ class Result:
 
 
 class Target(Protocol):
-    """The four operations every check body is written against."""
+    """The five operations every check body is written against.
+
+    ``push`` arrived with check 13 (the wrong-CA bundle has to reach the
+    target), exactly where the AoA said it would and not before.
+    """
 
     name: str
 
     def run(self, cmd: str) -> Result: ...
 
     def run_root(self, cmd: str) -> Result: ...
+
+    def push(self, local: str, remote: str) -> None: ...
 
     def reboot(self) -> None: ...
 
@@ -143,6 +149,38 @@ class SshTarget:
         if first.strip() != "0":
             raise TargetError(f"root escalation failed on {self.name}")
         return Result(res.rc, rest, res.stderr)
+
+    def push(self, local: str, remote: str) -> None:
+        """Copy one local file to ``remote`` on the target.
+
+        Legacy scp protocol (``-O``): the images ship no sftp-server on
+        every build, and the emulated guest never does (AoA R7).
+        """
+        argv = [
+            "scp",
+            "-O",
+            *_SSH_BASE,
+            "-o",
+            f"UserKnownHostsFile={self.known_hosts}",
+            "-o",
+            f"StrictHostKeyChecking={self.strict_host_key}",
+            "-i",
+            self.key,
+            "-P",
+            str(self.port),
+            local,
+            f"{self.user}@{self.host}:{remote}",
+        ]
+        try:
+            done = subprocess.run(
+                argv, capture_output=True, text=True, timeout=self.timeout, check=False
+            )
+        except subprocess.TimeoutExpired as err:
+            raise TargetError(
+                f"scp to {self.name} timed out after {self.timeout:.0f}s"
+            ) from err
+        if done.returncode != 0:
+            raise TargetError(f"scp to {self.name} failed: {done.stderr.strip()}")
 
     def reboot(self) -> None:
         self.run_root("systemctl reboot")
