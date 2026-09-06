@@ -482,15 +482,18 @@ what a compliance framework provides.
   each, after a hardware OTA to the 2026-09-05 QA image)
 - [ ] Wire `mise run validate` into the test chain, and into CI
   against the emulated target only, with credentials masked
-- [ ] Extend to the remaining security properties, the post-OTA
-  snapshot diff, and the ssh-audit posture check (checks 11+)
+- [x] Extend to the remaining security properties: the ssh-audit
+  posture check (P16), the post-OTA snapshot diff (P17), and the
+  wrong-CA bundle refusal (P18), green on both targets
 
 **Gate on M5.**  Increment 1 is green on both targets (2026-09-06),
 so the M5 port implementation is unblocked.  The sign-off is the
-suite's result, not a person's reading of a console.  Goal 2 is only partly
-covered by increment 1 -- the dynamic OTA cycle stays in
-`.mise/lib/ota_test.py` until checks 12 and 13 land -- so a green
-run gates M5 but is not by itself an OTA guarantee.
+suite's result, not a person's reading of a console.  Goal 2's dynamic
+half arrived with checks 12 and 13 (P17, P18): P17 diffs a run against
+a `--baseline` snapshot from before an update, and P18 proves a
+wrong-CA bundle is refused.  Both are proved on the live device by
+real A/B OTA cycles, so a green run no longer rests on the
+`.mise/lib/ota_test.py` driver alone for the dynamic OTA guarantee.
 
 Re-imaging the device follows `docs/installer/FLASHING-LAB.md`.
 

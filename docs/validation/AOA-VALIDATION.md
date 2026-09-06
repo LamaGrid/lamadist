@@ -445,17 +445,18 @@ class Target(Protocol):
     name: str
     def run(self, cmd: str) -> Result: ...       # unprivileged
     def run_root(self, cmd: str) -> Result: ...  # sudo -S -p ''
+    def push(self, local: str, remote: str) -> None: ...  # scp -O
     def reboot(self) -> None: ...
     def wait_ready(self, timeout: float) -> None: ...
 ```
 
-Four operations.  There is deliberately no `push`: nothing in the
-first increment copies a file to the target, and C4 means nothing
-should.  `push` is added when checks 11 and later need it -- the
-post-OTA bundle staging path -- and not before.  When it is added
-it wraps the existing `scp_to_guest()`
-(`.mise/lib/ota_test.py:132-137`), which must gain `-O` before it
-is reused (C3, R7).
+Five operations.  `push` arrived with check 13, exactly where it was
+foreseen: the wrong-certificate-authority bundle has to reach the
+target before the install can be refused.  It copies one file over the
+legacy scp protocol (`-O`), because the images ship no sftp-server and
+the emulated guest never does (C3, R7).  The first increment had four
+operations and no `push`, since nothing before check 13 copied a file
+to the target and C4 means nothing should.
 
 `QemuTarget` and `DeviceTarget` differ in exactly two ways: how the
 host and port are resolved, and whether `reboot()` can also drive a
@@ -555,6 +556,8 @@ item it guards.
 | 9 | P4 LUKS2 `/var` | G3 | `cryptsetup luksDump` on the `/var` backing device shows LUKS2 and a TPM2 token; the mapper's dm uuid contains `LUKS2` | yes | Stage-B TPM2 (`PLAN.md:412`) |
 | 10 | P14 IMA log mode | G3 | `/proc/cmdline` has `ima_policy=tcb` and `ima_appraise=log`; the measurement list is non-empty | yes | Stage-B exit (`PLAN.md:412`) |
 | 11 | P15 sshd refuses passwords | G3 | A probe with no key offered is refused with `publickey` as the only method sshd advertises | no | Policy: no password authentication over the network |
+| 12 | P17 OTA moves the boot, old slot untouched | G2 | Given a `--baseline` snapshot from before an update, `rauc status --detailed` shows the boot moved to the other slot and the previous slot is inactive, good, and the same install (checksum, size, timestamp, count) | no | Deselected without a baseline, never skipped |
+| 13 | P18 Wrong-CA bundle refused | G2 | A bundle signed by a certificate authority the image does not trust is refused at signature verification before any slot is written, and every slot is unchanged | yes | `push` (`-O`), then root `rauc install` |
 
 Check 3 is unprivileged.  `.mise/lib/smoke_login.py:258-269` already
 reads that efivar as the `lama` user after login, so no elevation
@@ -597,16 +600,23 @@ expected slot is committed.  The dynamic half -- install, reboot,
 mark-good, and rollback -- stays where it already works, in
 `.mise/lib/ota_test.py`, unchanged by this increment.
 
-What the suite adds for G2 arrives when the task is run twice
-around an OTA and the two JSON snapshots are diffed.  That is a
-small step because the snapshot is keyed by property id, but it is
-a step, and it is not in the first increment.  Checks that are
-genuinely new for G2 -- the untouched-good-slot assertion and the
-refusal of a bundle signed by the wrong certificate authority (CA)
--- are checks 12 and 13.
+What the suite adds for G2 arrives when the task is run twice around
+an OTA and the two snapshots are compared.  The first run records the
+RAUC slot facts.  The second, given the first as `--baseline`, asserts
+the boot moved to the other slot and the slot it came from was left
+inactive, good, and byte-identical (check 12, P17).  The baseline also
+carries rule 2 across the update: every check the first run made must
+run again, and any changed outcome is named.  Check 13 (P18) needs no
+baseline -- it pushes a bundle signed by a certificate authority the
+image does not trust and asserts the install is refused at signature
+verification, before any slot is written, with every slot unchanged.
 
-Until those land, G2 rests on the existing OTA driver.  Nobody
-should read a green first-increment run as an OTA guarantee.
+These landed in a later increment, proved on the live device by real
+A/B OTA cycles.  A green first-increment run, before they existed, was
+never an OTA guarantee; with them, Goal 2's dynamic half is covered by
+the suite and no longer rests on the `.mise/lib/ota_test.py` driver
+alone.  The @ota checks are deselected, never skipped, when no baseline
+is supplied.
 
 ### 7.8 The mise task
 
