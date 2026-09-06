@@ -28,7 +28,10 @@ fi
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 
-command -v sshpass >/dev/null || { echo "ERROR: sshpass not found (required to drive password-authenticated ssh/scp against the guest)"; exit 1; }
+# ssh/scp authenticate with the cached test key (baked into non-release
+# images); password authentication over the network is forbidden.
+_ssh_key="$(ensure_test_ssh_key)"
+_ssh_key="${_ssh_key%.pub}"
 
 # bundle.bbclass's do_deploy() installs the .raucb straight into the
 # standard per-machine deploy dir (deploy/images/<machine>/), not a
@@ -90,6 +93,7 @@ python3 "${MISE_CONFIG_ROOT}/.mise/lib/ota_test.py" \
 	--serial-sock "${_serial_sock}" \
 	--ssh-port "${_ssh_port}" \
 	--bundle "${_bundle}" \
+	--ssh-key "${_ssh_key}" \
 	--timeout "${_timeout}" || _ota_rc=$?
 
 if [[ "${_ota_rc}" -eq 0 ]]; then
