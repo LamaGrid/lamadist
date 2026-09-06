@@ -24,6 +24,67 @@ ensure_test_ssh_key() {
 	echo "${_dir}/id_mldsa44-ed25519.pub"
 }
 
+# A tiny RAUC bundle signed by a certificate authority no image trusts,
+# for the wrong-CA refusal check (ADR 0010 check 13).  Plain-format
+# bundle laid out by hand -- squashfs, then a detached CMS signature,
+# then the signature size as a big-endian 64-bit integer -- so the host
+# needs only openssl and mksquashfs, not rauc.  The squashfs carries a
+# coherent manifest, so the ONLY defect is the signer: the target must
+# refuse it at signature verification, before any slot is touched.
+# Generated once and cached (untracked); the signer is throwaway and
+# classical (RSA) on purpose -- it exists to be rejected.
+ensure_wrong_ca_bundle() {
+	local _dir="${MISE_CONFIG_ROOT}/.local/share/lamadist/validate/wrong-ca"
+	local _bundle="${_dir}/wrong-ca.raucb"
+	if [[ ! -f "${_bundle}" ]]; then
+		mkdir -p "${_dir}/tree"
+		openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
+			-subj '/CN=LamaDist Validation Wrong CA' \
+			-keyout "${_dir}/wrong-ca.key.pem" -out "${_dir}/wrong-ca.cert.pem" \
+			2> /dev/null
+		head -c 4096 /dev/zero > "${_dir}/tree/rootfs.img"
+		cat > "${_dir}/tree/manifest.raucm" <<- EOF
+			[update]
+			compatible=lamadist-intel
+			version=0
+
+			[bundle]
+			format=plain
+
+			[image.rootfs]
+			filename=rootfs.img
+			size=4096
+			sha256=$(sha256sum "${_dir}/tree/rootfs.img" | cut -d' ' -f1)
+		EOF
+		mksquashfs "${_dir}/tree" "${_dir}/wrong-ca.squashfs" \
+			-noappend -no-progress -quiet > /dev/null
+		openssl cms -sign -binary -nosmimecap -outform DER \
+			-in "${_dir}/wrong-ca.squashfs" \
+			-signer "${_dir}/wrong-ca.cert.pem" -inkey "${_dir}/wrong-ca.key.pem" \
+			-out "${_dir}/wrong-ca.sig.der"
+		# Self-check: the signature is well formed (verifies against its
+		# own CA) and is NOT trusted by the image's development CA, so a
+		# refusal on the target can only be about trust.
+		openssl cms -verify -binary -inform DER -in "${_dir}/wrong-ca.sig.der" \
+			-content "${_dir}/wrong-ca.squashfs" \
+			-CAfile "${_dir}/wrong-ca.cert.pem" -out /dev/null 2> /dev/null
+		if openssl cms -verify -binary -inform DER -in "${_dir}/wrong-ca.sig.der" \
+			-content "${_dir}/wrong-ca.squashfs" \
+			-CAfile "${MISE_CONFIG_ROOT}/meta-lamadist/files/rauc-dev/dev-ca.cert.pem" \
+			-out /dev/null 2> /dev/null; then
+			echo "ERROR: wrong-CA bundle verifies against the development CA" >&2
+			return 1
+		fi
+		{
+			cat "${_dir}/wrong-ca.squashfs" "${_dir}/wrong-ca.sig.der"
+			python3 -c 'import struct, sys; sys.stdout.buffer.write(struct.pack(">Q", int(sys.argv[1])))' \
+				"$(stat -c %s "${_dir}/wrong-ca.sig.der")"
+		} > "${_bundle}"
+		echo "==> Generated wrong-CA RAUC bundle (cached): ${_bundle}" >&2
+	fi
+	echo "${_bundle}"
+}
+
 # Effective CPU count for the build.  Inside a cgroup-namespaced
 # container (CI pod, capped podman) cpu.max is the truth; nproc
 # sees every node core because pod CPU limits are CFS quota, not
