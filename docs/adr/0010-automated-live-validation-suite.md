@@ -130,7 +130,7 @@ out of this decision's scope, and is a candidate follow-up.
 - Two facts stay unconfirmed until a fresh probe: the `rauc`
   JavaScript Object Notation (JSON) schema, and the auditor list,
   both from a prior probe.
-- The `scp` helper omits `-O`; the device lacks `sftp-server`, so a
-  future `push` must add it.
+- `sftp-server` is present on the image (`/usr/libexec/sftp-server`);
+  the earlier probe looked in the wrong path, so `scp` needs no `-O`.
 - `findmnt` and `lsblk` are absent from the base image; mount
   assertions read `/proc/mounts` directly.

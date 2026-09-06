@@ -476,17 +476,18 @@ what a compliance framework provides.
   `docs/validation/AOA-VALIDATION.md` section 2
 - [x] Accept or amend ADR 0010 (accepted 2026-09-05; all six owner
   decisions in AoA section 10 taken the same day)
-- [ ] Land increment 1 of the validation suite: the checks in
+- [x] Land increment 1 of the validation suite: the checks in
   `docs/validation/AOA-VALIDATION.md` section 7.6, green on the
-  emulated target and on the live device
+  emulated target and on the live device (2026-09-06: 22 passed on
+  each, after a hardware OTA to the 2026-09-05 QA image)
 - [ ] Wire `mise run validate` into the test chain, and into CI
   against the emulated target only, with credentials masked
 - [ ] Extend to the remaining security properties, the post-OTA
   snapshot diff, and the ssh-audit posture check (checks 11+)
 
-**Gate on M5.**  The M5 port implementation stays blocked until
-increment 1 is green on both targets.  The sign-off is the suite's
-result, not a person's reading of a console.  Goal 2 is only partly
+**Gate on M5.**  Increment 1 is green on both targets (2026-09-06),
+so the M5 port implementation is unblocked.  The sign-off is the
+suite's result, not a person's reading of a console.  Goal 2 is only partly
 covered by increment 1 -- the dynamic OTA cycle stays in
 `.mise/lib/ota_test.py` until checks 12 and 13 land -- so a green
 run gates M5 but is not by itself an OTA guarantee.
@@ -1110,6 +1111,7 @@ Deferred until the milestones above are complete:
   superseded by the automated live validation suite (ADR 0010,
   accepted 2026-09-05, with the checks as Gherkin feature files); the
   live x86_64 test device has been installed since 2026-08-30.
+  Increment 1 green on both targets 2026-09-06; M5 unblocked.
 
 ---
 
