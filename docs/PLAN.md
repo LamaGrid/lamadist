@@ -1112,6 +1112,13 @@ Deferred until the milestones above are complete:
   accepted 2026-09-05, with the checks as Gherkin feature files); the
   live x86_64 test device has been installed since 2026-08-30.
   Increment 1 green on both targets 2026-09-06; M5 unblocked.
+- **2026-09-06**: Quantum-resistant cryptography policy adopted
+  (ADR 0011).  SSH is post-quantum end to end -- key exchange
+  (ML-KEM-768 and Streamlined NTRU Prime hybrids) and
+  authentication (`ssh-mldsa44-ed25519`, via a backported OpenSSH
+  10.4).  The validation suite gained the ssh-audit posture check
+  (property P16), which fails on any classical key exchange or a
+  non-post-quantum host key.
 
 ---
 

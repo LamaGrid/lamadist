@@ -99,6 +99,15 @@ The `lama` user's built-in development password
 used for `sudo` only, inside the SSH session, and reaches the suite
 through the host-local fnox configuration.
 
+Since 2026-09-06 the SSH transport is post-quantum end to end,
+per the quantum-resistant cryptography policy (ADR 0011): the key
+exchange is a post-quantum hybrid, and the host key and the test
+key are `ssh-mldsa44-ed25519`.  The image offers and accepts no
+classical signature, so a client reaching it needs OpenSSH 10.4+
+and must opt into the algorithm with `HostKeyAlgorithms` and
+`PubkeyAcceptedAlgorithms`.  Property P16 asserts the post-quantum
+posture.
+
 ### 2.1 Native auditors already on the image
 
 The image already carries the tools that answer every
