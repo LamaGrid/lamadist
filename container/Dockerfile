@@ -61,7 +61,9 @@ RUN --mount=type=cache,target=/root/.cache \
 
 USER builder
 WORKDIR /home/builder
-ENTRYPOINT ["/bin/dumb-init", "/usr/local/bin/kas"]
+# -r 2:15: rewrite SIGINT to SIGTERM so a Ctrl-C on the host shuts
+# kas and bitbake down cleanly instead of leaving them mid-interrupt.
+ENTRYPOINT ["/bin/dumb-init", "-r", "2:15", "/usr/local/bin/kas"]
 CMD ["--help"]
 
 # NOTE: Uncomment these for debugging

@@ -81,7 +81,7 @@ _container_vars_file="${KAS_WORK_DIR}/deploy/images/${_machine}/ovmf-vars-enroll
 _container_sb_dev_dir="${KAS_WORK_DIR}/meta-lamadist/files/sb-dev"
 
 echo "==> Enrolling PK/KEK/db + SecureBoot into ${_vars_file}"
-run_in_container --no-tty --entrypoint /bin/dumb-init -- virt-fw-vars \
+run_in_container --no-tty --entrypoint '["/bin/dumb-init", "-r", "2:15"]' -- virt-fw-vars \
 	--loglevel info \
 	--inplace "${_container_vars_file}" \
 	--set-pk "${_sb_dev_guid}" "${_container_sb_dev_dir}/pk.cert.pem" \
@@ -90,7 +90,7 @@ run_in_container --no-tty --entrypoint /bin/dumb-init -- virt-fw-vars \
 	--sb
 
 echo "==> Verifying enrolled vars"
-_print_output="$(run_in_container --no-tty --entrypoint /bin/dumb-init -- virt-fw-vars \
+_print_output="$(run_in_container --no-tty --entrypoint '["/bin/dumb-init", "-r", "2:15"]' -- virt-fw-vars \
 	--loglevel info \
 	--input "${_container_vars_file}" \
 	--print)"

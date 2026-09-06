@@ -158,7 +158,7 @@ else
 		# .mise.local.toml) caps the daemon's local compile slots,
 		# matching the cap the dynamic overlay puts on plain
 		# builds; unset means all container cores.
-		run_in_container --entrypoint /bin/dumb-init -- /bin/bash -c "
+		run_in_container --entrypoint '["/bin/dumb-init", "-r", "2:15"]' -- /bin/bash -c "
 			mkdir -p /tmp/iceccd
 			sudo -n mkdir -p /var/run/icecc
 			sudo -n /usr/sbin/iceccd -d --no-remote \
