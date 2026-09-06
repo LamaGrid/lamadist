@@ -7,6 +7,7 @@
 #USAGE flag "-k --keyword <expr>" help="pytest -k expression (a partial run never fails on skips)"
 #USAGE flag "-m --marker <expr>" help="pytest -m expression, e.g. 'not root'"
 #USAGE flag "-r --roothash <hash>" help="Expected root hash of the artifact under test; default: read from the newest UKI in the deploy dir"
+#USAGE flag "-b --baseline <snapshot>" help="Snapshot JSON from a run before an OTA update; selects the @ota checks (P17) that compare the two runs.  Without it they are deselected, never skipped"
 #USAGE flag "-T --timeout <seconds>" help="Boot and readiness timeout" default="600"
 #
 # Secrets and site details never live in the repo.  The device target
@@ -27,6 +28,7 @@ _target="${usage_target:-qemu}"
 _keyword="${usage_keyword:-}"
 _marker="${usage_marker:-}"
 _roothash="${usage_roothash:-}"
+_baseline="${usage_baseline:-}"
 _timeout="${usage_timeout:-600}"
 
 # shellcheck source=.mise/tasks/_lib.sh
@@ -73,6 +75,21 @@ export LAMADIST_VALIDATE_SSH_KEY="${_ssh_key%.pub}"
 export LAMADIST_VALIDATE_EXPECT_ROOTHASH="${_roothash}"
 export LAMADIST_VALIDATE_READY_TIMEOUT="${_timeout}"
 export LAMADIST_VALIDATE_SNAPSHOT="${_state_dir}/validate-${_target}-${_stamp}.json"
+
+# Check 13 pushes a bundle no image trusts; check 12 compares this run
+# with a snapshot from before an update.
+LAMADIST_VALIDATE_WRONG_CA_BUNDLE="$(ensure_wrong_ca_bundle)"
+export LAMADIST_VALIDATE_WRONG_CA_BUNDLE
+if [[ -n "${_baseline}" ]]; then
+	if [[ ! -f "${_baseline}" ]]; then
+		echo "ERROR: --baseline ${_baseline} is not a file"
+		exit 2
+	fi
+	export LAMADIST_VALIDATE_BASELINE="${_baseline}"
+	echo "==> Baseline $(basename "${_baseline}"): ota checks (P17) selected"
+else
+	echo "==> No --baseline: ota checks (P17) deselected, not skipped"
+fi
 
 _pytest=("${_venv}/bin/python" -m pytest "${MISE_CONFIG_ROOT}/tests/validate"
 	-q --strict-markers -p no:cacheprovider
