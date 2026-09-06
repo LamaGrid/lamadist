@@ -5,8 +5,12 @@ against a QEMU guest, over the same serial socket smoke_login.py
 uses plus an ssh port-forward for file transfer and commands.
 
 Usage: ota_test.py --serial-sock SOCK --ssh-port PORT --bundle
-    BUNDLE.raucb [--user USER] [--password PASSWORD]
+    BUNDLE.raucb --ssh-key KEY [--user USER] [--password PASSWORD]
     [--timeout SECONDS] [--max-boot-attempts N]
+
+ssh and scp authenticate with the test key only; password
+authentication over the network is forbidden.  --password is the
+guest's sudo password and never leaves the ssh session.
 
 Flow:
 1. Boot slot A (already running when this starts) and log in.
@@ -31,7 +35,6 @@ stderr), matching smoke_login.py's convention.
 import argparse
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import time
@@ -65,7 +68,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ssh-port", required=True, type=int)
     parser.add_argument("--bundle", required=True)
     parser.add_argument("--user", default="lama")
-    parser.add_argument("--password", default="lamadist")
+    parser.add_argument(
+        "--ssh-key",
+        required=True,
+        help="Private key for ssh/scp; the only accepted authentication",
+    )
+    parser.add_argument(
+        "--password",
+        default="lamadist",
+        help="sudo password on the guest; never used for ssh",
+    )
     parser.add_argument("--timeout", type=int, default=2400)
     parser.add_argument("--max-boot-attempts", type=int, default=6)
     parser.add_argument(
@@ -79,14 +91,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def check_sshpass() -> None:
-    if shutil.which("sshpass") is None:
-        print(
-            "OTA TEST FAIL: sshpass not found (required for "
-            "password-authenticated ssh/scp against the guest)",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+def _ssh_auth_args(args: argparse.Namespace) -> list[str]:
+    """Key-only authentication; the image's sshd refuses passwords."""
+    return [
+        "-i", args.ssh_key,
+        "-o", "IdentitiesOnly=yes",
+        "-o", "BatchMode=yes",
+        "-o", "PasswordAuthentication=no",
+        "-o", "KbdInteractiveAuthentication=no",
+    ]
 
 
 def _remaining(deadline: float) -> int:
@@ -97,8 +110,7 @@ def ssh_run(
     args: argparse.Namespace, deadline: float, command: str, check: bool = True
 ) -> "subprocess.CompletedProcess[str]":
     cmd = [
-        "sshpass", "-p", args.password,
-        "ssh", *SSH_OPTS, "-p", str(args.ssh_port),
+        "ssh", *SSH_OPTS, *_ssh_auth_args(args), "-p", str(args.ssh_port),
         f"{args.user}@{SSH_HOST}", command,
     ]
     try:
@@ -133,8 +145,7 @@ def scp_to_guest(
     args: argparse.Namespace, deadline: float, local_path: str, remote_path: str
 ) -> None:
     cmd = [
-        "sshpass", "-p", args.password,
-        "scp", *SSH_OPTS, "-P", str(args.ssh_port),
+        "scp", *SSH_OPTS, *_ssh_auth_args(args), "-P", str(args.ssh_port),
         local_path, f"{args.user}@{SSH_HOST}:{remote_path}",
     ]
     # The bundle is >1G and QEMU user-mode networking is slow, so this
@@ -335,7 +346,6 @@ def run(session: SerialSession, args: argparse.Namespace) -> None:
 
 def main() -> None:
     args = parse_args()
-    check_sshpass()
 
     session = SerialSession(args.serial_sock, args.timeout)
     try:
