@@ -1,0 +1,2 @@
+pytest==9.1.1
+gherkin-official==42.0.1

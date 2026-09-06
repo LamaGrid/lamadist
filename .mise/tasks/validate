@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Run the live validation suite (ADR 0010) against the emulated target or the live device"
+#USAGE flag "-t --target <target>" help="qemu boots a headless Secure Boot guest from the deploy dir; device reads host, port, and sudo password from fnox.local.toml" default="qemu" {
+#USAGE   choices "qemu" "device"
+#USAGE }
+#USAGE flag "-k --keyword <expr>" help="pytest -k expression (a partial run never fails on skips)"
+#USAGE flag "-m --marker <expr>" help="pytest -m expression, e.g. 'not root'"
+#USAGE flag "-r --roothash <hash>" help="Expected root hash of the artifact under test; default: read from the newest UKI in the deploy dir"
+#USAGE flag "-T --timeout <seconds>" help="Boot and readiness timeout" default="600"
+#
+# Secrets and site details never live in the repo.  The device target
+# needs, from {{project_dir}}/fnox.local.toml (gitignored):
+#   LAMADIST_VALIDATE_HOST, LAMADIST_VALIDATE_PORT,
+#   LAMADIST_VALIDATE_SUDO_PASSWORD
+# The emulated target takes the same variables from fnox when that
+# file exists, and otherwise falls back to the baked development
+# password, which is public in lamadist-image.bbclass.
+#
+# Exit status is pytest's: 0 green, 1 a check failed, 2 the target
+# was unavailable or unidentified, 3 a full run had skipped checks.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+_target="${usage_target:-qemu}"
+_keyword="${usage_keyword:-}"
+_marker="${usage_marker:-}"
+_roothash="${usage_roothash:-}"
+_timeout="${usage_timeout:-600}"
+
+# shellcheck source=.mise/tasks/_lib.sh
+source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
+_machine=$(bsp_to_machine x86_64)
+_deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
+_state_dir="${MISE_CONFIG_ROOT}/.local/state/lamadist"
+_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+mkdir -p "${_state_dir}"
+
+# --- Runner: hashed requirements into a cached venv -----------------
+_venv="${MISE_CONFIG_ROOT}/.cache/validate-venv"
+_reqs="${MISE_CONFIG_ROOT}/tests/validate/requirements.txt"
+if [[ ! -x "${_venv}/bin/python" ]]; then
+	uv venv -q --python 3.14 "${_venv}"
+fi
+if [[ ! -f "${_venv}/.requirements.sha256" ]] \
+	|| ! sha256sum -c --quiet "${_venv}/.requirements.sha256" 2> /dev/null; then
+	uv pip install -q --python "${_venv}/bin/python" --require-hashes -r "${_reqs}"
+	sha256sum "${_reqs}" > "${_venv}/.requirements.sha256"
+fi
+
+# --- Identity of the artifact under test (rule 1) -------------------
+if [[ -z "${_roothash}" ]]; then
+	_uki=$(find "${_deploy_dir}" -maxdepth 1 -name 'lamadist-*.efi' -printf '%T@ %p\n' 2> /dev/null \
+		| sort -n | tail -1 | cut -d' ' -f2-)
+	if [[ -z "${_uki}" ]]; then
+		echo "ERROR: no UKI (lamadist-*.efi) under ${_deploy_dir}; pass --roothash"
+		exit 2
+	fi
+	_roothash=$(objcopy -O binary --only-section=.cmdline "${_uki}" /dev/stdout \
+		| tr -d '\0' | grep -o 'roothash=[0-9a-f]*' | cut -d= -f2 || true)
+	if [[ -z "${_roothash}" ]]; then
+		echo "ERROR: no roothash in the cmdline of ${_uki}"
+		exit 2
+	fi
+	echo "==> Expecting root hash from $(basename "${_uki}")"
+fi
+
+# --- Common environment for the suite -------------------------------
+_ssh_key="$(ensure_test_ssh_key)"
+export LAMADIST_VALIDATE_TARGET="${_target}"
+export LAMADIST_VALIDATE_SSH_KEY="${_ssh_key%.pub}"
+export LAMADIST_VALIDATE_EXPECT_ROOTHASH="${_roothash}"
+export LAMADIST_VALIDATE_READY_TIMEOUT="${_timeout}"
+export LAMADIST_VALIDATE_SNAPSHOT="${_state_dir}/validate-${_target}-${_stamp}.json"
+
+_pytest=("${_venv}/bin/python" -m pytest "${MISE_CONFIG_ROOT}/tests/validate"
+	-q --strict-markers -p no:cacheprovider
+	--junitxml="${_state_dir}/validate-${_target}-${_stamp}.xml")
+[[ -n "${_keyword}" ]] && _pytest+=(-k "${_keyword}")
+[[ -n "${_marker}" ]] && _pytest+=(-m "${_marker}")
+
+_fnox_cfg="${MISE_CONFIG_ROOT}/fnox.local.toml"
+_runner=()
+if [[ -f "${_fnox_cfg}" ]]; then
+	_runner=(fnox exec -c "${_fnox_cfg}" --)
+fi
+
+# --- Emulated target: boot, run, quit -------------------------------
+_vm_tmpdir=""
+_vm_pid=""
+# shellcheck disable=SC2329  # invoked through the EXIT trap
+cleanup() {
+	if [[ -n "${_vm_tmpdir}" ]]; then
+		if [[ -S "${_vm_tmpdir}/monitor.sock" ]] && command -v socat > /dev/null; then
+			printf 'quit\n' | timeout 5 socat - "UNIX-CONNECT:${_vm_tmpdir}/monitor.sock" > /dev/null 2>&1 || true
+		fi
+		for _ in $(seq 1 20); do
+			pgrep -f "${_vm_tmpdir}" > /dev/null 2>&1 || break
+			sleep 0.5
+		done
+		pkill -f "${_vm_tmpdir}" 2> /dev/null || true
+		wait "${_vm_pid:-}" 2> /dev/null || true
+		rm -rf "${_vm_tmpdir}"
+	fi
+}
+trap cleanup EXIT
+
+if [[ "${_target}" == "qemu" ]]; then
+	# Short tmpdir: the swtpm and serial unix sockets live here and
+	# sun_path is 108 bytes.
+	_vm_tmpdir=$(mktemp -d /tmp/lamadist-val.XXXXXX)
+	_ssh_port=2233
+	export LAMADIST_VALIDATE_HOST="127.0.0.1"
+	export LAMADIST_VALIDATE_PORT="${_ssh_port}"
+	export LAMADIST_VALIDATE_KNOWN_HOSTS="/dev/null"
+	: "${LAMADIST_VALIDATE_SUDO_PASSWORD:=lamadist}"
+	export LAMADIST_VALIDATE_SUDO_PASSWORD
+	echo "==> Booting QEMU (headless, snapshot, Secure Boot) for the validation suite..."
+	mise run vm --bsp x86_64 --headless --allow-reboot --snapshot --secureboot \
+		--tmpdir "${_vm_tmpdir}" --ssh-port "${_ssh_port}" > "${_vm_tmpdir}/vm.log" 2>&1 &
+	_vm_pid=$!
+	for _ in $(seq 1 $((_timeout * 2))); do
+		[[ -S "${_vm_tmpdir}/serial.sock" ]] && break
+		kill -0 "${_vm_pid}" 2> /dev/null || {
+			echo "ERROR: vm task exited before starting QEMU; see below"
+			cat "${_vm_tmpdir}/vm.log" 2> /dev/null || true
+			exit 2
+		}
+		sleep 0.5
+	done
+	if [[ ! -S "${_vm_tmpdir}/serial.sock" ]]; then
+		echo "ERROR: serial socket never appeared"
+		exit 2
+	fi
+else
+	if [[ ! -f "${_fnox_cfg}" ]]; then
+		echo "ERROR: --target device needs ${_fnox_cfg}"
+		exit 2
+	fi
+	export LAMADIST_VALIDATE_KNOWN_HOSTS="${_state_dir}/validate_known_hosts"
+fi
+
+echo "==> Running the validation suite against the ${_target} target"
+_rc=0
+"${_runner[@]}" "${_pytest[@]}" || _rc=$?
+echo "==> Snapshot: ${LAMADIST_VALIDATE_SNAPSHOT}"
+exit "${_rc}"

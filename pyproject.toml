@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# Tool configuration only; the repo has no Python distribution.
+# The validation suite imports .mise/lib/validate at runtime through
+# conftest.py, so the type checker needs the same path.
+
+[tool.pyright]
+extraPaths = [".mise/lib"]
+pythonVersion = "3.14"
+
+[tool.ruff]
+target-version = "py314"
