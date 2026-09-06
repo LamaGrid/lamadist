@@ -1,2 +1,3 @@
 pytest==9.1.1
 gherkin-official==42.0.1
+ssh-audit==3.9.0
