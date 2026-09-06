@@ -474,9 +474,9 @@ what a compliance framework provides.
   (ADR 0009)
 - [x] Probe the live device for validation constraints; recorded in
   `docs/validation/AOA-VALIDATION.md` section 2
-- [x] Accept or amend ADR 0010 (accepted 2026-09-05; decisions 2
-  through 6 in AoA section 10 remain open)
-- [ ] Land increment 1 of the validation suite: the ten checks in
+- [x] Accept or amend ADR 0010 (accepted 2026-09-05; all six owner
+  decisions in AoA section 10 taken the same day)
+- [ ] Land increment 1 of the validation suite: the checks in
   `docs/validation/AOA-VALIDATION.md` section 7.6, green on the
   emulated target and on the live device
 - [ ] Wire `mise run validate` into the test chain, and into CI
@@ -1067,6 +1067,18 @@ Deferred until the milestones above are complete:
 - Ecosystem integration beyond M7/M8: additional exporters,
   dashboards, and cloud services
 - Performance profiling and tuning
+- Passwordless operation: remove `sudo` and the baked development
+  password from the validation path and from the image.  The
+  mechanism is undecided (`systemd-creds` is one candidate) and
+  needs its own research spike before any design.
+- Replace SSH as the validation and fleet-job transport with an
+  MQTT-based job runner (the `Target` protocol in
+  `.mise/lib/validate/target.py` is the seam; M8's Greengrass plan
+  overlaps).  Needs an ADR: the on-image runner executes named
+  checks from a signed manifest, never free shell.
+- Ship debug and test tooling as a filesystem overlay on one
+  production image instead of building separate production and
+  non-production images.
 - LTS / backport policy and long-term maintenance tracks
 - Test-pyramid / coverage-gap review.  The suite is heavy on the
   QEMU end-to-end end and thin on the data-type and unit layers

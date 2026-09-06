@@ -87,14 +87,17 @@ against a current build before they are relied on.
 | C8 | `findmnt` and `lsblk` are in util-linux split packages that `packagegroup-lamadist-base` does not pull in (`.mise/lib/smoke_login.py:200-204`) | Mount assertions read `/proc/mounts` and `/proc/cmdline` with bash builtins and coreutils. |
 
 Two targets, one code path.  The emulated Quick Emulator (QEMU)
-target and the live device both authenticate with a password.
-Every image carries the same built-in development password for the
-`lama` user (`meta-lamadist/classes/lamadist-image.bbclass:15-17,
-29-34`); the test SSH key is baked only into non-release builds
-(`.mise/tasks/build:99-105`), so it is not a common denominator and
-an installed device may lack it.  Password authentication on both
-targets is deliberate: a single credential shape means one
-transport implementation, not two.
+target and the live device both authenticate with the cached test
+SSH key.  Password authentication over the network is forbidden
+(owner decision, 2026-09-05), and the image enforces it with a
+public-key-only `sshd_config.d` drop-in that property P15 asserts.
+Non-release builds bake the key (`.mise/tasks/build:99-105`), so
+the suite validates development and QA images; release images bake
+no key and are console-only until credential provisioning lands.
+The `lama` user's built-in development password
+(`meta-lamadist/classes/lamadist-image.bbclass:15-17,29-34`) is
+used for `sudo` only, inside the SSH session, and reaches the suite
+through the host-local fnox configuration.
 
 ### 2.1 Native auditors already on the image
 
@@ -525,7 +528,7 @@ about a hand-rolled suite.
    before pytest sees it.  This is enforced by a conftest hook, not
    by discipline, because CI artifacts are the leak path.
 
-### 7.6 The first ten checks
+### 7.6 The first-increment checks
 
 Ordered unprivileged-first.  Every row names its goal and the gate
 item it guards.
@@ -542,6 +545,7 @@ item it guards.
 | 8 | P7 PID 1 domain | G3 | `/proc/1/attr/current` is a real domain, never `kernel_t` | yes | Condition B (`PLAN.md:416`) |
 | 9 | P4 LUKS2 `/var` | G3 | `cryptsetup luksDump` on the `/var` backing device shows LUKS2 and a TPM2 token; the mapper's dm uuid contains `LUKS2` | yes | Stage-B TPM2 (`PLAN.md:412`) |
 | 10 | P14 IMA log mode | G3 | `/proc/cmdline` has `ima_policy=tcb` and `ima_appraise=log`; the measurement list is non-empty | yes | Stage-B exit (`PLAN.md:412`) |
+| 11 | P15 sshd refuses passwords | G3 | A probe with no key offered is refused with `publickey` as the only method sshd advertises | no | Policy: no password authentication over the network |
 
 Check 3 is unprivileged.  `.mise/lib/smoke_login.py:258-269` already
 reads that efivar as the `lama` user after login, so no elevation
@@ -559,11 +563,10 @@ score, and rule 6 in section 7.5 forbids passing on a score.  It
 lands in a later increment as an explicitly advisory check whose
 result is recorded and never gates.
 
-**ssh-audit is the eleventh check, and it earns its place by need,
-not by cost.**  No recipe in `meta-lamadist` touches `sshd_config`,
-so the image's SSH posture -- key exchange, ciphers, host key
-types, whether password authentication is on -- is asserted nowhere
-today.  That is a gap, not a nice-to-have.  ssh-audit is MIT
+**ssh-audit is the twelfth check, and it earns its place by need,
+not by cost.**  P15 covers authentication, but nothing asserts the
+rest of the image's SSH posture -- key exchange, ciphers, host key
+types -- today.  That is a gap, not a nice-to-have.  ssh-audit is MIT
 [ssh-audit], runs host-side against the target's port, and adds
 nothing to the image.  Its output is a graded report, so per rule 6
 it is consumed as specific algorithm assertions, not as a grade.
@@ -685,36 +688,43 @@ Open questions:
 - Should the device target run in CI at all, ever?  This AoA says
   no.  If that changes, the network path and the secret handling
   need their own decision.
-- Is password authentication acceptable long term, or should the
-  suite move to the test key once every installed image bakes it?
-  A split (key on one target, password on the other) would mean
-  two transport paths (priority 3).
+- Resolved 2026-09-05: the test key on both targets, password
+  authentication over the network forbidden, `sudo` password from
+  fnox.  One transport path (priority 3).  Fully passwordless
+  operation (no `sudo`, no baked password) needs its own research
+  spike; the mechanism is undecided.
 
 ## 10. Decisions the owner must make
 
-Decision 1 was taken on 2026-09-05.  Decisions 2 through 6 remain
-open; none blocks the design of increment 1, and they are kept here
-so that each acceptance is explicit.
+All six decisions were taken on 2026-09-05; the outcome follows each
+item.  They are kept here so that each acceptance is explicit.
 
 1. **Accept the recommendation**: build Option A with Gherkin
    feature files as the checks (6.3), buy pytest, gherkin-official,
    and ssh-audit, reject Cinc as the runner -- knowing the
    operations lens dissented and recommended Cinc as primary (6.1).
-   **Taken 2026-09-05.**
+   **Taken 2026-09-05: accepted.**
 2. **Accept that goal 2 is only partly covered by increment 1**
    (7.7), with the dynamic OTA half staying in
-   `.mise/lib/ota_test.py` until checks 12 and 13 land.
+   `.mise/lib/ota_test.py` until checks 12 and 13 land.  **Taken
+   2026-09-05: accepted.**
 3. **Confirm the M5 gate is the suite's result**, not a person's
    reading of a console -- that is, that increment 1 green on both
-   targets replaces the manual sign-off entirely.
+   targets replaces the manual sign-off entirely.  **Taken
+   2026-09-05: the tests are the gate.**
 4. **Confirm CI runs the emulated target only** and the live device
-   stays local (7.9).
-5. **Confirm the credential shape**: password authentication on
-   both targets, one code path (section 2, open question 3), rather
-   than the test key on the emulated target and a password on the
-   device.
+   stays local (7.9).  **Taken 2026-09-05, for this increment only:**
+   local QEMU first, CI on the emulated target, the live device run
+   by hand; isolating the device so the cluster can reach it is a
+   separate infrastructure task, after which this decision is
+   revisited.
+5. **Confirm the credential shape** (section 2, open question 3).
+   **Taken 2026-09-05: the test SSH key on both targets; password
+   authentication over the network is forbidden; the `sudo`
+   password comes from the host-local fnox configuration.**
 6. **Confirm `systemd-analyze security` is advisory forever**, not
-   merely deferred (7.6).
+   merely deferred (7.6).  **Taken 2026-09-05: advisory.**  A useful
+   development and debugging signal, not an audit result.
 
 ## References
 
