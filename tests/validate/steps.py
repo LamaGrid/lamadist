@@ -10,17 +10,38 @@ asserts on a score (rule 6).
 from __future__ import annotations
 
 import json
+import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any, Final
 
 import pytest
+from validate.rauc import (
+    Status,
+    from_facts,
+    is_refusal,
+    moved,
+    parse_status,
+    to_facts,
+    unchanged,
+    untouched,
+)
 from validate.ssh_audit import Audit, parse
 
 Context = dict[str, Any]
 Step = Callable[..., None]
 
 STEPS: Final[list[tuple[re.Pattern[str], Step]]] = []
+
+# Facts a run records for the next run to compare against; conftest
+# writes them into the snapshot beside the per-check outcomes.
+FACTS: Final[dict[str, Any]] = {}
+
+# Where the wrong-CA bundle lands on the target for check 13.  Root
+# removes it: SELinux keeps the unprivileged user from unlinking a file
+# the installer has opened.
+_WRONG_CA_REMOTE: Final[str] = "/tmp/lamadist-validate-wrong-ca.raucb"
 
 # Fixed ssh-audit reports for the negative controls: no network, no
 # target.  "stock-image" is the shape ssh-audit returns for the
@@ -213,4 +234,192 @@ def _sample_classical_kex(ctx: Context, name: str) -> None:
     audit = parse(_SAMPLE_REPORTS[name])
     assert not audit.is_post_quantum_kex(), (
         f"negative control failed: sample {name!r} has no classical key exchange"
+    )
+
+
+# --- Goal 2: slots across an update, and a refused install ------------
+
+
+def _detailed(
+    booted: str, primary: str, slots: Sequence[tuple[str, str, str, str, str, int]]
+) -> str:
+    """A minimal ``rauc status --detailed`` document for the negative controls."""
+    entries = []
+    for name, bootname, state, sha256, installed_at, count in slots:
+        entries.append(
+            {
+                name: {
+                    "bootname": bootname,
+                    "state": state,
+                    "boot_status": "good",
+                    "slot_status": {
+                        "checksum": {"sha256": sha256, "size": 1},
+                        "installed": {"timestamp": installed_at, "count": count},
+                    },
+                }
+            }
+        )
+    return json.dumps({"booted": booted, "boot_primary": primary, "slots": entries})
+
+
+_A, _B, _C = "a" * 64, "b" * 64, "c" * 64
+_T0, _T1 = "2026-09-06T11:53:50Z", "2026-09-06T20:35:11Z"
+_BEFORE = _detailed(
+    "a",
+    "rootfs.0",
+    [
+        ("rootfs.0", "a", "booted", _A, _T0, 3),
+        ("rootfs.1", "b", "inactive", _B, _T0, 2),
+    ],
+)
+
+# (baseline, now) pairs that the predicates the positive scenarios run
+# must reject: no update at all; an update that rewrote the slot it came
+# from; and an install that changed a slot.
+_SAMPLE_HISTORY: Final[dict[str, tuple[str, str]]] = {
+    "boot-did-not-move": (_BEFORE, _BEFORE),
+    "rewritten-old-slot": (
+        _BEFORE,
+        _detailed(
+            "b",
+            "rootfs.1",
+            [
+                ("rootfs.0", "a", "inactive", _C, _T1, 4),
+                ("rootfs.1", "b", "booted", _B, _T1, 3),
+            ],
+        ),
+    ),
+    "install-bumped-a-slot": (
+        _BEFORE,
+        _detailed(
+            "a",
+            "rootfs.0",
+            [
+                ("rootfs.0", "a", "booted", _A, _T0, 3),
+                ("rootfs.1", "b", "inactive", _B, _T1, 3),
+            ],
+        ),
+    ),
+}
+_SAMPLE_INSTALLS: Final[dict[str, tuple[int, str]]] = {
+    "accepted": (0, "100% Installing done.\nInstalling `/tmp/x.raucb` succeeded"),
+}
+
+
+def _status(ctx: Context) -> Status:
+    try:
+        return parse_status(_output(ctx))
+    except ValueError as err:
+        pytest.fail(f"{err}:\n{_output(ctx)}")
+
+
+def _live_status(ctx: Context) -> Status:
+    raw = ctx["target"].run("rauc status --detailed --output-format=json").stdout
+    try:
+        return parse_status(raw)
+    except ValueError as err:
+        pytest.fail(f"{err}:\n{raw}")
+
+
+@step(r"the RAUC slot facts are recorded")
+def _record_facts(ctx: Context) -> None:
+    FACTS["rauc"] = to_facts(_status(ctx))
+
+
+@step(r"the baseline snapshot from before the update")
+def _baseline(ctx: Context) -> None:
+    path = os.environ.get("LAMADIST_VALIDATE_BASELINE", "")
+    if not path:
+        pytest.fail(
+            "LAMADIST_VALIDATE_BASELINE is not set; ota checks run only with --baseline"
+        )
+    try:
+        facts = json.loads(Path(path).read_text())["facts"]["rauc"]
+        ctx["baseline"] = from_facts(facts)
+    except (OSError, KeyError, TypeError, ValueError) as err:
+        pytest.fail(f"unusable baseline snapshot {path}: {err!r}")
+
+
+@step(r"the update moved the boot to the other slot")
+def _moved(ctx: Context) -> None:
+    now = _status(ctx)
+    assert moved(ctx["baseline"], now), (
+        f"the boot did not move since the baseline (still on {now.booted!r})"
+    )
+
+
+@step(r"the slot booted in the baseline is inactive, good, and untouched")
+def _untouched(ctx: Context) -> None:
+    now = _status(ctx)
+    assert untouched(ctx["baseline"], now), (
+        f"the slot booted in the baseline was not left alone:\n{_output(ctx)}"
+    )
+
+
+@step(r"a bundle signed by a certificate authority the target does not trust")
+def _wrong_ca_bundle(ctx: Context) -> None:
+    path = os.environ.get("LAMADIST_VALIDATE_WRONG_CA_BUNDLE", "")
+    if not path or not os.path.isfile(path):
+        pytest.fail("LAMADIST_VALIDATE_WRONG_CA_BUNDLE does not name a file")
+    ctx["target"].push(path, _WRONG_CA_REMOTE)
+    ctx["slots_before"] = _live_status(ctx)
+
+
+@step(r"I install that bundle as root")
+def _install_bundle(ctx: Context) -> None:
+    tgt = ctx["target"]
+    try:
+        res = tgt.run_root(f"rauc install {_WRONG_CA_REMOTE}")
+        ctx["install"] = (res.rc, res.stdout + res.stderr)
+        ctx["output"] = res.stdout + res.stderr
+    finally:
+        ctx["slots_after"] = _live_status(ctx)
+        tgt.run_root(f"rm -f {_WRONG_CA_REMOTE}")
+
+
+@step(r"the installation is refused for its signature")
+def _refused(ctx: Context) -> None:
+    rc, text = ctx["install"]
+    assert is_refusal(rc, text), (
+        f"the install was not refused for its signature (rc={rc}):\n{text}"
+    )
+
+
+@step(r"the RAUC slots are unchanged by the attempt")
+def _slots_unchanged(ctx: Context) -> None:
+    before, after = ctx["slots_before"], ctx["slots_after"]
+    assert unchanged(before, after), "a refused install changed a slot:\n" + json.dumps(
+        {"before": to_facts(before), "after": to_facts(after)}, indent=1
+    )
+
+
+@step(r'the sample slot history "(.+)" did not move the boot')
+def _sample_not_moved(ctx: Context, name: str) -> None:
+    before, after = (parse_status(s) for s in _SAMPLE_HISTORY[name])
+    assert not moved(before, after), (
+        f"negative control failed: {name} read as an update"
+    )
+
+
+@step(r'the sample slot history "(.+)" rewrote the old slot')
+def _sample_rewrote(ctx: Context, name: str) -> None:
+    before, after = (parse_status(s) for s in _SAMPLE_HISTORY[name])
+    assert moved(before, after) and not untouched(before, after), (
+        f"negative control failed: {name} read as untouched"
+    )
+
+
+@step(r'the sample slot history "(.+)" changed a slot')
+def _sample_changed(ctx: Context, name: str) -> None:
+    before, after = (parse_status(s) for s in _SAMPLE_HISTORY[name])
+    assert not unchanged(before, after), (
+        f"negative control failed: {name} read as unchanged"
+    )
+
+
+@step(r'the sample install "(.+)" is not a refusal')
+def _sample_not_refusal(ctx: Context, name: str) -> None:
+    rc, text = _SAMPLE_INSTALLS[name]
+    assert not is_refusal(rc, text), (
+        f"negative control failed: {name} read as a refusal"
     )
