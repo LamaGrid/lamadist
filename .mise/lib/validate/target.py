@@ -64,6 +64,16 @@ _SSH_BASE: Final[tuple[str, ...]] = (
     "PasswordAuthentication=no",
     "-o",
     "KbdInteractiveAuthentication=no",
+    # OpenSSH 10.4 supports ssh-mldsa44-ed25519 but does not enable it by
+    # default on the client for either side of the handshake.  The image
+    # offers only this post-quantum host key and accepts only this
+    # post-quantum user key, so the client must opt into both explicitly
+    # or fail: HostKeyAlgorithms to accept the server's host key,
+    # PubkeyAcceptedAlgorithms to present the user key.
+    "-o",
+    "HostKeyAlgorithms=ssh-mldsa44-ed25519@openssh.com,ssh-mldsa44-ed25519-cert-v01@openssh.com",
+    "-o",
+    "PubkeyAcceptedAlgorithms=ssh-mldsa44-ed25519@openssh.com,ssh-mldsa44-ed25519-cert-v01@openssh.com",
     "-o",
     "ConnectTimeout=10",
     "-o",
