@@ -40,12 +40,16 @@ Six files:
 - `tests/validate/conftest.py` -- fixture, guard, hooks, snapshot.
 - `.mise/tasks/validate` -- the entry point (default: emulated).
 
-Root is acquired with `sudo -S -p ''` and the password on stdin,
-`id -u` inside the same invocation, so a silently failed escalation
-errors rather than reading as a pass.  Ten first-increment checks,
-unprivileged first, cover root integrity, SELinux enforcing, Secure
-Boot, the `/etc` overlay, no plaintext swap, a clean enforcing boot,
-and the committed RAUC slot; then, with root, the process identifier
+Both targets authenticate with the cached test SSH key; password
+authentication over the network is forbidden, and the image's sshd
+refuses it.  Root is acquired inside that session with
+`sudo -S -p ''` and the password on stdin, `id -u` inside the same
+invocation, so a silently failed escalation errors rather than
+reading as a pass.  Eleven first-increment checks, unprivileged
+first, cover root integrity, SELinux enforcing, Secure Boot, the
+`/etc` overlay, no plaintext swap, a clean enforcing boot, the
+committed RAUC slot, and sshd refusing password authentication;
+then, with root, the process identifier
 (PID) 1 SELinux domain, Linux Unified Key Setup (LUKS) 2 `/var` with
 a Trusted Platform Module (TPM) 2 token, and Integrity Measurement
 Architecture (IMA) in log mode.
@@ -104,6 +108,11 @@ out of this decision's scope, and is a candidate follow-up.
 
 - The M5 gate becomes the suite's result on both targets, not a
   person's reading of a console.
+- Remote access is key-only.  Development and QA builds bake the
+  test key; release images bake none and are console-only until
+  credential provisioning lands.  The `sudo` password and the
+  device's address come from the host-local fnox configuration,
+  never from the repo.
 - Two new host-side dependencies, both MIT: pytest and
   gherkin-official.  No new image content -- every check body is a
   tool already on the image.
