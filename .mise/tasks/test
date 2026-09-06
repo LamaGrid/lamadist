@@ -76,4 +76,10 @@ if [ "${_bsp}" = "x86_64" ] && [ "${_no_boot}" != "true" ]; then
 	[ "${_secureboot}" = "true" ] && _ota_args+=(--secureboot)
 	echo "==> Running QEMU OTA install/rollback test"
 	mise run test-ota "${_ota_args[@]}"
+
+	# Live validation suite (ADR 0010): the Gherkin properties against
+	# a fresh Secure Boot guest.  Its result is the M4 sign-off and the
+	# M5 gate, so it runs after the OTA cycle and never skips.
+	echo "==> Running the live validation suite (emulated target)"
+	mise run validate --target qemu
 fi
