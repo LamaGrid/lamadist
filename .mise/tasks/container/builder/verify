@@ -57,6 +57,6 @@ fi
 	--volume "${MISE_CONFIG_ROOT}/container:/mnt:ro" \
 	--workdir /mnt \
 	--user root \
-	--entrypoint '["/bin/dumb-init", "/bin/bash", "-c"]' \
+	--entrypoint '["/bin/dumb-init", "-r", "2:15", "/bin/bash", "-c"]' \
 	$_container_image \
 	/mnt/check_updates.sh
