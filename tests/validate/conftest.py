@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".mise" / "lib"))
 from validate.target import SshTarget, TargetError, from_env
 
 MARKERS: Final[tuple[str, ...]] = (
-    *(f"P{n}: property {n} of the validation suite" for n in range(1, 16)),
+    *(f"P{n}: property {n} of the validation suite" for n in range(1, 17)),
     "G1: goal 1, the image works",
     "G2: goal 2, nothing breaks across an OTA update",
     "G3: goal 3, the security properties hold",

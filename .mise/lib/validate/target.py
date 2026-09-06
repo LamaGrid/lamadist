@@ -22,6 +22,9 @@ import time
 from dataclasses import dataclass
 from typing import Final, Protocol
 
+from validate.ssh_audit import Audit
+from validate.ssh_audit import run as run_audit
+
 
 class TargetError(RuntimeError):
     """A transport or escalation failure, distinct from a failed check."""
@@ -156,6 +159,14 @@ class SshTarget:
                 f"could not read the authentication methods of {self.name}"
             )
         return [m.strip() for m in found.group(1).split(",")]
+
+    def audit(self, timeout: float | None = None) -> Audit:
+        """ssh-audit posture facts for this target (the twelfth check).
+
+        SSH-specific by nature; it has no place on the transport-neutral
+        Target protocol and retires when a job runner replaces SSH.
+        """
+        return run_audit(self.host, self.port, timeout=timeout or self.timeout)
 
 
 def from_env(env: dict[str, str] | None = None) -> SshTarget:
