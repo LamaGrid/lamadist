@@ -1,6 +1,36 @@
 # syntax=docker/dockerfile:1
 # SPDX-License-Identifier: Apache-2.0
 
+# OpenSSH 10.4 build stage.  The image authenticates SSH with the
+# post-quantum ssh-mldsa44-ed25519 signature only, and the build task
+# generates the test key with ssh-keygen, so the builder needs an
+# ssh-keygen that knows that key type: OpenSSH 10.4 or newer.  Jammy
+# ships 8.9 and packages nothing newer, so build it from the release
+# tarball (pinned by hash; the same tarball the image recipe builds).
+# Only ssh-keygen is copied into the builder below.  Running the
+# validation suite from CI would also need this stage's ssh client.
+FROM ubuntu:22.04 AS openssh
+
+SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
+
+ENV DEBIAN_FRONTEND noninteractive
+
+ARG OPENSSH_VERSION=10.4p1
+ARG OPENSSH_SHA256=ef6026dd2aea8d56059638d5d3262902c892ceba9f88395835e0d06d3fb63238
+
+RUN apt-get update &&\
+  apt-get install --no-install-recommends -y \
+    ca-certificates curl gcc libc6-dev libssl-dev make zlib1g-dev &&\
+  rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src/openssh
+RUN curl -fsSL -o openssh.tar.gz \
+    "https://ftp.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-${OPENSSH_VERSION}.tar.gz" &&\
+  echo "${OPENSSH_SHA256}  openssh.tar.gz" | sha256sum -c - &&\
+  tar -xzf openssh.tar.gz --strip-components=1 &&\
+  ./configure &&\
+  make -j"$(nproc)" ssh-keygen
+
 FROM ubuntu:22.04
 
 SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
@@ -58,6 +88,10 @@ RUN --mount=type=cache,target=/root/.cache \
 
   # Cleanup
   rm -rf /tmp/* /var/tmp/*
+
+# Post-quantum-capable ssh-keygen from the openssh stage above.
+# /usr/local/bin precedes /usr/bin on PATH, so it shadows Jammy's 8.9.
+COPY --from=openssh /usr/src/openssh/ssh-keygen /usr/local/bin/ssh-keygen
 
 USER builder
 WORKDIR /home/builder
