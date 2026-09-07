@@ -27,7 +27,11 @@
 # ready for CI -- it accepts the LAMADIST_VALIDATE_* variables from the
 # environment, honors the mounted known-hosts pin, and needs no sudo
 # password (privileged checks run device-side under the forced-command
-# wrapper).
+# wrapper).  One CI-side change lands with that entrypoint: the
+# Validate step below still runs the suite's per-check SSH sessions,
+# which a forced command answers with the entrypoint every time, so
+# it becomes a single SSH call to the entrypoint (or the wrapper
+# grows a verb allowlist; that choice is open).
 name: Device validation
 
 on:

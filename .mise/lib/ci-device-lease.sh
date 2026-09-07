@@ -37,8 +37,10 @@ _get() {
 	kubectl -n "$LEASE_NS" get lease "$LEASE_NAME" -o json
 }
 
+# Lease acquireTime/renewTime are MicroTime: the API server rejects a
+# timestamp without exactly six fractional digits.
 _now() {
-	date -u +%Y-%m-%dT%H:%M:%SZ
+	date -u +%Y-%m-%dT%H:%M:%S.%6NZ
 }
 
 # Prints "free" or "held <holder>" and whether it is expired.
@@ -53,10 +55,13 @@ _status() {
 		  else "held \($h)" end'
 }
 
-# Try once; exit 0 if we now hold it, 1 if someone else does.
+# Try once; exit 0 if we now hold it, 1 if someone else does.  Any
+# failure other than losing the race (RBAC, a missing Lease, a
+# rejected body, no route to the API) is fatal on the spot: retrying
+# it for the whole timeout would only report "lease is held".
 _try_acquire() {
-	local holder="$1" json rv state
-	json="$(_get)"
+	local holder="$1" json rv state out
+	json="$(_get)" || _fail "cannot read $LEASE_NS/$LEASE_NAME"
 	rv="$(jq -r .metadata.resourceVersion <<< "$json")"
 	state="$(jq -r '
 		.spec as $s
@@ -68,10 +73,12 @@ _try_acquire() {
 	# The resourceVersion precondition makes this a compare-and-swap:
 	# if anyone touched the Lease since we read it, the patch is
 	# rejected and we retry.
-	kubectl -n "$LEASE_NS" patch lease "$LEASE_NAME" --type merge -p "$(jq -nc \
+	out="$(kubectl -n "$LEASE_NS" patch lease "$LEASE_NAME" --type merge -p "$(jq -nc \
 		--arg h "$holder" --arg t "$(_now)" --arg rv "$rv" \
-		'{metadata: {resourceVersion: $rv}, spec: {holderIdentity: $h, acquireTime: $t, renewTime: $t}}')" \
-		> /dev/null 2>&1
+		'{metadata: {resourceVersion: $rv}, spec: {holderIdentity: $h, acquireTime: $t, renewTime: $t}}')" 2>&1)" \
+		&& return 0
+	grep -q 'Operation cannot be fulfilled' <<< "$out" && return 1
+	_fail "cannot acquire $LEASE_NS/$LEASE_NAME: $out"
 }
 
 _acquire() {
@@ -87,16 +94,26 @@ _acquire() {
 	done
 }
 
+# Same compare-and-swap as acquire: if the Lease changed hands after
+# ours expired, the stale release is rejected instead of clearing the
+# new holder.
 _release() {
-	local holder="$1" current
-	current="$(_get | jq -r '.spec.holderIdentity // ""')"
+	local holder="$1" json current rv out
+	json="$(_get)" || _fail "cannot read $LEASE_NS/$LEASE_NAME"
+	current="$(jq -r '.spec.holderIdentity // ""' <<< "$json")"
+	rv="$(jq -r .metadata.resourceVersion <<< "$json")"
 	if [[ "$current" != "$holder" ]]; then
 		echo "$SELF_NAME: not held by $holder (holder: '${current:-none}'); nothing to release" >&2
 		return 0
 	fi
-	kubectl -n "$LEASE_NS" patch lease "$LEASE_NAME" --type merge \
-		-p '{"spec":{"holderIdentity":null,"acquireTime":null,"renewTime":null}}' > /dev/null
-	echo "$SELF_NAME: released $LEASE_NS/$LEASE_NAME"
+	out="$(kubectl -n "$LEASE_NS" patch lease "$LEASE_NAME" --type merge -p "$(jq -nc --arg rv "$rv" \
+		'{metadata: {resourceVersion: $rv}, spec: {holderIdentity: null, acquireTime: null, renewTime: null}}')" 2>&1)" \
+		&& { echo "$SELF_NAME: released $LEASE_NS/$LEASE_NAME"; return 0; }
+	grep -q 'Operation cannot be fulfilled' <<< "$out" && {
+		echo "$SELF_NAME: lease changed hands during release; nothing to release" >&2
+		return 0
+	}
+	_fail "cannot release $LEASE_NS/$LEASE_NAME: $out"
 }
 
 case "${1:-}" in
