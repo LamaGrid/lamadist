@@ -81,20 +81,10 @@ KERNEL_EXTRA_FEATURES:append = ' features/debug/debug-kernel.scc'
 # do_sbom_cve_check on every build.  --release and --include-scans
 # add the sbom-cve-check overlay (kas/extras/cve.kas.yml) instead.
 
-# Secure Boot signing keys (stage B, W9).
-#
-# DEVELOPMENT ONLY -- meta-lamadist/files/sb-dev/README.md.  db is
-# the signature-database key/cert: lamadist-uki.bbclass's ukify call
-# signs both per-slot UKIs with it whenever both variables are
-# non-empty (stage A leaves them unset, so that build stays
-# unsigned), and the systemd-boot bbappend
-# (recipes-bsp/systemd-boot/systemd-boot_%.bbappend) sbsigns
-# systemd-bootx64.efi with the identical pair, so every PE the
-# firmware executes verifies against the one enrolled db entry.  M6
-# replaces this pair with real, non-repository key material -- do
-# NOT point these at production keys here.
-UKI_SB_KEY  ?= "${@bb.utils.which(d.getVar('BBPATH'), 'files/sb-dev/db.key.pem')}"
-UKI_SB_CERT ?= "${@bb.utils.which(d.getVar('BBPATH'), 'files/sb-dev/db.cert.pem')}"
+# Secure Boot signing keys (UKI_SB_KEY/UKI_SB_CERT) are boot-backend
+# policy: only the systemd-boot + UKI chain signs PEs, so they live in
+# conf/machine/include/lamadist-boot-sdboot-uki.inc, not here.  A
+# platform without an EFI Secure Boot chain sets neither.
 
 # Include the Yocto CVE exclusion list for unfixable CVEs
 include conf/distro/include/cve-extra-exclusions.inc

@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Secure Boot (stage B, W9): sbsign the sd-boot loader with the same
-# db key/cert lamadist-security.inc points UKI_SB_KEY/UKI_SB_CERT at
+# db key/cert the machine boot-backend include
+# (conf/machine/include/lamadist-boot-sdboot-uki.inc) points
+# UKI_SB_KEY/UKI_SB_CERT at
 # (meta-lamadist/files/sb-dev/db.key.pem / db.cert.pem --
 # DEVELOPMENT ONLY, see that directory's README.md).  ukify signs
 # the two per-slot UKIs with the identical pair
@@ -15,7 +17,8 @@
 # place, under the names the rest of the build already expects:
 #
 #   - do_install's ${D}${EFI_FILES_PATH}/${SYSTEMD_BOOT_IMAGE}.  With
-#     EFI_PROVIDER == "systemd-boot" (lamadist-base.inc),
+#     EFI_PROVIDER == "systemd-boot" (set by the machine boot-backend
+#     include, conf/machine/include/lamadist-boot-sdboot-uki.inc),
 #     SYSTEMD_BOOT_IMAGE == EFI_BOOT_IMAGE, unprefixed -- see this
 #     recipe's own __anonymous python -- so this is the copy that
 #     would land in any rootfs that installs the systemd-boot
