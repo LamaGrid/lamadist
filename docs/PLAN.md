@@ -710,10 +710,16 @@ Safe to start now (no gate, mechanical per review):
 
 Gated on the Post-M4 validation gate (implementation):
 
-- [ ] Backend-class refactor: split lamadist-uki/esp-slot-a into
+- [x] Backend-class refactor: split lamadist-uki/esp-slot-a into
   `lamadist-boot-sdboot-uki` backend class; un-hard-wire
   `lamadist-image-base.bb` inherits; author
-  `lamadist-boot-sdboot-uki.inc` and re-prove the x86 gate
+  `lamadist-boot-sdboot-uki.inc` and re-prove the x86 gate.  The
+  machine selects `LAMADIST_BOOT_BACKEND` (fail-closed: no default,
+  so a machine that forgets its backend include errors at parse); the
+  distro layer lost `EFI_PROVIDER`, `virtual/bootloader`, and the
+  Secure Boot keys to the backend include.  x86 re-proven: `bitbake
+  -e` for intel is byte-identical but the new backend variable, and a
+  full x86_64 build is green with both UKIs rebuilt.
 - [ ] `rauc-conf` per-backend system.conf templating +
   backend-neutral pending-detection in lamadist-health-check
   (replace the loader-entry filename probe with `rauc status`)
