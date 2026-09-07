@@ -7,3 +7,4 @@ self-hosted-runner:
   labels:
     - container-build-set
     - yocto-runner-set
+    - device-validate
