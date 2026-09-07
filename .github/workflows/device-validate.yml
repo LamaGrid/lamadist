@@ -14,15 +14,19 @@
 # serializes runs at GitHub; the cluster Lease serializes against the
 # lamadist head's deploys.  Both are needed.
 #
-# Until the device-side single validate entrypoint lands, the target
-# constructor still requires LAMADIST_VALIDATE_SUDO_PASSWORD, which
-# CI deliberately does not hold, so a run stops there.  That is the
-# intended inert state, not a misconfiguration.
+# Dispatch-only for now.  A push trigger merged ahead of its runner
+# would queue a job that never starts, and a queued job never times
+# out (timeout-minutes counts from job start).  The push-to-main
+# trigger lands in the same change as the runner, the device secret,
+# and the device-side entrypoint.
+#
+# Until that entrypoint lands, the target constructor still requires
+# LAMADIST_VALIDATE_SUDO_PASSWORD, which CI deliberately does not
+# hold, so a dispatched run stops there.  That is the intended inert
+# state, not a misconfiguration.
 name: Device validation
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       roothash:
@@ -60,6 +64,11 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@v2
 
+      # The pinned host key is placed and exported, but the validate
+      # task's device branch currently overrides
+      # LAMADIST_VALIDATE_KNOWN_HOSTS with its own file, so the pin is
+      # not honored until the CI-mode entrypoint work lands; until
+      # then the connection is accept-new, unpinned.
       - name: Place the device credentials where the validate task expects them
         run: |
           set -o errexit

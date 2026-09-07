@@ -3,9 +3,9 @@
 # Hold the device Lease around a critical section.
 #
 # Usage:
-#   acquire-lease.sh acquire <holder> [timeout-seconds]
-#   acquire-lease.sh release <holder>
-#   acquire-lease.sh status
+#   ci-device-lease.sh acquire <holder> [timeout-seconds]
+#   ci-device-lease.sh release <holder>
+#   ci-device-lease.sh status
 #
 # Works from a CI job pod (in-cluster ServiceAccount) and from the
 # desktop (kubeconfig) alike; both sides use the same script so the
