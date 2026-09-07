@@ -63,12 +63,15 @@ PACKAGE_CLASSES = 'package_rpm'
 
 # systemd
 INIT_MANAGER = 'systemd'
-EFI_PROVIDER = 'systemd-boot'
 DISTRO_FEATURES_OPTED_OUT += 'sysvinit'
 VIRTUAL-RUNTIME_init_manager = 'systemd'
 VIRTUAL-RUNTIME_initscripts = ''
-PREFERRED_PROVIDER_virtual/bootloader = 'systemd-boot'
 PACKAGECONFIG:append:pn-systemd = ' cryptsetup'
+
+# EFI_PROVIDER and virtual/bootloader are boot-backend policy, not a
+# distro invariant: they live in the machine's boot-backend include
+# (conf/machine/include/lamadist-boot-<backend>.inc) so a non-EFI
+# platform is not forced onto systemd-boot.
 
 # 'efi' is not in DISTRO_FEATURES (only the genericx86-64 BSP's
 # MACHINE_FEATURES has it), so systemd's PACKAGECONFIG[efi] --

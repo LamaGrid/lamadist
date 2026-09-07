@@ -38,7 +38,8 @@
 #
 # Stage A (M4.A) leaves UKI_SB_KEY/UKI_SB_CERT unset: ukify signs
 # only when both are set, so the build stays unsigned here.  Stage B
-# wires real values in via lamadist-security.inc.
+# wires real values in via the machine's boot-backend include
+# (conf/machine/include/lamadist-boot-sdboot-uki.inc).
 
 DEPENDS += "\
     os-release \
