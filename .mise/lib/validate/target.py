@@ -223,7 +223,14 @@ def from_env(env: dict[str, str] | None = None) -> SshTarget:
     ``LAMADIST_VALIDATE_TARGET`` is ``qemu`` or ``device``; host, port,
     key, known-hosts file, and sudo password come from the matching
     ``LAMADIST_VALIDATE_*`` variables, set by the task (device values
-    arrive through fnox, never from the repo).
+    arrive through fnox locally, or straight from the environment in
+    CI, never from the repo).
+
+    The sudo password is optional: a CI job holds none by design and
+    runs any privileged step device-side through a forced-command
+    wrapper, so an absent password yields an empty one rather than an
+    error.  ``run_root`` then only succeeds where the target needs no
+    password, which is exactly the CI contract.
     """
     e = os.environ if env is None else env
     name = e.get("LAMADIST_VALIDATE_TARGET", "")
@@ -238,7 +245,7 @@ def from_env(env: dict[str, str] | None = None) -> SshTarget:
             key=e["LAMADIST_VALIDATE_SSH_KEY"],
             known_hosts=e.get("LAMADIST_VALIDATE_KNOWN_HOSTS", "/dev/null"),
             strict_host_key="no" if name == "qemu" else "accept-new",
-            sudo_password=e["LAMADIST_VALIDATE_SUDO_PASSWORD"],
+            sudo_password=e.get("LAMADIST_VALIDATE_SUDO_PASSWORD", ""),
         )
     except KeyError as err:
         raise TargetError(f"missing {err.args[0]} in the environment") from err

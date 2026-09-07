@@ -20,10 +20,14 @@
 # trigger lands in the same change as the runner, the device secret,
 # and the device-side entrypoint.
 #
-# Until that entrypoint lands, the target constructor still requires
-# LAMADIST_VALIDATE_SUDO_PASSWORD, which CI deliberately does not
-# hold, so a dispatched run stops there.  That is the intended inert
-# state, not a misconfiguration.
+# Dispatched runs stay inert until the device side lands: the device
+# does not yet authorize a CI key, so the suite's per-check SSH has
+# nowhere to land, and the single device-side validate entrypoint the
+# forced-command runs does not exist.  The validate task itself is
+# ready for CI -- it accepts the LAMADIST_VALIDATE_* variables from the
+# environment, honors the mounted known-hosts pin, and needs no sudo
+# password (privileged checks run device-side under the forced-command
+# wrapper).
 name: Device validation
 
 on:

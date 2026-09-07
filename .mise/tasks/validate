@@ -151,11 +151,17 @@ if [[ "${_target}" == "qemu" ]]; then
 		exit 2
 	fi
 else
-	if [[ ! -f "${_fnox_cfg}" ]]; then
-		echo "ERROR: --target device needs ${_fnox_cfg}"
+	# Secrets reach the suite two ways: fnox.local.toml locally, or the
+	# LAMADIST_VALIDATE_* variables already in the environment (CI mounts
+	# them from a secret).  Require one or the other; from_env reports
+	# precisely which variable is missing if neither supplied it.
+	if [[ ! -f "${_fnox_cfg}" && -z "${LAMADIST_VALIDATE_HOST:-}" ]]; then
+		echo "ERROR: --target device needs ${_fnox_cfg} or LAMADIST_VALIDATE_* in the environment"
 		exit 2
 	fi
-	export LAMADIST_VALIDATE_KNOWN_HOSTS="${_state_dir}/validate_known_hosts"
+	# Honor a known-hosts path the caller already exported (CI mounts a
+	# pinned file); otherwise default to the suite's pinned file.
+	export LAMADIST_VALIDATE_KNOWN_HOSTS="${LAMADIST_VALIDATE_KNOWN_HOSTS:-${_state_dir}/validate_known_hosts}"
 fi
 
 echo "==> Running the validation suite against the ${_target} target"
