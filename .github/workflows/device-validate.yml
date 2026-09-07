@@ -68,11 +68,9 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@v2
 
-      # The pinned host key is placed and exported, but the validate
-      # task's device branch currently overrides
-      # LAMADIST_VALIDATE_KNOWN_HOSTS with its own file, so the pin is
-      # not honored until the CI-mode entrypoint work lands; until
-      # then the connection is accept-new, unpinned.
+      # The key pair goes where the validate task looks for its test
+      # key, so it generates none; the pinned host key is exported
+      # through LAMADIST_VALIDATE_KNOWN_HOSTS, which the task honors.
       - name: Place the device credentials where the validate task expects them
         run: |
           set -o errexit
