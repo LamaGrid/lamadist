@@ -1,0 +1,104 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+# Run the live validation suite against the LamaDist test device from
+# CI, on the one runner allowed to reach it.
+#
+# Contains no device details: host, port, user, the CI-only SSH key,
+# and the pinned host key all come from the secret that the
+# device-validate runner mounts at /run/secrets/device, so this file
+# is safe in a public repository.  The host and user are masked so
+# they never appear in run logs either.
+#
+# No pull_request or pull_request_target trigger, on purpose: nothing
+# a fork or a PR can do reaches the device.  The concurrency group
+# serializes runs at GitHub; the cluster Lease serializes against the
+# lamadist head's deploys.  Both are needed.
+#
+# Until the device-side single validate entrypoint lands, the target
+# constructor still requires LAMADIST_VALIDATE_SUDO_PASSWORD, which
+# CI deliberately does not hold, so a run stops there.  That is the
+# intended inert state, not a misconfiguration.
+name: Device validation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      roothash:
+        description: >-
+          Expected root hash of the image under test.  Read from the
+          newest UKI in the deploy dir when omitted, which a fresh
+          validate job does not have.
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lamadist-device
+  cancel-in-progress: false
+
+env:
+  MISE_COLOR: 'false'
+
+jobs:
+  validate:
+    name: Validate on device
+    runs-on: device-validate
+    container:
+      image: registry.local/lamagrid/lamadist-builder:latest
+    timeout-minutes: 30
+    env:
+      LEASE_HOLDER: ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Place the device credentials where the validate task expects them
+        run: |
+          set -o errexit
+          umask 077
+          key_dir="${GITHUB_WORKSPACE}/.local/share/lamadist/test-ssh"
+          mkdir -p "${key_dir}" "${HOME}/.ssh"
+          cp /run/secrets/device/ssh-key "${key_dir}/id_mldsa44-ed25519"
+          cp /run/secrets/device/ssh-key.pub "${key_dir}/id_mldsa44-ed25519.pub"
+          cp /run/secrets/device/ssh-known-hosts "${HOME}/.ssh/known_hosts"
+          host="$(cat /run/secrets/device/device-host)"
+          user="$(cat /run/secrets/device/device-user)"
+          port="$(cat /run/secrets/device/device-port 2> /dev/null || echo 22)"
+          echo "::add-mask::${host}"
+          echo "::add-mask::${user}"
+          {
+            echo "LAMADIST_VALIDATE_HOST=${host}"
+            echo "LAMADIST_VALIDATE_PORT=${port}"
+            echo "LAMADIST_VALIDATE_USER=${user}"
+            echo "LAMADIST_VALIDATE_KNOWN_HOSTS=${HOME}/.ssh/known_hosts"
+          } >> "${GITHUB_ENV}"
+
+      - name: Acquire the device lease
+        run: >-
+          mise x kubectl@latest jq@latest --
+          ./.mise/lib/ci-device-lease.sh acquire "${LEASE_HOLDER}" 600
+
+      - name: Validate
+        env:
+          ROOTHASH: ${{ inputs.roothash }}
+        run: |
+          set -o errexit
+          if [ -n "${ROOTHASH}" ]; then
+            mise run validate --target device --roothash "${ROOTHASH}"
+          else
+            mise run validate --target device
+          fi
+
+      - name: Release the device lease
+        if: always()
+        run: >-
+          mise x kubectl@latest jq@latest --
+          ./.mise/lib/ci-device-lease.sh release "${LEASE_HOLDER}"
