@@ -16,19 +16,21 @@ inherit lamadist-image
 # selinux-image.bbclass's build-time setfiles pass labels the rootfs --
 # active from the very first (enforcing) boot.
 
-# Builds the per-slot Unified Kernel Images (lamadist-a.efi,
-# lamadist-b.efi) the RAUC bundle and ESP staging consume; see
-# classes/lamadist-uki.bbclass.  Must be inherited before
-# lamadist-esp-slot-a below: both append to do_image_wic[prefuncs],
-# and bitbake runs that list in inherit order -- lamadist_uki_build
-# has to run first so lamadist-a.efi exists in DEPLOY_DIR_IMAGE by
-# the time lamadist_esp_slot_a_populate looks for it.
-inherit lamadist-uki
-
-# Seeds slot A's ESP boot content (kernel, initramfs, microcode,
-# systemd-boot entry) at image build time; see
-# classes/lamadist-esp-slot-a.bbclass.
-inherit lamadist-esp-slot-a
+# Boot backend.  The machine leaf selects LAMADIST_BOOT_BACKEND (x86
+# = "sdboot-uki") and the backend class bundles the build-time pieces
+# in order: the per-slot Unified Kernel Image build
+# (lamadist-a.efi/-b.efi, consumed by the RAUC bundle and ESP staging)
+# then slot A's ESP boot content.  A second platform sets a different
+# backend without touching this recipe; the distro layer holds only
+# boot-invariant policy.  See classes/lamadist-boot-sdboot-uki.bbclass
+# and conf/machine/include/lamadist-boot-sdboot-uki.inc.
+#
+# No default backend: a machine leaf MUST select one in its
+# boot-backend include.  Without it this inherit resolves to the
+# missing class "lamadist-boot-" and fails at parse -- fail-closed on
+# purpose, so a machine that forgets the include cannot silently build
+# an unsigned image off the backend class's empty-key defaults.
+inherit lamadist-boot-${LAMADIST_BOOT_BACKEND}
 
 # /etc becomes a writable overlayfs upper layer backed by the
 # LUKS-mapped /var partition, so runtime config changes persist
