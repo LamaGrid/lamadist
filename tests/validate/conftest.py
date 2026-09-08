@@ -25,7 +25,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".mise" / "lib"))
 
 from steps import FACTS
-from validate.target import SshTarget, TargetError, from_env
+from validate.target import CollectorTarget, SshTarget, TargetError, from_env
 
 MARKERS: Final[tuple[str, ...]] = (
     *(f"P{n}: property {n} of the validation suite" for n in range(1, 19)),
@@ -39,6 +39,10 @@ MARKERS: Final[tuple[str, ...]] = (
     (
         "ota: compares against a snapshot from before an update "
         "(LAMADIST_VALIDATE_BASELINE); deselected without one, never skipped"
+    ),
+    (
+        "device_write: pushes to and writes on the target; deselected in the "
+        "read-only CI collector (LAMADIST_VALIDATE_COLLECTOR), never skipped"
     ),
 )
 _ROOTHASH: Final[re.Pattern[str]] = re.compile(r"roothash=([0-9a-f]{64})")
@@ -56,14 +60,24 @@ def pytest_configure(config: pytest.Config) -> None:
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Without a baseline the ``ota`` checks cannot compare anything, so
-    they are deselected -- counted in the summary, never skipped (rule 2)."""
-    if os.environ.get("LAMADIST_VALIDATE_BASELINE"):
+    """Deselect checks the current mode cannot run -- counted in the
+    summary, never skipped (rule 2).  The ``ota`` checks need a baseline
+    (LAMADIST_VALIDATE_BASELINE); the ``device_write`` checks push and
+    install, which the read-only CI collector (LAMADIST_VALIDATE_COLLECTOR)
+    cannot do."""
+    drop: list[str] = []
+    if not os.environ.get("LAMADIST_VALIDATE_BASELINE"):
+        drop.append("ota")
+    if os.environ.get("LAMADIST_VALIDATE_COLLECTOR"):
+        drop.append("device_write")
+    if not drop:
         return
-    dropped = [item for item in items if item.get_closest_marker("ota")]
+    dropped = [it for it in items if any(it.get_closest_marker(m) for m in drop)]
     if dropped:
         config.hook.pytest_deselected(items=dropped)
-        items[:] = [item for item in items if not item.get_closest_marker("ota")]
+        items[:] = [
+            it for it in items if not any(it.get_closest_marker(m) for m in drop)
+        ]
 
 
 def _say(session: pytest.Session, text: str, *, red: bool = False) -> None:
@@ -118,7 +132,7 @@ def _compare_with_baseline(session: pytest.Session) -> dict[str, Any] | None:
 
 
 @pytest.fixture(scope="session")
-def target() -> SshTarget:
+def target() -> SshTarget | CollectorTarget:
     """The target under test, reachable and identified (rule 1)."""
     try:
         tgt = from_env()

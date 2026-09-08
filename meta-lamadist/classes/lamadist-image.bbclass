@@ -50,8 +50,16 @@ ROOTFS_POSTPROCESS_COMMAND += "lamadist_sudoers_wheel; "
 # UKI_SB_KEY/UKI_SB_CERT.
 LAMADIST_SSH_AUTHORIZED_KEYS ?= ""
 
+# CI-only forced-command key: a public key allowed to authenticate ONLY
+# to run the device-side validation collector.  Set by the ci-validate
+# kas extra; empty in every other build (never in a release image).
+# Host-cached, never committed.
+LAMADIST_CI_VALIDATE_KEY ?= ""
+
 lamadist_install_authorized_keys() {
-    [ -n "${LAMADIST_SSH_AUTHORIZED_KEYS}" ] || return 0
+    if [ -z "${LAMADIST_SSH_AUTHORIZED_KEYS}" ] && [ -z "${LAMADIST_CI_VALIDATE_KEY}" ]; then
+        return 0
+    fi
     install -d -m 0700 ${IMAGE_ROOTFS}/home/lama/.ssh
     rm -f ${IMAGE_ROOTFS}/home/lama/.ssh/authorized_keys
     for _k in ${LAMADIST_SSH_AUTHORIZED_KEYS}; do
@@ -61,6 +69,21 @@ lamadist_install_authorized_keys() {
         fi
         cat "${_k}" >> ${IMAGE_ROOTFS}/home/lama/.ssh/authorized_keys
     done
+    # CI collector key: a forced command with all forwarding and pty
+    # allocation disabled (restrict), so a connection under this key can
+    # only run the device-side collector -- the CI job never gets a
+    # shell, a port forward, or the sudo password.  The command path must
+    # match where lamadist-ci-validate installs the entrypoint.
+    if [ -n "${LAMADIST_CI_VALIDATE_KEY}" ]; then
+        [ -f "${LAMADIST_CI_VALIDATE_KEY}" ] || bbfatal "LAMADIST_CI_VALIDATE_KEY: ${LAMADIST_CI_VALIDATE_KEY} not found"
+        if grep -q 'PRIVATE KEY' "${LAMADIST_CI_VALIDATE_KEY}"; then
+            bbfatal "LAMADIST_CI_VALIDATE_KEY: ${LAMADIST_CI_VALIDATE_KEY} is a PRIVATE key; point at the .pub"
+        fi
+        printf 'restrict,command="%s" %s\n' \
+            "${bindir}/lamadist-validate-device" \
+            "$(cat ${LAMADIST_CI_VALIDATE_KEY})" \
+            >> ${IMAGE_ROOTFS}/home/lama/.ssh/authorized_keys
+    fi
     chmod 0600 ${IMAGE_ROOTFS}/home/lama/.ssh/authorized_keys
     # chown against the ROOTFS passwd, not the host's (postprocess
     # runs under pseudo, where name lookups hit the host database).
@@ -89,6 +112,7 @@ ROOTFS_POSTPROCESS_COMMAND += "lamadist_install_authorized_keys; "
 # taskhash track the key files so an in-place rotation cannot be
 # masked by sstate reuse (review finding).
 do_rootfs[file-checksums] += "${@' '.join(p + ':True' for p in (d.getVar('LAMADIST_SSH_AUTHORIZED_KEYS') or '').split())}"
+do_rootfs[file-checksums] += "${@' '.join(p + ':True' for p in (d.getVar('LAMADIST_CI_VALIDATE_KEY') or '').split())}"
 
 # The root filesystem is sealed by dm-verity, so declare it
 # read-only (ro fstab root entry, ro kernel cmdline, volatile

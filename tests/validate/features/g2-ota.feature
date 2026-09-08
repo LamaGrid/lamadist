@@ -35,7 +35,7 @@ Feature: OTA update integrity
     Then the sample slot history "boot-did-not-move" did not move the boot
     And the sample slot history "rewritten-old-slot" rewrote the old slot
 
-  @P18 @root
+  @P18 @root @device_write
   Scenario: P18 a bundle signed by an untrusted certificate authority is refused (check 13)
     Given a bundle signed by a certificate authority the target does not trust
     When I install that bundle as root
