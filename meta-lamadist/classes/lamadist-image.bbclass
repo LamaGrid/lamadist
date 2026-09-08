@@ -47,12 +47,18 @@ ROOTFS_POSTPROCESS_COMMAND += "lamadist_sudoers_wheel; "
 # privileged collector helper, and only it, without a password -- the
 # sole exception to the password-sudo policy, scoped to a fixed path
 # with no arguments.  Path must match lamadist-ci-validate's install.
+#
+# The filename must sort AFTER 'wheel': sudo reads /etc/sudoers.d in
+# lexical order and applies last-match-wins, so the broad
+# '%wheel ALL=(ALL:ALL) ALL' grant (lama is in wheel) would otherwise be
+# the last rule to match this command and re-impose a password.  The
+# 'zz-' prefix makes this NOPASSWD rule the final match.
 lamadist_ci_sudoers() {
     [ -n "${LAMADIST_CI_VALIDATE_KEY}" ] || return 0
     install -d ${IMAGE_ROOTFS}${sysconfdir}/sudoers.d
     echo 'lama ALL=(root) NOPASSWD: ${libexecdir}/lamadist/lamadist-validate-root' \
-        > ${IMAGE_ROOTFS}${sysconfdir}/sudoers.d/lamadist-ci-validate
-    chmod 0440 ${IMAGE_ROOTFS}${sysconfdir}/sudoers.d/lamadist-ci-validate
+        > ${IMAGE_ROOTFS}${sysconfdir}/sudoers.d/zz-lamadist-ci-validate
+    chmod 0440 ${IMAGE_ROOTFS}${sysconfdir}/sudoers.d/zz-lamadist-ci-validate
 }
 ROOTFS_POSTPROCESS_COMMAND += "lamadist_ci_sudoers; "
 
