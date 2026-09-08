@@ -1,0 +1,61 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# CI validation collector.  This is the single program the CI key's
+# forced command runs: one SSH connection replaces the validation
+# suite's per-check SSH.  It gathers the unprivileged check facts as
+# the lama user and the privileged ones through one scoped sudo
+# helper, then prints a JSON object keyed by the EXACT command strings
+# the host suite issues, so the host asserts against the collected
+# facts without ever running a command on the device itself.
+#
+# It takes no arguments and reads no stdin: whatever the client asked
+# to run is ignored (the forced command sees SSH_ORIGINAL_COMMAND but
+# never consults it).  The fixed command set below must stay in step
+# with tests/validate/features/*.feature; a host lookup for a command
+# not collected here fails loudly rather than silently passing.
+set -u
+
+exec /usr/bin/python3 - <<'PY'
+import json
+import subprocess
+import sys
+
+# Exactly the unprivileged commands the features run, verbatim.
+UNPRIV = [
+    "cat /etc/selinux/config",
+    "cat /proc/cmdline",
+    "cat /proc/mounts",
+    "cat /sys/fs/selinux/enforce",
+    "od -An -tu1 -j4 -N1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c",
+    "rauc status --detailed --output-format=json",
+    "systemctl --failed --no-legend --plain | wc -l",
+    "systemctl is-system-running",
+    "systemctl list-units --type=swap --no-legend --plain | wc -l",
+    "wc -l < /proc/swaps",
+]
+
+ROOT_HELPER = "/usr/libexec/lamadist/lamadist-validate-root"
+
+facts = {}
+for cmd in UNPRIV:
+    proc = subprocess.run(["/bin/sh", "-c", cmd], capture_output=True, text=True)
+    facts[cmd] = {"rc": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
+
+# The privileged half runs through exactly one NOPASSWD sudo rule, so
+# the CI key can elevate for these four commands and nothing else.
+root = subprocess.run(
+    ["sudo", "-n", ROOT_HELPER], capture_output=True, text=True
+)
+if root.returncode != 0:
+    json.dump({"_error": "root helper failed (rc=%d): %s"
+               % (root.returncode, root.stderr.strip())}, sys.stdout)
+    raise SystemExit(1)
+try:
+    facts.update(json.loads(root.stdout))
+except ValueError as err:
+    json.dump({"_error": "root helper output was not JSON: %s" % err}, sys.stdout)
+    raise SystemExit(1)
+
+json.dump(facts, sys.stdout)
+PY
