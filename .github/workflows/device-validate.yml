@@ -10,38 +10,41 @@
 # they never appear in run logs either.
 #
 # No pull_request or pull_request_target trigger, on purpose: nothing
-# a fork or a PR can do reaches the device.  The concurrency group
-# serializes runs at GitHub; the cluster Lease serializes against the
-# lamadist head's deploys.  Both are needed.
+# a fork or a PR can do reaches the device.  push to main and manual
+# dispatch are the only triggers.  The concurrency group serializes
+# runs at GitHub; the cluster Lease serializes against the lamadist
+# head's deploys.  Both are needed.
 #
-# Dispatch-only for now.  A push trigger merged ahead of its runner
-# would queue a job that never starts, and a queued job never times
-# out (timeout-minutes counts from job start).  The push-to-main
-# trigger lands in the same change as the runner, the device secret,
-# and the device-side entrypoint.
+# The push filter names the paths that change HOW the device is
+# validated -- the suite, the validate task, the lease helper, the
+# builder, and this file -- not the image sources.  A push does not
+# update the device, so validating it after an image-source change
+# would only re-check the image it already runs.  The device's image
+# changes through an OTA the lamadist head drives, which dispatches a
+# run (optionally pinning the deployed root hash) when it wants one.
 #
-# Dispatched runs stay inert until the device side lands: the device
-# does not yet authorize a CI key, so the suite's per-check SSH has
-# nowhere to land, and the single device-side validate entrypoint the
-# forced-command runs does not exist.  The validate task itself is
-# ready for CI -- it accepts the LAMADIST_VALIDATE_* variables from the
-# environment, honors the mounted known-hosts pin, and needs no sudo
-# password (privileged checks run device-side under the forced-command
-# wrapper).  One CI-side change lands with that entrypoint: the
-# Validate step below still runs the suite's per-check SSH sessions,
-# which a forced command answers with the entrypoint every time, so
-# it becomes a single SSH call to the entrypoint (or the wrapper
-# grows a verb allowlist; that choice is open).
+# When no root hash is pinned (every push, and dispatches that omit
+# it) the job validates whatever image the device runs now, reading
+# that hash from the device first so rule 1 still records an identity.
 name: Device validation
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/device-validate.yml'
+      - '.mise/lib/validate/**'
+      - '.mise/tasks/validate'
+      - '.mise/lib/ci-device-lease.sh'
+      - 'tests/validate/**'
+      - 'container/**'
   workflow_dispatch:
     inputs:
       roothash:
         description: >-
-          Expected root hash of the image under test.  Read from the
-          newest UKI in the deploy dir when omitted, which a fresh
-          validate job does not have.
+          Expected root hash of the image under test.  Pin it to the
+          image just deployed; when omitted (and on every push) the job
+          reads the hash the device currently runs.
         required: false
         default: ''
         type: string
@@ -108,16 +111,45 @@ jobs:
           mise x kubectl@latest jq@latest --
           ./.mise/lib/ci-device-lease.sh acquire "${LEASE_HOLDER}" 600
 
-      - name: Validate
+      # A push pins no root hash, so validate the image the device runs
+      # now.  Read that hash through the SAME CollectorTarget the suite
+      # uses -- one forced-command SSH call with the CI key, under the
+      # held lease -- so the transport (post-quantum algorithms, the
+      # strict host-key pin, keepalive, JSON and error handling) has a
+      # single definition and cannot drift from the suite.  Fail closed
+      # when it cannot be read; the always() release step still frees
+      # the lease.
+      #
+      # On a push this makes rule 1 a RECORD, not a gate: the expected
+      # hash is the device's own cmdline hash, so it cannot mismatch.  A
+      # dispatch that pins inputs.roothash (the head, after an OTA) is
+      # the path that turns rule 1 back into a real identity check.
+      - name: Resolve the expected root hash
         env:
-          ROOTHASH: ${{ inputs.roothash }}
+          ROOTHASH_INPUT: ${{ inputs.roothash }}
         run: |
           set -o errexit
-          if [ -n "${ROOTHASH}" ]; then
-            mise run validate --target device --roothash "${ROOTHASH}"
-          else
-            mise run validate --target device
+          roothash="${ROOTHASH_INPUT}"
+          if [ -z "${roothash}" ]; then
+            lib="${GITHUB_WORKSPACE}/.mise/lib"
+            key="${GITHUB_WORKSPACE}/.local/share/lamadist/test-ssh/id_mldsa44-ed25519"
+            roothash="$(
+              PYTHONPATH="${lib}" \
+              LAMADIST_VALIDATE_TARGET=device \
+              LAMADIST_VALIDATE_SSH_KEY="${key}" \
+              python3 "${lib}/validate/print_device_roothash.py"
+            )"
+            if [ -z "${roothash}" ]; then
+              echo "::error::could not read a root hash from the device collector"
+              exit 1
+            fi
           fi
+          echo "ROOTHASH=${roothash}" >> "${GITHUB_ENV}"
+
+      - name: Validate
+        run: |
+          set -o errexit
+          mise run validate --target device --roothash "${ROOTHASH}"
 
       - name: Release the device lease
         if: always()
