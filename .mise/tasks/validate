@@ -77,9 +77,14 @@ export LAMADIST_VALIDATE_READY_TIMEOUT="${_timeout}"
 export LAMADIST_VALIDATE_SNAPSHOT="${_state_dir}/validate-${_target}-${_stamp}.json"
 
 # Check 13 pushes a bundle no image trusts; check 12 compares this run
-# with a snapshot from before an update.
-LAMADIST_VALIDATE_WRONG_CA_BUNDLE="$(ensure_wrong_ca_bundle)"
-export LAMADIST_VALIDATE_WRONG_CA_BUNDLE
+# with a snapshot from before an update.  The wrong-CA bundle is only for
+# check 13 (P18), which is deselected in CI collector mode -- and it needs
+# mksquashfs, which the CI builder lacks -- so build it only outside
+# collector mode.
+if [[ -z "${LAMADIST_VALIDATE_COLLECTOR:-}" ]]; then
+	LAMADIST_VALIDATE_WRONG_CA_BUNDLE="$(ensure_wrong_ca_bundle)"
+	export LAMADIST_VALIDATE_WRONG_CA_BUNDLE
+fi
 if [[ -n "${_baseline}" ]]; then
 	if [[ ! -f "${_baseline}" ]]; then
 		echo "ERROR: --baseline ${_baseline} is not a file"
