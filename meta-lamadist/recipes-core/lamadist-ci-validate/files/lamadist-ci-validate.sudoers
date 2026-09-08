@@ -1,8 +1,0 @@
-# SPDX-License-Identifier: Apache-2.0
-# CI validation: the lama user may run the privileged collector helper,
-# and only it, without a password.  This is the one exception to the
-# distro's password-required sudo policy, scoped to a single fixed path
-# with no arguments, so the CI key elevates for the four privileged
-# check commands the helper runs and nothing else.  Present only in
-# images built with the ci-validate feature; never in a release image.
-lama ALL=(root) NOPASSWD: /usr/libexec/lamadist/lamadist-validate-root

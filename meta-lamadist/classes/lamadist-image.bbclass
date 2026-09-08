@@ -40,6 +40,22 @@ lamadist_sudoers_wheel() {
 }
 ROOTFS_POSTPROCESS_COMMAND += "lamadist_sudoers_wheel; "
 
+# CI collector sudoers: written to the rootfs here, not shipped by the
+# lamadist-ci-validate package, so it does not co-own /etc/sudoers.d
+# with sudo (an rpm directory conflict).  Gated on the CI key so it
+# appears only in ci-validate images: it lets the lama user run the one
+# privileged collector helper, and only it, without a password -- the
+# sole exception to the password-sudo policy, scoped to a fixed path
+# with no arguments.  Path must match lamadist-ci-validate's install.
+lamadist_ci_sudoers() {
+    [ -n "${LAMADIST_CI_VALIDATE_KEY}" ] || return 0
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/sudoers.d
+    echo 'lama ALL=(root) NOPASSWD: ${libexecdir}/lamadist/lamadist-validate-root' \
+        > ${IMAGE_ROOTFS}${sysconfdir}/sudoers.d/lamadist-ci-validate
+    chmod 0440 ${IMAGE_ROOTFS}${sysconfdir}/sudoers.d/lamadist-ci-validate
+}
+ROOTFS_POSTPROCESS_COMMAND += "lamadist_ci_sudoers; "
+
 # Optional baked SSH authorized keys for the lama user: a
 # space-separated list of PUBLIC key file paths, appended in order.
 # Empty (the default) bakes nothing.  The rootfs is read-only, so
