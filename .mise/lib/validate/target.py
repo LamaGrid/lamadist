@@ -83,6 +83,14 @@ _SSH_BASE: Final[tuple[str, ...]] = (
     "PubkeyAcceptedAlgorithms=ssh-mldsa44-ed25519@openssh.com,ssh-mldsa44-ed25519-cert-v01@openssh.com",
     "-o",
     "ConnectTimeout=10",
+    # Bound a wedged session (a hung device-side sudo, a dropped link)
+    # to ~30s instead of the caller's full timeout.  The device is a
+    # single shared resource behind a lease; a stuck check must not hold
+    # it for the whole job.
+    "-o",
+    "ServerAliveInterval=10",
+    "-o",
+    "ServerAliveCountMax=3",
     "-o",
     "LogLevel=ERROR",
 )
