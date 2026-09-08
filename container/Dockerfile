@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # OpenSSH 10.4 build stage.  The image authenticates SSH with the
-# post-quantum ssh-mldsa44-ed25519 signature only, and the build task
-# generates the test key with ssh-keygen, so the builder needs an
-# ssh-keygen that knows that key type: OpenSSH 10.4 or newer.  Jammy
-# ships 8.9 and packages nothing newer, so build it from the release
-# tarball (pinned by hash; the same tarball the image recipe builds).
-# Only ssh-keygen is copied into the builder below.  Running the
-# validation suite from CI would also need this stage's ssh client.
+# post-quantum ssh-mldsa44-ed25519 signature only.  The build task mints
+# the test key with ssh-keygen, and the CI device-validation job reaches
+# the device with ssh/scp over that same mldsa44 host and user key, so
+# the builder needs an OpenSSH 10.4-or-newer ssh-keygen, ssh, and scp.
+# Jammy ships 8.9 and packages nothing newer, so build them from the
+# release tarball (pinned by hash; the same tarball the image recipe
+# builds); ssh-keygen, ssh, and scp are copied into the builder below.
 FROM ubuntu:22.04 AS openssh
 
 SHELL ["/bin/bash", "-o", "errexit", "-o", "nounset", "-o", "pipefail", "-c"]
@@ -29,7 +29,7 @@ RUN curl -fsSL -o openssh.tar.gz \
   echo "${OPENSSH_SHA256}  openssh.tar.gz" | sha256sum -c - &&\
   tar -xzf openssh.tar.gz --strip-components=1 &&\
   ./configure &&\
-  make -j"$(nproc)" ssh-keygen
+  make -j"$(nproc)" ssh scp ssh-keygen
 
 FROM ubuntu:22.04
 
@@ -89,9 +89,14 @@ RUN --mount=type=cache,target=/root/.cache \
   # Cleanup
   rm -rf /tmp/* /var/tmp/*
 
-# Post-quantum-capable ssh-keygen from the openssh stage above.
-# /usr/local/bin precedes /usr/bin on PATH, so it shadows Jammy's 8.9.
+# Post-quantum-capable OpenSSH 10.4 client from the openssh stage above:
+# ssh-keygen mints the mldsa44 test key, and ssh/scp are what the
+# validation suite uses to reach the device over the mldsa44 host and
+# user keys (Jammy's 8.9 rejects those key types).  /usr/local/bin
+# precedes /usr/bin on PATH, so these shadow Jammy's 8.9.
 COPY --from=openssh /usr/src/openssh/ssh-keygen /usr/local/bin/ssh-keygen
+COPY --from=openssh /usr/src/openssh/ssh /usr/local/bin/ssh
+COPY --from=openssh /usr/src/openssh/scp /usr/local/bin/scp
 
 USER builder
 WORKDIR /home/builder
