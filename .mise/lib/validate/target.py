@@ -14,6 +14,7 @@ of reading as a pass.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -217,7 +218,85 @@ class SshTarget:
         return run_audit(self.host, self.port, timeout=timeout or self.timeout)
 
 
-def from_env(env: dict[str, str] | None = None) -> SshTarget:
+class CollectorTarget:
+    """CI target: one SSH call under the forced-command CI key runs the
+    device-side collector (lamadist-validate-device), which returns
+    every check fact as a JSON map keyed by the exact command string.
+    ``run`` and ``run_root`` are served from that single collection, so
+    the suite makes one connection instead of one per check.
+
+    ``audit`` and ``auth_methods`` stay direct network probes: ssh-audit
+    reads the server pre-auth and the auth probe offers no key, so
+    neither needs the forced command.  ``push`` and ``reboot`` are
+    unavailable -- the collector only reads, and the write-path checks
+    (the wrong-CA install) run in the supervised local flow, not CI.
+    """
+
+    def __init__(self, ssh: SshTarget) -> None:
+        self._ssh = ssh
+        self.name = ssh.name
+        self._facts: dict[str, dict[str, object]] | None = None
+
+    def _collect(self) -> dict[str, dict[str, object]]:
+        if self._facts is None:
+            # The forced command ignores the requested command and runs
+            # the collector; its stdout is the JSON fact map.
+            done = self._ssh.run("true")
+            try:
+                facts = json.loads(done.stdout)
+            except ValueError as err:
+                raise TargetError(
+                    f"{self.name}: collector output was not JSON (rc={done.rc}): "
+                    f"{(done.stderr.strip() or done.stdout[:200])!r}"
+                ) from err
+            if not isinstance(facts, dict) or "_error" in facts:
+                detail = facts.get("_error") if isinstance(facts, dict) else facts
+                raise TargetError(f"{self.name}: collector reported {detail!r}")
+            self._facts = facts
+        return self._facts
+
+    def _fact(self, cmd: str) -> Result:
+        entry = self._collect().get(cmd)
+        if entry is None:
+            raise TargetError(
+                f"{self.name}: the device collector did not run {cmd!r}; its "
+                "fixed command set is out of step with the feature files"
+            )
+        return Result(int(entry["rc"]), str(entry["stdout"]), str(entry["stderr"]))
+
+    def run(self, cmd: str) -> Result:
+        return self._fact(cmd)
+
+    def run_root(self, cmd: str) -> Result:
+        # The collector already ran the privileged commands as root
+        # through its one scoped sudo rule, so the same map answers both.
+        return self._fact(cmd)
+
+    def push(self, local: str, remote: str) -> None:
+        raise TargetError("push is unavailable in collector mode")
+
+    def reboot(self) -> None:
+        raise TargetError("reboot is unavailable in collector mode")
+
+    def wait_ready(self, timeout: float) -> None:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                self._collect()
+                return
+            except TargetError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(3)
+
+    def auth_methods(self) -> list[str]:
+        return self._ssh.auth_methods()
+
+    def audit(self, timeout: float | None = None) -> Audit:
+        return self._ssh.audit(timeout)
+
+
+def from_env(env: dict[str, str] | None = None) -> SshTarget | CollectorTarget:
     """Build the target the task described in the environment.
 
     ``LAMADIST_VALIDATE_TARGET`` is ``qemu`` or ``device``; host, port,
@@ -236,16 +315,28 @@ def from_env(env: dict[str, str] | None = None) -> SshTarget:
     name = e.get("LAMADIST_VALIDATE_TARGET", "")
     if name not in ("qemu", "device"):
         raise TargetError("LAMADIST_VALIDATE_TARGET must be 'qemu' or 'device'")
+    # CI runs the device target through the one-call collector under the
+    # forced-command key.  Its known-hosts pin is always mounted, so it
+    # takes strict host-key checking; accept-new only fits the local
+    # device path where the pin may not exist on a first connect.
+    collector = name == "device" and bool(e.get("LAMADIST_VALIDATE_COLLECTOR"))
+    if name == "qemu":
+        strict = "no"
+    elif collector:
+        strict = "yes"
+    else:
+        strict = "accept-new"
     try:
-        return SshTarget(
+        ssh = SshTarget(
             name=name,
             host=e["LAMADIST_VALIDATE_HOST"],
             port=int(e["LAMADIST_VALIDATE_PORT"]),
             user=e.get("LAMADIST_VALIDATE_USER", "lama"),
             key=e["LAMADIST_VALIDATE_SSH_KEY"],
             known_hosts=e.get("LAMADIST_VALIDATE_KNOWN_HOSTS", "/dev/null"),
-            strict_host_key="no" if name == "qemu" else "accept-new",
+            strict_host_key=strict,
             sudo_password=e.get("LAMADIST_VALIDATE_SUDO_PASSWORD", ""),
         )
     except KeyError as err:
         raise TargetError(f"missing {err.args[0]} in the environment") from err
+    return CollectorTarget(ssh) if collector else ssh

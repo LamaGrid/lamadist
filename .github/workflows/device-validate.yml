@@ -87,13 +87,20 @@ jobs:
           host="$(cat /run/secrets/device/device-host)"
           user="$(cat /run/secrets/device/device-user)"
           port="$(cat /run/secrets/device/device-port 2> /dev/null || echo 22)"
+          # Mask the host only.  The user is not masked: it is the
+          # unprivileged account name (a common word, a substring of the
+          # product name), so masking it would garble ordinary log lines
+          # while hiding nothing sensitive.
           echo "::add-mask::${host}"
-          echo "::add-mask::${user}"
           {
             echo "LAMADIST_VALIDATE_HOST=${host}"
             echo "LAMADIST_VALIDATE_PORT=${port}"
             echo "LAMADIST_VALIDATE_USER=${user}"
             echo "LAMADIST_VALIDATE_KNOWN_HOSTS=${HOME}/.ssh/known_hosts"
+            # Run the device target through the one-call collector under
+            # the forced-command key: from_env builds a CollectorTarget
+            # and switches to strict host-key checking.
+            echo "LAMADIST_VALIDATE_COLLECTOR=1"
           } >> "${GITHUB_ENV}"
 
       - name: Acquire the device lease

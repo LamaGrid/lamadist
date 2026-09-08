@@ -24,6 +24,7 @@ import sys
 # Exactly the unprivileged commands the features run, verbatim.
 UNPRIV = [
     "cat /etc/selinux/config",
+    "cat /etc/os-release",
     "cat /proc/cmdline",
     "cat /proc/mounts",
     "cat /sys/fs/selinux/enforce",

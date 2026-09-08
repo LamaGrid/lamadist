@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Bake the device-side CI validation collector and the CI-only
+# forced-command key into the image.  CI/test builds only -- never a
+# release image.  The collector (lamadist-ci-validate) lets a single
+# SSH connection under the CI key run the whole validation suite's
+# checks on the device; the key is host-cached and never committed.
+# TOPDIR is the in-container build dir, one level under the repo mount.
+---
+header:
+  version: 15
+local_conf_header:
+  46_ci_validate: |
+    IMAGE_INSTALL:append = " lamadist-ci-validate"
+    LAMADIST_CI_VALIDATE_KEY = "${TOPDIR}/../.local/share/lamadist/ci-device-validate/id_mldsa44-ed25519.pub"
