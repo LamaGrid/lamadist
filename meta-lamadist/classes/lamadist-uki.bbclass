@@ -92,12 +92,18 @@ python lamadist_uki_build () {
     if not os.path.exists(kernel):
         bb.fatal("lamadist_uki_build: cannot find %s" % kernel)
 
-    # Early microcode load, same ordering as the Type1 entries this
+    # Early CPU-microcode load, same ordering as the Type1 entries this
     # replaces (lamadist-esp-slot-a.bbclass, lamadist-boot-entry.conf.in):
-    # the microcode initrd must precede the main initramfs.
-    microcode = os.path.join(deploydir, 'microcode.cpio')
-    if not os.path.exists(microcode):
-        bb.fatal("lamadist_uki_build: cannot find %s" % microcode)
+    # the microcode initrd must precede the main initramfs.  CPU
+    # microcode is x86-specific, so a machine opts in with
+    # LAMADIST_UKI_INCLUDE_MICROCODE = "1" (intel does).  An arch with no
+    # CPU-microcode initrd, such as aarch64, leaves it unset and off.
+    microcode = None
+    if d.getVar('LAMADIST_UKI_INCLUDE_MICROCODE') == '1':
+        microcode = os.path.join(deploydir, 'microcode.cpio')
+        if not os.path.exists(microcode):
+            bb.fatal("lamadist_uki_build: LAMADIST_UKI_INCLUDE_MICROCODE=1 "
+                     "but %s is missing" % microcode)
 
     initramfs_image = d.getVar('INITRAMFS_IMAGE')
     initramfs_fstype = d.getVar('INITRAMFS_FSTYPES').split()[0]
@@ -147,7 +153,8 @@ python lamadist_uki_build () {
         if target_arch:
             ukify_cmd += " --efi-arch %s" % target_arch
         ukify_cmd += " --stub %s" % stub
-        ukify_cmd += " --initrd=%s" % microcode
+        if microcode:
+            ukify_cmd += " --initrd=%s" % microcode
         ukify_cmd += " --initrd=%s" % initramfs
         ukify_cmd += " --linux=%s" % kernel
         if kernel_version:
