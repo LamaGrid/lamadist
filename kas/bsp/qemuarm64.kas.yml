@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+# Emulated aarch64 boot-smoke target for the M5 gate.  The qemuarm64
+# reference machine lives in openembedded-core, so no vendor BSP
+# layer is pinned here; the LamaDist leaf (qemuarm64-lamadist) adds
+# the dm-verity layout and the systemd-boot + UKI backend on top of
+# it.  "kas selects and pins; layers define" (M5 review decision 4).
+header:
+  version: 15
+
+machine: qemuarm64-lamadist
+
+target:
+  - lamadist-image-base
+
+repos:
+  # The encrypted-storage layer (LUKS /var) hard-depends on the
+  # meta-tpm2 layer, so it must be enabled even though this emulated
+  # gate does not configure TPM2 measured boot (that stays a machine
+  # include, deferred here).  Same per-BSP addition x86_64 makes.
+  meta-secure-core:
+    url: 'https://github.com/Wind-River/meta-secure-core.git'
+    path: 'ext/meta-secure-core'
+    layers:
+      meta-tpm2:
