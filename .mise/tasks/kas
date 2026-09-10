@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #MISE description="Interactive KAS shell for specified BSP"
 #USAGE flag "-b --bsp <bsp>" help="BSP target" default="x86_64" {
-#USAGE   choices "x86_64" "orin-nx" "rk1" "soquartz"
+#USAGE   choices "x86_64" "qemuarm64" "orin-nx" "rk1" "soquartz"
 #USAGE }
 set -o errexit
 set -o nounset
