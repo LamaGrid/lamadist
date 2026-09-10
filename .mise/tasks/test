@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #MISE description="Validate build artifacts"
 #USAGE flag "-b --bsp <bsp>" help="BSP target to validate" default="x86_64" {
-#USAGE   choices "x86_64" "orin-nx" "rk1" "soquartz"
+#USAGE   choices "x86_64" "qemuarm64" "orin-nx" "rk1" "soquartz"
 #USAGE }
 #USAGE flag "-c --ci" help="CI mode"
 #USAGE flag "-n --no-boot" help="Skip the QEMU login smoke test"
@@ -43,9 +43,9 @@ echo "==> Found WIC image: ${_wic_image}"
 echo "==> Size: $(du -h "${_wic_image}" | cut -f1)"
 
 # Check for kernel image
-_kernel_image=$(find "${_deploy_dir}" -maxdepth 1 -name "bzImage*" | head -1)
+_kernel_image=$(find "${_deploy_dir}" -maxdepth 1 \( -name "bzImage*" -o -name "Image-*" \) | head -1)
 if [ -z "${_kernel_image}" ]; then
-	echo "WARNING: No kernel image (bzImage) found in ${_deploy_dir}"
+	echo "WARNING: No kernel image (bzImage or Image) found in ${_deploy_dir}"
 else
 	echo "==> Found kernel image: ${_kernel_image}"
 fi
@@ -53,18 +53,36 @@ fi
 echo "==> Build artifact validation passed"
 
 # Boot smoke test: a real serial-console login with command
-# execution (see .mise/lib/smoke_login.py).  x86_64 only until
-# other BSPs get a QEMU story.
-if [ "${_bsp}" = "x86_64" ] && [ "${_no_boot}" != "true" ]; then
+# execution (see .mise/lib/smoke_login.py).  Only the two machines
+# with a QEMU story boot; the board BSPs stop at the artifact checks.
+if [ "${_no_boot}" != "true" ]; then
+	case "${_bsp}" in
+		x86_64 | qemuarm64) ;;
+		*)
+			echo "==> No QEMU boot story for ${_bsp}; boot smoke skipped"
+			exit 0
+			;;
+	esac
 	# 600s, not vm's 300s default: the first boot pays one-time
 	# costs (LUKS2 format of var, ssh hostkey generation) on top of
 	# the normal path, and the M4.A run that led here spent 4:50
-	# reaching login and was killed 7s later mid-assertion.
+	# reaching login and was killed 7s later mid-assertion.  The
+	# aarch64 guest is pure TCG on an x86 host, roughly real time,
+	# so it gets half again as much.
 	_vm_args=(--bsp "${_bsp}" --ci --timeout 600)
+	[ "${_bsp}" = "qemuarm64" ] && _vm_args=(--bsp "${_bsp}" --ci --timeout 900)
 	[ "${_secureboot}" = "true" ] && _vm_args+=(--secureboot)
 
 	echo "==> Running QEMU login smoke test"
 	mise run vm "${_vm_args[@]}"
+
+	# The OTA cycle and the live validation suite drive x86_64-only
+	# tooling (.mise/lib/ota_test.py, validate --target qemu); the
+	# aarch64 gate ends at the login smoke.
+	if [ "${_bsp}" != "x86_64" ]; then
+		echo "==> OTA cycle and validation suite are x86_64-only; ${_bsp} gate complete"
+		exit 0
+	fi
 
 	# OTA install/rollback test (see .mise/lib/ota_test.py): builds
 	# on the login smoke above, so it shares the same skip flag and

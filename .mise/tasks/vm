@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #MISE description="Launch QEMU VM with SPICE display"
-#USAGE flag "-b --bsp <bsp>" help="BSP target to boot" default="x86_64" {
-#USAGE   choices "x86_64"
+#USAGE flag "-b --bsp <bsp>" help="BSP target to boot (x86_64: q35 + OVMF; qemuarm64: virt + AAVMF, always TCG on an x86 host)" default="x86_64" {
+#USAGE   choices "x86_64" "qemuarm64"
 #USAGE }
-#USAGE flag "-t --timeout <timeout>" help="Boot timeout in seconds (CI mode)" default="300"
+#USAGE flag "-P --profile <profile>" help="qemuarm64 only: shape the virt machine like a target board (CPU model, cores, memory) instead of the generic default; no board firmware or peripherals are emulated" default="default" {
+#USAGE   choices "default" "rk1" "soquartz" "orin-nx"
+#USAGE }
+#USAGE flag "-t --timeout <timeout>" help="Boot timeout in seconds (CI mode); qemuarm64 under TCG needs ~900" default="300"
 #USAGE flag "-c --ci" help="CI mode (headless login smoke test)"
 #USAGE flag "-H --headless" help="Headless-interactive mode: serial/monitor unix sockets + ssh port-forward"
 #USAGE flag "-p --ssh-port <port>" help="Host port forwarded to guest :22 (headless mode)" default="2222"
@@ -17,6 +20,7 @@ set -o nounset
 set -o pipefail
 
 _bsp="${usage_bsp:-x86_64}"
+_profile="${usage_profile:-default}"
 _timeout="${usage_timeout:-300}"
 _ci="${usage_ci:-false}"
 _headless="${usage_headless:-false}"
@@ -31,37 +35,93 @@ source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
 _machine=$(bsp_to_machine "${_bsp}")
 _deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
 
-# OVMF firmware paths.  --secureboot swaps in the SB-capable code
-# image and a pre-enrolled (PK/KEK/db) vars template instead of the
-# default unenrolled one; the enrolled-vars artifact is built by the
-# stage-B `.mise/tasks/ovmf-vars` task (M4 W10) into the same
-# per-machine deploy dir as the WIC image.  If that task has not been
-# run yet, --secureboot errors clearly: it fails the existing
-# firmware-presence check below with a clear message instead of doing
-# anything silently wrong.  Normal (no --secureboot) boots are
-# untouched.
+# Architecture split.  x86_64 keeps its q35 + OVMF + AHCI shape; the
+# aarch64 target boots qemu's virt machine under AAVMF with virtio
+# storage.  Everything downstream (swtpm, serial socket, smoke) is
+# shared, so a green aarch64 run proves the same properties.
+case "${_bsp}" in
+	qemuarm64) _arch=aarch64 ;;
+	*) _arch=x86_64 ;;
+esac
+_qemu="qemu-system-${_arch}"
+if [[ "${_profile}" != "default" && "${_arch}" != "aarch64" ]]; then
+	echo "ERROR: --profile ${_profile} only applies to --bsp qemuarm64"
+	exit 1
+fi
+
+# The edk2 firmware for the guest.  Distros ship the same edk2 builds
+# under different names, so the first readable candidate wins and an
+# environment override takes precedence.  Vars templates are copied
+# fresh per run (firmware writes them).
+first_readable() {
+	local _f
+	for _f in "$@"; do
+		[[ -n "${_f}" && -r "${_f}" ]] && { echo "${_f}"; return 0; }
+	done
+	return 1
+}
+if [[ "${_arch}" == "aarch64" ]]; then
+	_fw_name="AAVMF"
+	_fw_code_default=$(first_readable "${LAMADIST_AAVMF_CODE:-}" \
+		/usr/share/qemu/edk2-aarch64-code.fd \
+		/usr/share/AAVMF/AAVMF_CODE.fd \
+		/usr/share/edk2/aarch64/QEMU_EFI-pflash.raw) || _fw_code_default=""
+	_fw_vars_default=$(first_readable "${LAMADIST_AAVMF_VARS:-}" \
+		/usr/share/qemu/edk2-arm-vars.fd \
+		/usr/share/AAVMF/AAVMF_VARS.fd \
+		/usr/share/edk2/aarch64/vars-template-pflash.raw) || _fw_vars_default=""
+	# Secure Boot capable AAVMF.  qemu's own edk2 build has SB compiled
+	# out, so this is a separate artifact: Gentoo ships it as qcow2
+	# (the INSECURE suffix records that ArmVirt has no SMM to isolate
+	# the variable store, which is fine for a boot gate), Debian family
+	# builds SB into the default image.
+	_fw_sb_code=$(first_readable "${LAMADIST_AAVMF_SB_CODE:-}" \
+		/usr/share/edk2/ArmVirtQemu-AARCH64/QEMU_EFI.secboot_INSECURE.qcow2 \
+		/usr/share/AAVMF/AAVMF_CODE.secboot.fd \
+		/usr/share/AAVMF/AAVMF_CODE.fd) || _fw_sb_code=""
+	_fw_sb_vars_host=$(first_readable "${LAMADIST_AAVMF_SB_VARS:-}" \
+		/usr/share/edk2/ArmVirtQemu-AARCH64/QEMU_VARS.secboot_INSECURE.qcow2 \
+		/usr/share/AAVMF/AAVMF_VARS.secboot.fd \
+		/usr/share/AAVMF/AAVMF_VARS.fd) || _fw_sb_vars_host=""
+else
+	_fw_name="OVMF"
+	_fw_code_default="/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+	_fw_vars_default="/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+	_fw_sb_code="/usr/share/edk2/OvmfX64/OVMF_CODE.secboot.fd"
+	_fw_sb_vars_host="/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+fi
+
+# --secureboot swaps in the SB-capable code image and a pre-enrolled
+# (PK/KEK/db) vars template instead of the default unenrolled one; the
+# enrolled-vars artifact is built by `.mise/tasks/ovmf-vars` into the
+# same per-machine deploy dir as the WIC image.  If that task has not
+# been run yet, --secureboot errors clearly: it fails the firmware-
+# presence check below instead of doing anything silently wrong.
+# Normal (no --secureboot) boots are untouched.
 if [[ "${_secureboot}" == "true" ]]; then
-	_ovmf_code="/usr/share/edk2/OvmfX64/OVMF_CODE.secboot.fd"
+	_ovmf_code="${_fw_sb_code}"
 	_ovmf_vars_template="${_deploy_dir}/ovmf-vars-enrolled.fd"
-	echo "==> Secure Boot: OVMF_CODE.secboot.fd + enrolled vars (${_ovmf_vars_template})"
+	echo "==> Secure Boot: ${_ovmf_code##*/} + enrolled vars (${_ovmf_vars_template})"
 	# Drift guard: the enrolled artifact is derived from the host's
-	# OVMF_VARS.fd template, and a host edk2 upgrade silently
-	# changes that template.  ovmf-vars records the template hash in
-	# a sidecar; a mismatch here means the artifact is stale and the
-	# SB state under test is no longer what it claims to be.
+	# vars template, and a host edk2 upgrade silently changes that
+	# template.  ovmf-vars records the template hash in a sidecar; a
+	# mismatch here means the artifact is stale and the SB state under
+	# test is no longer what it claims to be.
 	_vars_sidecar="${_ovmf_vars_template}.template.sha256"
-	if [[ -f "${_vars_sidecar}" ]]; then
-		_host_vars_hash=$(sha256sum /usr/share/edk2/OvmfX64/OVMF_VARS.fd | awk '{print $1}')
+	if [[ -f "${_vars_sidecar}" && -r "${_fw_sb_vars_host}" ]]; then
+		_host_vars_hash=$(sha256sum "${_fw_sb_vars_host}" | awk '{print $1}')
 		if [[ "${_host_vars_hash}" != "$(cat "${_vars_sidecar}")" ]]; then
-			echo "ERROR: host OVMF_VARS.fd changed since ovmf-vars-enrolled.fd was built;"
-			echo "       re-run 'mise run ovmf-vars' to rebuild the enrolled artifact"
+			echo "ERROR: host ${_fw_sb_vars_host##*/} changed since ovmf-vars-enrolled.fd was built;"
+			echo "       re-run 'mise run ovmf-vars --bsp ${_bsp}' to rebuild the enrolled artifact"
 			exit 1
 		fi
 	fi
 else
-	_ovmf_code="/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
-	_ovmf_vars_template="/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+	_ovmf_code="${_fw_code_default}"
+	_ovmf_vars_template="${_fw_vars_default}"
 fi
+# pflash accepts raw and qcow2 images; qemu will not guess for pflash.
+_fw_format() { [[ "$1" == *.qcow2 ]] && echo qcow2 || echo raw; }
 
 # Temp directory for ephemeral state (OVMF vars, swtpm).  A caller
 # driving multi-reboot tests supplies --tmpdir so it knows the
@@ -88,15 +148,15 @@ trap cleanup EXIT
 
 # --- Prerequisites ---
 
-_required_tools=(qemu-system-x86_64 swtpm)
+_required_tools=("${_qemu}" swtpm)
 if [[ "${_ci}" != "true" && "${_headless}" != "true" ]]; then
 	_required_tools+=(spicy)
 fi
 for tool in "${_required_tools[@]}"; do
 	command -v "${tool}" >/dev/null || { echo "ERROR: ${tool} not found"; exit 1; }
 done
-[[ -f "${_ovmf_code}" ]] || { echo "ERROR: OVMF firmware not found at ${_ovmf_code}"; exit 1; }
-[[ -f "${_ovmf_vars_template}" ]] || { echo "ERROR: OVMF VARS template not found at ${_ovmf_vars_template}"; exit 1; }
+[[ -n "${_ovmf_code}" && -f "${_ovmf_code}" ]] || { echo "ERROR: ${_fw_name} firmware not found (${_ovmf_code:-no candidate readable})"; exit 1; }
+[[ -n "${_ovmf_vars_template}" && -f "${_ovmf_vars_template}" ]] || { echo "ERROR: ${_fw_name} VARS template not found (${_ovmf_vars_template:-no candidate readable})"; exit 1; }
 
 # --- Find WIC image ---
 # Newest by mtime across compressed and uncompressed candidates,
@@ -115,9 +175,11 @@ if [[ "${_wic_image}" != *.wic ]]; then
 	_wic_image="${_wic_image%.*}"
 fi
 
-# --- Prepare OVMF VARS (writable copy) ---
+# --- Prepare firmware VARS (writable copy) ---
 
-cp "${_ovmf_vars_template}" "${_qemu_tmpdir}/OVMF_VARS.fd"
+_vars_ext="${_ovmf_vars_template##*.}"
+_vars_copy="${_qemu_tmpdir}/OVMF_VARS.${_vars_ext}"
+cp "${_ovmf_vars_template}" "${_vars_copy}"
 
 # --- Start swtpm (TPM 2.0 emulator) ---
 
@@ -137,14 +199,48 @@ done
 [[ -S "${_qemu_tmpdir}/tpm/sock" ]] || { echo "ERROR: swtpm failed to start"; exit 1; }
 _swtpm_pid=$(cat "${_qemu_tmpdir}/tpm/pid")
 
-# --- KVM acceleration ---
+# --- Machine shape and acceleration ---
 
+# KVM only helps when the host runs the guest's architecture; an
+# aarch64 guest on an x86 host is always TCG.  The TCG CPU model for
+# x86 stays a plain IvyBridge; for aarch64 it comes from the profile.
+#
+# Preliminary board profiles give the virt machine the CPU model, core
+# count, and memory of a real target so the emulated boot exercises
+# that shape.  TCG has no big.LITTLE, no board firmware, and none of
+# the SoC peripherals, so a green run proves the OS stack, never the
+# board bring-up; newer CPU models also need qemu >= 8 (a55, a78ae).
+case "${_profile}" in
+	default) _cpu=cortex-a57 _smp=2 _mem=2048 ;;
+	rk1) _cpu=cortex-a76 _smp=8 _mem=8192 ;;        # RK3588: 4xA76 + 4xA55, 8-32 GiB
+	soquartz) _cpu=cortex-a55 _smp=4 _mem=4096 ;;   # RK3566: 4xA55, 2-8 GiB
+	orin-nx) _cpu=cortex-a78ae _smp=6 _mem=8192 ;;  # Orin NX 8 GB: 6xA78AE
+esac
 _accel_args=()
-if [[ -r /dev/kvm ]]; then
+if [[ "${_arch}" == "$(uname -m)" && -r /dev/kvm ]]; then
 	_accel_args=(-enable-kvm -cpu host)
+elif [[ "${_arch}" == "aarch64" ]]; then
+	echo "==> ${_arch} guest on a $(uname -m) host: TCG (slow), profile ${_profile} (${_cpu}, ${_smp} cores, ${_mem} MiB)"
+	_accel_args=(-cpu "${_cpu}")
 else
 	echo "==> WARNING: KVM not available, using TCG (slow)"
 	_accel_args=(-cpu IvyBridge)
+fi
+
+# The virt machine: GICv3, and acpi=off so the firmware hands the
+# kernel a device tree (the qemuarm64 kernel has no ACPI support;
+# see conf/machine/qemuarm64-lamadist.conf).  A TPM on virt is the
+# memory-mapped TIS device; CRB is x86-only.
+if [[ "${_arch}" == "aarch64" ]]; then
+	_machine_args=(-machine "virt,gic-version=3,acpi=off" -m "${_mem}" -smp "${_smp}")
+	_disk_args=(-device 'virtio-blk-pci,drive=hd0,bootindex=0')
+	_tpm_device='tpm-tis-device,tpmdev=tpm0'
+	_input_args=()
+else
+	_machine_args=(-machine q35 -m 512 -smp 4)
+	_disk_args=(-device 'ahci,id=ahci0' -device 'ide-hd,drive=hd0,bus=ahci0.0')
+	_tpm_device='tpm-crb,tpmdev=tpm0'
+	_input_args=(-usb -device usb-tablet)
 fi
 
 # --- Build QEMU command ---
@@ -167,21 +263,19 @@ fi
 
 _qemu_args=(
 	"${_accel_args[@]}"
-	-machine q35
-	-m 512 -smp 4
-	-drive "if=pflash,format=raw,readonly=on,file=${_ovmf_code}"
-	-drive "if=pflash,format=raw,file=${_qemu_tmpdir}/OVMF_VARS.fd"
+	"${_machine_args[@]}"
+	-drive "if=pflash,format=$(_fw_format "${_ovmf_code}"),readonly=on,file=${_ovmf_code}"
+	-drive "if=pflash,format=$(_fw_format "${_vars_copy}"),file=${_vars_copy}"
 	-drive "file=${_wic_image},format=raw,if=none,id=hd0"
-	-device 'ahci,id=ahci0'
-	-device 'ide-hd,drive=hd0,bus=ahci0.0'
+	"${_disk_args[@]}"
 	-netdev "${_netdev}"
 	-device 'virtio-net-pci,netdev=net0'
 	-object 'rng-random,filename=/dev/urandom,id=rng0'
 	-device 'virtio-rng-pci,rng=rng0'
 	-chardev "socket,id=chrtpm,path=${_qemu_tmpdir}/tpm/sock"
 	-tpmdev 'emulator,id=tpm0,chardev=chrtpm'
-	-device 'tpm-crb,tpmdev=tpm0'
-	-usb -device usb-tablet
+	-device "${_tpm_device}"
+	"${_input_args[@]}"
 	"${_reboot_args[@]}"
 )
 
@@ -206,7 +300,7 @@ if [[ "${_ci}" == "true" ]]; then
 	echo "==> CI login smoke test: image=${_wic_image}"
 	echo "==> Timeout: ${_timeout}s"
 
-	timeout "$((_timeout + 30))" qemu-system-x86_64 \
+	timeout "$((_timeout + 30))" "${_qemu}" \
 		"${_qemu_args[@]}" \
 		"${_snapshot_args[@]}" \
 		-display none \
@@ -244,7 +338,7 @@ elif [[ "${_headless}" == "true" ]]; then
 	echo "==> Guest ssh forwarded to 127.0.0.1:${_ssh_port}"
 	echo "==> Attach: socat -,raw,echo=0 UNIX-CONNECT:${_serial_sock}"
 
-	qemu-system-x86_64 \
+	"${_qemu}" \
 		"${_qemu_args[@]}" \
 		"${_snapshot_args[@]}" \
 		-display none \
@@ -263,10 +357,16 @@ else
 	spicy --host=localhost --port="${_spice_port}" &
 	_spicy_pid=$!
 
-	qemu-system-x86_64 \
+	# virt has no VGA; it gets a virtio GPU plus an xHCI keyboard.
+	_display_args=(-device qxl-vga)
+	if [[ "${_arch}" == "aarch64" ]]; then
+		_display_args=(-device virtio-gpu-pci -device qemu-xhci -device usb-kbd -device usb-tablet)
+	fi
+
+	"${_qemu}" \
 		"${_qemu_args[@]}" \
 		"${_snapshot_args[@]}" \
-		-device qxl-vga \
+		"${_display_args[@]}" \
 		-spice port="${_spice_port}",disable-ticketing=on \
 		-serial mon:stdio
 fi

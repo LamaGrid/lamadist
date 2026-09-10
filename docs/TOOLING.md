@@ -228,7 +228,11 @@ specs for shell autocompletion of flags and arguments.
 | `mise run container:builder:build` | Build the KAS build container image |
 | `mise run container:builder:build --ci` | Build container with podman (rootless, for CI) |
 
-**Available BSPs**: `x86_64`, `orin-nx`, `rk1`, `soquartz`
+**Available BSPs**: `x86_64`, `qemuarm64`, `orin-nx`, `rk1`, `soquartz`
+
+`qemuarm64` is the emulated aarch64 target (`qemuarm64-lamadist`): the
+same OS stack as the boards on QEMU's `virt` machine under AAVMF, so the
+ARM port has a boot gate without hardware.  It is not a board image.
 
 **Examples**:
 ```bash
@@ -244,16 +248,26 @@ mise run container:builder:build             # Rebuild container
 |------|-------------|
 | `mise run check --bsp <bsp>` | Run static analysis and validate KAS configuration |
 | `mise run test --bsp <bsp>` | Validate build artifacts exist and are well-formed |
-| `mise run vm --bsp <bsp>` | Boot test build artifacts with QEMU |
+| `mise run vm --bsp <bsp>` | Boot test build artifacts with QEMU (`x86_64`, `qemuarm64`) |
+| `mise run vm --bsp qemuarm64 --profile <board>` | Shape the emulated machine like a target board (`rk1`, `soquartz`, `orin-nx`: CPU model, cores, memory only) |
 
 All validation and testing tasks accept the `--ci` flag for non-interactive
 operation in CI environments.
+
+The `qemuarm64` guest runs under TCG on an x86 host, roughly at real
+time, so its login smoke gets a 900 s budget (`mise run test` sets it).
+The board profiles change only the CPU model, core count, and memory of
+the `virt` machine; no board firmware or peripherals are emulated, so a
+green run proves the OS stack, not the board bring-up.  The newer CPU
+models (`cortex-a55`, `cortex-a78ae`) need QEMU 8 or later.
 
 **Examples**:
 ```bash
 mise run check --bsp x86_64     # Run linters and validate KAS config
 mise run test --bsp x86_64     # Check build artifacts
 mise run vm --bsp x86_64     # QEMU boot test
+mise run test --bsp qemuarm64  # aarch64 artifacts + login smoke under AAVMF
+mise run vm --bsp qemuarm64 --profile rk1 --headless   # RK1-shaped virt machine
 ```
 
 ### Development Tasks
