@@ -16,6 +16,7 @@ on:
         type: choice
         options:
           - x86_64
+          - qemuarm64
           - rk1
           - soquartz
           - orin-nx
@@ -201,6 +202,68 @@ jobs:
       #     name: build-artifacts-x86_64-${{ github.sha }}
       #     path: deploy/images/
       #     retention-days: 7
+
+  # The ARM port's boot check: the same OS stack on the emulated
+  # aarch64 machine, built and then booted to a login, alongside
+  # x86_64 on every push and PR (and on dispatch by name), because a
+  # change that only breaks the other architecture is exactly what
+  # this job catches.  To make it blocking, add "Build qemuarm64" to
+  # main's required status checks; until then it reports but does not
+  # gate a merge.
+  build-qemuarm64:
+    name: Build qemuarm64
+    needs: [version, build-container]
+    if: >-
+      !cancelled()
+      && (needs.build-container.result == 'success' || needs.build-container.result == 'skipped')
+      && (github.event_name != 'workflow_dispatch' || inputs.target == 'qemuarm64' || inputs.target == 'all')
+    runs-on: yocto-runner-set
+    container:
+      image: registry.local/lamagrid/lamadist-builder:latest
+    env:
+      KAS_WORK_DIR: ${{ github.workspace }}
+    # A cold aarch64 image is a multi-hour build; the QA profile
+    # (zstd, no scans) keeps the gate as light as it can be.
+    timeout-minutes: 600
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Clean workspace (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          rm -rf "${GITHUB_WORKSPACE}/build/tmp"
+          echo "Cleaned build/tmp directory"
+
+      - name: Build
+        run: mise run build --bsp qemuarm64 --ci --qa
+        env:
+          GITVERSION_INFO_VERSION: ${{ needs.version.outputs.informationalVersion }}
+          GITVERSION_FULL_SEM_VER: ${{ needs.version.outputs.fullSemVer }}
+          # No --icecc.  The classic icecc path preprocesses locally and
+          # compiles the .i on the remote, which resurfaces -Werror
+          # warnings the from-source build suppresses: the lost macro and
+          # system-header context turns libgcc and gcc-runtime soft-fp
+          # fall-through, libXt -Waddress, and an open-ended tail of
+          # others into hard errors.  The cold cortexa57 tune compiles the
+          # whole tree and hits them; x86_64 escapes only via warm sstate.
+          # The gate proves the image builds and boots, so it takes the
+          # deterministic local compiler and drops the farm dependency,
+          # matching the hardware jobs.  hashserv still dedups sstate.
+          LAMADIST_HASHSERVE: ${{ secrets.LAMADIST_HASHSERVE }}
+
+      # AAVMF -> systemd-boot -> UKI -> dm-verity root -> login, driven
+      # over the serial console by the same smoke the x86_64 image
+      # passes locally.  The UKI is signed, but AAVMF here uses
+      # unenrolled vars, so Secure Boot is OFF and the signature is not
+      # verified: this proves the boot and OS stack, not the SB chain.
+      # The pod has no KVM, so it is pure TCG under the test task's
+      # 900 s budget.
+      - name: Boot smoke
+        run: mise run test --bsp qemuarm64 --ci
 
   build-rk1:
     name: Build RK1

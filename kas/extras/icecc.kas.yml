@@ -35,3 +35,12 @@ local_conf_header:
     # to target recipes (the payoff case for the lab helpers).
     # ICECC_* vars are hash-ignored, so this changes no task sigs.
     ICECC_CLASS_DISABLE += 'native nativesdk cross crosssdk cross-canadian'
+    # libgcc builds soft-fp with its own `-W -Wall -Werror`.  The
+    # FALLTHROUGH markers there are comments inside op-common.h
+    # macro bodies, which the local -E pass strips before the
+    # remote compile, so -Wimplicit-fallthrough becomes an error
+    # (multf3.c/divtf3.c on aarch64; x86_64 only escaped via
+    # sstate).  gcc-runtime rebuilds the libgcc tree in its own
+    # do_compile, so it trips the same way.  Same family as the
+    # class's libgcc-initial entry: keep both local.
+    ICECC_RECIPE_DISABLE += 'libgcc gcc-runtime'

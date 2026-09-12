@@ -15,9 +15,9 @@ target:
 
 repos:
   # The encrypted-storage layer (LUKS /var) hard-depends on the
-  # meta-tpm2 layer, so it must be enabled even though this emulated
-  # gate does not configure TPM2 measured boot (that stays a machine
-  # include, deferred here).  Same per-BSP addition x86_64 makes.
+  # meta-tpm2 layer; the machine include (lamadist-tpm2.inc) turns on
+  # the tpm2 feature and the vm task attaches an emulated TPM, so this
+  # is enabled here the same way x86_64 does.
   meta-secure-core:
     url: 'https://github.com/Wind-River/meta-secure-core.git'
     path: 'ext/meta-secure-core'

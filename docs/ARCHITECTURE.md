@@ -53,7 +53,7 @@ flowchart TD
             ss["System Services (systemd)"]
         end
         sec["System Security Layer\nSELinux · IMA/EVM · dm-verity · LUKS · TPM"]
-        kernel["Linux Kernel (6.6 LTS)"]
+        kernel["Linux Kernel (6.18)"]
         boot["Boot Layer: UKI Direct (UEFI) / Bootloader\n(systemd-boot / U-Boot)"]
         hw["Hardware Platform\nx86_64 · ARM64 (Orin NX, RK1, SOQuartz)"]
         app --> sec --> kernel --> boot --> hw
@@ -414,6 +414,16 @@ LamaDist machine config is planned, see PLAN.md M5)
 - Low power consumption
 - Embedded applications
 
+#### Emulated: qemuarm64
+**Machine**: `qemuarm64-lamadist` (QEMU `virt`, no real silicon)
+The aarch64 parity target for the M5 gate: the same OS stack as the
+boards (EROFS + dm-verity root, LUKS `/var`, the signed UKI, systemd-boot
+A/B selection, SELinux enforcing) on QEMU's `virt` machine under AAVMF
+firmware, so the ARM port has a build-and-boot gate in CI without
+hardware.  It reuses the x86_64 systemd-boot + UKI backend unchanged; the
+board-specific U-Boot and L4T chains it does *not* exercise are what only
+real silicon can validate.  Boot with `mise run vm --bsp qemuarm64`.
+
 ---
 
 ## Component Relationships
@@ -438,7 +448,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     hw["Hardware"] --> uefi["UEFI / Bootloader\n(UKI direct boot or systemd-boot / U-Boot)"]
-    uefi --> kernel["Linux Kernel (6.6 LTS)"]
+    uefi --> kernel["Linux Kernel (6.18)"]
     kernel --> initramfs["initramfs\n(dm-verity verification)"]
     initramfs --> systemd["systemd (init)"]
     systemd --> syssvcs["System Services\n• SELinux (refpolicy-targeted)\n• IMA/EVM (integrity)\n• systemd services\n• Network (systemd-networkd)"]

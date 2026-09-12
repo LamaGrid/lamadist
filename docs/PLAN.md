@@ -87,9 +87,9 @@ An honest snapshot, so the milestones below start from truth:
 
 ### M0: Truth Reset
 
-**Status:** In Progress (2026-07-14: all steps complete and verified
-by an adversarial doc-review pass, except the remote branch prune,
-which is blocked on the standing no-push rule)
+**Status:** Complete (2026-09-10: the last open item, the remote branch
+prune, is done -- the remote now carries only `main` plus the active
+feature branches)
 **Goal:** Every document tells the truth, and the repository is tidy.
 
 - [x] Rewrite this plan as outcome milestones with accurate statuses
@@ -103,13 +103,9 @@ which is blocked on the standing no-push rule)
   subsystems as planned (Secure Boot, UKI, EROFS, TPM sealing,
   RAUC), fix compression/SPDX/machine facts, and replace k3s with
   the agreed Podman + Quadlet workload model
-- [ ] Prune stale remote branches (`copilot/*`, merged refactor
-  branches).  BLOCKED on the standing no-push rule: the local
-  counterparts were pruned 2026-07-14 after verifying (by patch-id)
-  that every commit is merged or superseded, but deleting remote
-  branches requires a push.  The `dependabot/*` branches belong to
-  open PRs that the deps-update commit on this branch supersedes;
-  close those PRs when it lands.
+- [x] Prune stale remote branches (`copilot/*`, merged refactor
+  branches).  Done 2026-09-10: the remote carries only `main` plus the
+  active feature branches.
 - [x] Add `.gitignore` entries for local editor and shell files
 
 **Exit criteria:**
@@ -480,8 +476,10 @@ what a compliance framework provides.
   `docs/validation/AOA-VALIDATION.md` section 7.6, green on the
   emulated target and on the live device (2026-09-06: 22 passed on
   each, after a hardware OTA to the 2026-09-05 QA image)
-- [ ] Wire `mise run validate` into the test chain, and into CI
-  against the emulated target only, with credentials masked
+- [x] Wire `mise run validate` into the test chain, and into CI
+  (2026-09-08, PRs #33-#35): the emulated target on every run, and the
+  live device in a read-only collector on an isolated runner that holds
+  a shared lease, both with credentials masked
 - [x] Extend to the remaining security properties: the ssh-audit
   posture check (P16), the post-OTA snapshot diff (P17), and the
   wrong-CA bundle refusal (P18), green on both targets
@@ -633,7 +631,10 @@ the signed UKI.
 
 ### M5: Second Platform
 
-**Status:** Not Started
+**Status:** In Progress (2026-09-10: the exit criterion "the image
+boots under qemuarm64" is met -- the emulated aarch64 target builds
+green and boots to a login in CI; the board bring-up items that need
+hardware or an unvalidatable U-Boot/L4T backend remain)
 **Goal:** Prove the machine-config pattern ports cleanly to ARM and
 restore per-BSP parity.
 
@@ -722,7 +723,20 @@ Gated on the Post-M4 validation gate (implementation):
   full x86_64 build is green with both UKIs rebuilt.
 - [ ] `rauc-conf` per-backend system.conf templating +
   backend-neutral pending-detection in lamadist-health-check
-  (replace the loader-entry filename probe with `rauc status`)
+  (replace the loader-entry filename probe with `rauc status`).
+  DEFERRED 2026-09-10 with rationale: this is safety-critical OTA
+  rollback code, and the proposed mechanism does not hold.  RAUC
+  1.15.1's `rauc status` reports a slot's boot state from the custom
+  backend's `get-state`, which returns "good" for both a confirmed and
+  a pending (trial) slot, so `rauc status` alone cannot distinguish a
+  trial boot -- the very thing the loader-entry probe exists to detect.
+  A backend-neutral rewrite therefore needs a design change to the
+  backend's state contract, not just a probe swap, and there is no
+  second (U-Boot/L4T) backend yet to validate a neutral version
+  against.  Rewriting now would risk the working x86_64 rollback for
+  no present benefit and lock in a pending-detection design before its
+  motivating backend exists.  Do it with the first real second backend,
+  behind an x86_64 `test-ota` cycle and a Fable review.
 - [ ] `soquartz.conf` (thin leaf per pattern) +
   `lamadist-boot-uboot.inc` + RK wks template (fixed-sector
   prelude incl. REQUIRED uboot_env partition, A/B verity after
@@ -730,11 +744,25 @@ Gated on the Post-M4 validation gate (implementation):
   omits uboot_env -- MAJOR doc finding)
 - [ ] `rk1.conf` authored in meta-lamadist (no upstream rk1
   machine exists -- PLAN's earlier note corrected)
-- [ ] Boot smoke test for the ARM image under qemuarm64
-- [ ] M5 fold doc refresh: ARCHITECTURE.md/PARTITIONING.md still
-  describe aspirational LUKS rootfs slots, UKI-on-ESP for Orin,
-  and kernel 6.6 (actual: verity slots, LUKS /var only, no UKI
-  off-x86, kernel 6.18)
+- [x] Emulated aarch64 target `qemuarm64-lamadist` and the boot smoke
+  under qemuarm64 (2026-09-10, PRs #36/#37).  The machine leaf
+  (`conf/machine/qemuarm64-lamadist.conf` + `kas/bsp/qemuarm64.kas.yml`)
+  reuses the systemd-boot + UKI backend on QEMU `virt` under AAVMF; the
+  image builds green and `mise run vm --bsp qemuarm64` boots to a login
+  with SELinux enforcing, a verity EROFS root, a TPM2-unlocked LUKS
+  `/var`, and a read-write `/etc` overlay.  Three arch gaps were fixed
+  on the way (kernel `KMACHINE`, x86-only CPU microcode gated behind a
+  flag, `ttyAMA0`-only getty).  The `vm`/`test` tasks gained the
+  aarch64 path with preliminary board profiles (`rk1`, `soquartz`,
+  `orin-nx`: CPU model, cores, memory only), and CI builds and
+  boot-smokes the target on every push.  This meets the exit criterion
+  "the image boots under qemuarm64".
+- [ ] M5 fold doc refresh: ARCHITECTURE.md kernel version and the
+  qemuarm64 target are corrected (2026-09-10); the PARTITIONING.md
+  Rockchip/Tegra layouts and the ARCHITECTURE Orin boot-chain prose
+  stay as written until the board machine configs land, since a
+  factual "actual" description of those chains needs the code that
+  does not exist yet.
 
 Physical flashing and hardware testing remain out of scope until the
 working constraints are lifted.

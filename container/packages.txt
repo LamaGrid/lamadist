@@ -72,3 +72,10 @@ patchelf
 
 # sb-dev key regeneration requirements (regen-dev-sb-keys.sh)
 efitools
+
+# QEMU boot smoke inside CI (mise run test --bsp qemuarm64): the
+# aarch64 system emulator, the AAVMF (edk2) firmware it boots, and the
+# TPM 2.0 emulator the image's LUKS unlock needs
+qemu-system-arm
+qemu-efi-aarch64
+swtpm
