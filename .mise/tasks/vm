@@ -280,7 +280,12 @@ _qemu_args=(
 	-drive "file=${_wic_image},format=raw,if=none,id=hd0"
 	"${_disk_args[@]}"
 	-netdev "${_netdev}"
-	-device 'virtio-net-pci,netdev=net0'
+	# romfile= disables the PCI expansion ROM (the iPXE efi-virtio.rom
+	# option ROM used only for network boot).  The guest boots from
+	# disk and the virtio-net driver needs no ROM, so dropping it
+	# removes a firmware-file dependency the build container does not
+	# ship -- without it QEMU aborts at startup on a missing romfile.
+	-device 'virtio-net-pci,netdev=net0,romfile='
 	-object 'rng-random,filename=/dev/urandom,id=rng0'
 	-device 'virtio-rng-pci,rng=rng0'
 	-chardev "socket,id=chrtpm,path=${_qemu_tmpdir}/tpm/sock"
