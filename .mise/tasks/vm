@@ -108,11 +108,22 @@ if [[ "${_secureboot}" == "true" ]]; then
 	# mismatch here means the artifact is stale and the SB state under
 	# test is no longer what it claims to be.
 	_vars_sidecar="${_ovmf_vars_template}.template.sha256"
-	if [[ -f "${_vars_sidecar}" && -r "${_fw_sb_vars_host}" ]]; then
+	if [[ -f "${_vars_sidecar}" ]]; then
+		# The sidecar records the host template the enrolled artifact was
+		# derived from.  If that template is now unreadable we cannot
+		# confirm the artifact is current, so this fails closed rather
+		# than booting an unverifiable Secure Boot state.
+		if [[ -z "${_fw_sb_vars_host}" || ! -r "${_fw_sb_vars_host}" ]]; then
+			echo "ERROR: the enrolled vars artifact records a template hash, but the"
+			echo "       host Secure Boot vars template is missing, so its currency"
+			echo "       cannot be checked; rebuild the enrolled artifact with the"
+			echo "       ovmf-vars task"
+			exit 1
+		fi
 		_host_vars_hash=$(sha256sum "${_fw_sb_vars_host}" | awk '{print $1}')
 		if [[ "${_host_vars_hash}" != "$(cat "${_vars_sidecar}")" ]]; then
-			echo "ERROR: host ${_fw_sb_vars_host##*/} changed since ovmf-vars-enrolled.fd was built;"
-			echo "       re-run 'mise run ovmf-vars --bsp ${_bsp}' to rebuild the enrolled artifact"
+			echo "ERROR: host ${_fw_sb_vars_host##*/} changed since the enrolled vars"
+			echo "       were built; rebuild the enrolled artifact with the ovmf-vars task"
 			exit 1
 		fi
 	fi
