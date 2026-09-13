@@ -32,3 +32,6 @@ hk.local.pkl
 .ripgreprc
 .envrc
 .direnv/
+
+.claude/
+!.claude/skills
