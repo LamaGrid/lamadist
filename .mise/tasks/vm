@@ -95,6 +95,12 @@ if [[ "${_secureboot}" == "true" ]]; then
 			echo "       host Secure Boot vars template is missing, so its currency"
 			echo "       cannot be checked; rebuild the enrolled artifact with the"
 			echo "       ovmf-vars task"
+	[[ -f "${_vars_sidecar}" ]] || {
+		echo "ERROR: ${_vars_sidecar##*/} is missing, so the enrolled vars artifact"
+		echo "       cannot be checked against the host template; rebuild it with"
+		echo "       the ovmf-vars task"
+		exit 1
+	}
 			exit 1
 		fi
 		_host_vars_hash=$(sha256sum "${_fw_sb_vars_host}" | awk '{print $1}')
