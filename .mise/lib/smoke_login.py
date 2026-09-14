@@ -165,10 +165,30 @@ def main() -> None:
     sock_path, user, password = sys.argv[1], sys.argv[2], sys.argv[3]
     timeout = int(sys.argv[4])
     secureboot = len(sys.argv) > 5 and sys.argv[5] == "secureboot"
+    refuse_uki = len(sys.argv) > 5 and sys.argv[5] == "refuse-uki"
 
     session = SerialSession(sock_path, timeout)
     try:
         session.connect()
+
+        if refuse_uki:
+            # Negative Secure Boot check: the UKI on this (scratch) image
+            # was corrupted, so systemd-boot must fail to start the
+            # entry.  A login prompt means the firmware launched an
+            # image whose signature no longer matches -- the one outcome
+            # this mode exists to catch.
+            idx = session.expect(
+                [r"Failed to start boot entry", r"login:"],
+                "the firmware to refuse the tampered UKI",
+            )
+            if idx == 1:
+                raise SerialTimeoutError(
+                    "tampered UKI reached a login prompt: Secure Boot did not"
+                    " refuse it"
+                )
+            print("SMOKE PASS: firmware refused the tampered UKI")
+            return
+
         password = login(session, user, password)
 
         # Give the getty/shell handoff a moment; the tty line
