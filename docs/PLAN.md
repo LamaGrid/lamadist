@@ -435,7 +435,12 @@ homelab dev profile, but named per the review):
   a slow/absent TPM coldplug past the 30 s settle can reboot-loop a
   pending first boot.  M6 decides the fallback; the ARM port (M5)
   hits this first (fTPM not ready at first boot) and must wire a
-  fallback before reusing the crypttab logic.
+  fallback before reusing the crypttab logic.  Reproduced 2026-09-14
+  with `mise run vm --no-tpm` (x86_64): the TPM2 enroll unit fails
+  as designed, `systemd-cryptsetup@var` falls back to a console
+  passphrase prompt, and the boot never reaches a login; IMA runs in
+  TPM-bypass.  The knob stays as the regression test for whichever
+  fallback is chosen.
 - MAJOR-4: no anti-rollback and the ESP loader entries are
   unauthenticated (downgrade-to-old-signed-slot, entry DoS).  A
   monotonic counter / retired-roothash dbx is M6 scope.
@@ -753,10 +758,12 @@ Gated on the Post-M4 validation gate (implementation):
   `/var`, and a read-write `/etc` overlay.  Three arch gaps were fixed
   on the way (kernel `KMACHINE`, x86-only CPU microcode gated behind a
   flag, `ttyAMA0`-only getty).  The `vm`/`test` tasks gained the
-  aarch64 path with preliminary board profiles (`rk1`, `soquartz`,
-  `orin-nx`: CPU model, cores, memory only), and CI builds and
-  boot-smokes the target on every push.  This meets the exit criterion
-  "the image boots under qemuarm64".
+  aarch64 path, and CI builds and boot-smokes the target on every
+  push.  This meets the exit criterion "the image boots under
+  qemuarm64".  The board-named virt profiles that shipped with it were
+  replaced on 2026-09-14 by plain `--cpu/--smp/--mem` flags: ADR 0012
+  records why a QEMU profile is keyed to the boot backend, never to a
+  board, and what a green emulated run may claim.
 - [ ] M5 fold doc refresh: ARCHITECTURE.md kernel version and the
   qemuarm64 target are corrected (2026-09-10); the PARTITIONING.md
   Rockchip/Tegra layouts and the ARCHITECTURE Orin boot-chain prose
