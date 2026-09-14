@@ -135,8 +135,12 @@ cleanup() {
 	# Only remove a tmpdir this task created itself; a caller-supplied
 	# --tmpdir is documented (above) as reusable/predictable, so the
 	# caller owns its lifecycle (e.g. .mise/tasks/test-ota's own
-	# cleanup() removes the same directory).
-	[[ -z "${_tmpdir}" ]] && rm -rf "${_qemu_tmpdir}"
+	# cleanup() removes the same directory).  An if, not an && list: as
+	# the trap's last command, a false && list would turn a successful
+	# run into exit status 1 under errexit.
+	if [[ -z "${_tmpdir}" ]]; then
+		rm -rf "${_qemu_tmpdir}"
+	fi
 }
 trap cleanup EXIT
 
