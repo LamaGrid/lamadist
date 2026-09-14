@@ -4,9 +4,11 @@
 #USAGE flag "-b --bsp <bsp>" help="BSP target to boot (x86_64: q35 + OVMF; qemuarm64: virt + AAVMF, always TCG on an x86 host)" default="x86_64" {
 #USAGE   choices "x86_64" "qemuarm64"
 #USAGE }
-#USAGE flag "-P --profile <profile>" help="qemuarm64 only: shape the virt machine like a target board (CPU model, cores, memory) instead of the generic default; no board firmware or peripherals are emulated" default="default" {
-#USAGE   choices "default" "rk1" "soquartz" "orin-nx"
-#USAGE }
+#USAGE flag "--cpu <model>" help="qemuarm64 only: TCG CPU model, one model for every core (virt boots only its own allowlist; 'max' exposes every extension TCG implements)" default="cortex-a57"
+#USAGE flag "--smp <spec>" help="qemuarm64 only: qemu -smp spec passed through verbatim; 'N,clusters=C,cores=K' hands the guest a real cluster map (RK3588 shape: 8,clusters=2,cores=4)" default="2"
+#USAGE flag "--mem <mib>" help="qemuarm64 only: guest memory in MiB" default="2048"
+#USAGE flag "-N --no-tpm" help="Boot with no TPM at all (no swtpm, no TPM device) to reproduce a TPM-less or not-yet-ready first boot"
+#USAGE flag "--tamper-uki" help="With --ci --secureboot: boot a scratch copy of the image whose UKI is corrupted and pass only when the firmware refuses to start it"
 #USAGE flag "-t --timeout <timeout>" help="Boot timeout in seconds (CI mode); qemuarm64 under TCG needs ~900" default="300"
 #USAGE flag "-c --ci" help="CI mode (headless login smoke test)"
 #USAGE flag "-H --headless" help="Headless-interactive mode: serial/monitor unix sockets + ssh port-forward"
@@ -20,7 +22,11 @@ set -o nounset
 set -o pipefail
 
 _bsp="${usage_bsp:-x86_64}"
-_profile="${usage_profile:-default}"
+_cpu="${usage_cpu:-cortex-a57}"
+_smp="${usage_smp:-2}"
+_mem="${usage_mem:-2048}"
+_no_tpm="${usage_no_tpm:-false}"
+_tamper_uki="${usage_tamper_uki:-false}"
 _timeout="${usage_timeout:-300}"
 _ci="${usage_ci:-false}"
 _headless="${usage_headless:-false}"
@@ -44,8 +50,12 @@ case "${_bsp}" in
 	*) _arch=x86_64 ;;
 esac
 _qemu="qemu-system-${_arch}"
-if [[ "${_profile}" != "default" && "${_arch}" != "aarch64" ]]; then
-	echo "ERROR: --profile ${_profile} only applies to --bsp qemuarm64"
+if [[ "${_arch}" != "aarch64" && ("${_cpu}" != "cortex-a57" || "${_smp}" != "2" || "${_mem}" != "2048") ]]; then
+	echo "ERROR: --cpu/--smp/--mem only apply to --bsp qemuarm64"
+	exit 1
+fi
+if [[ "${_tamper_uki}" == "true" && ("${_ci}" != "true" || "${_secureboot}" != "true") ]]; then
+	echo "ERROR: --tamper-uki needs --ci and --secureboot"
 	exit 1
 fi
 
@@ -85,6 +95,12 @@ if [[ "${_secureboot}" == "true" ]]; then
 	# mismatch here means the artifact is stale and the SB state under
 	# test is no longer what it claims to be.
 	_vars_sidecar="${_ovmf_vars_template}.template.sha256"
+	[[ -f "${_vars_sidecar}" ]] || {
+		echo "ERROR: ${_vars_sidecar##*/} is missing, so the enrolled vars artifact"
+		echo "       cannot be checked against the host template; rebuild it with"
+		echo "       the ovmf-vars task"
+		exit 1
+	}
 	if [[ -f "${_vars_sidecar}" ]]; then
 		# The sidecar records the host template the enrolled artifact was
 		# derived from.  If that template is now unreadable we cannot
@@ -95,12 +111,6 @@ if [[ "${_secureboot}" == "true" ]]; then
 			echo "       host Secure Boot vars template is missing, so its currency"
 			echo "       cannot be checked; rebuild the enrolled artifact with the"
 			echo "       ovmf-vars task"
-	[[ -f "${_vars_sidecar}" ]] || {
-		echo "ERROR: ${_vars_sidecar##*/} is missing, so the enrolled vars artifact"
-		echo "       cannot be checked against the host template; rebuild it with"
-		echo "       the ovmf-vars task"
-		exit 1
-	}
 			exit 1
 		fi
 		_host_vars_hash=$(sha256sum "${_fw_sb_vars_host}" | awk '{print $1}')
@@ -146,7 +156,8 @@ trap cleanup EXIT
 
 # --- Prerequisites ---
 
-_required_tools=("${_qemu}" swtpm)
+_required_tools=("${_qemu}")
+[[ "${_no_tpm}" == "true" ]] || _required_tools+=(swtpm)
 if [[ "${_ci}" != "true" && "${_headless}" != "true" ]]; then
 	_required_tools+=(spicy)
 fi
@@ -173,6 +184,17 @@ if [[ "${_wic_image}" != *.wic ]]; then
 	_wic_image="${_wic_image%.*}"
 fi
 
+# --tamper-uki boots a scratch copy whose UKI is corrupted, so the only
+# acceptable outcome is the firmware refusing to start it.  The copy is
+# sparse and lives in the per-run tmpdir; the deployed image is never
+# touched.
+if [[ "${_tamper_uki}" == "true" ]]; then
+	_tampered="${_qemu_tmpdir}/tampered.wic"
+	cp --sparse=always --reflink=auto "${_wic_image}" "${_tampered}"
+	python3 "${MISE_CONFIG_ROOT}/.mise/lib/tamper_uki.py" "${_tampered}" "${_deploy_dir}/lamadist-a.efi"
+	_wic_image="${_tampered}"
+fi
+
 # --- Prepare firmware VARS (writable copy) ---
 
 _vars_ext="${_ovmf_vars_template##*.}"
@@ -181,44 +203,44 @@ cp "${_ovmf_vars_template}" "${_vars_copy}"
 
 # --- Start swtpm (TPM 2.0 emulator) ---
 
-mkdir -p "${_qemu_tmpdir}/tpm"
-swtpm socket \
-	--tpmstate dir="${_qemu_tmpdir}/tpm" \
-	--ctrl type=unixio,path="${_qemu_tmpdir}/tpm/sock" \
-	--tpm2 \
-	--daemon \
-	--pid file="${_qemu_tmpdir}/tpm/pid"
+if [[ "${_no_tpm}" != "true" ]]; then
+	mkdir -p "${_qemu_tmpdir}/tpm"
+	swtpm socket \
+		--tpmstate dir="${_qemu_tmpdir}/tpm" \
+		--ctrl type=unixio,path="${_qemu_tmpdir}/tpm/sock" \
+		--tpm2 \
+		--daemon \
+		--pid file="${_qemu_tmpdir}/tpm/pid"
 
-# Wait for swtpm socket
-for _ in $(seq 1 20); do
-	[[ -S "${_qemu_tmpdir}/tpm/sock" ]] && break
-	sleep 0.1
-done
-[[ -S "${_qemu_tmpdir}/tpm/sock" ]] || { echo "ERROR: swtpm failed to start"; exit 1; }
-_swtpm_pid=$(cat "${_qemu_tmpdir}/tpm/pid")
+	# Wait for swtpm socket
+	for _ in $(seq 1 20); do
+		[[ -S "${_qemu_tmpdir}/tpm/sock" ]] && break
+		sleep 0.1
+	done
+	[[ -S "${_qemu_tmpdir}/tpm/sock" ]] || { echo "ERROR: swtpm failed to start"; exit 1; }
+	_swtpm_pid=$(cat "${_qemu_tmpdir}/tpm/pid")
+fi
 
 # --- Machine shape and acceleration ---
 
 # KVM only helps when the host runs the guest's architecture; an
 # aarch64 guest on an x86 host is always TCG.  The TCG CPU model for
-# x86 stays a plain IvyBridge; for aarch64 it comes from the profile.
-#
-# Preliminary board profiles give the virt machine the CPU model, core
-# count, and memory of a real target so the emulated boot exercises
-# that shape.  TCG has no big.LITTLE, no board firmware, and none of
-# the SoC peripherals, so a green run proves the OS stack, never the
-# board bring-up; newer CPU models also need qemu >= 8 (a55, a78ae).
-case "${_profile}" in
-	default) _cpu=cortex-a57 _smp=2 _mem=2048 ;;
-	rk1) _cpu=cortex-a76 _smp=8 _mem=8192 ;;        # RK3588: 4xA76 + 4xA55, 8-32 GiB
-	soquartz) _cpu=cortex-a55 _smp=4 _mem=4096 ;;   # RK3566: 4xA55, 2-8 GiB
-	orin-nx) _cpu=cortex-a78ae _smp=6 _mem=8192 ;;  # Orin NX 8 GB: 6xA78AE
-esac
+# x86 stays a plain IvyBridge; for aarch64, --cpu/--smp/--mem shape the
+# virt machine.  virt has no board model for any target, so a green run
+# proves the OS stack and never a board bring-up.  Limits of the shape:
+#   - -cpu is one model for every core.  virt has no per-cluster CPU
+#     type, so a big.LITTLE pair such as RK3588's A76+A55 cannot be
+#     expressed; -smp clusters= still hands the guest the cluster
+#     geometry (8,clusters=2,cores=4 for that 4+4 layout).
+#   - virt boots only the CPU models on its own allowlist, which its
+#     rejection message prints.  A model the binary implements but the
+#     list omits, such as cortex-a78ae, fails at startup (verified on
+#     QEMU 10.2.3); 'max' is the widest TCG can offer.
 _accel_args=()
 if [[ "${_arch}" == "$(uname -m)" && -r /dev/kvm ]]; then
 	_accel_args=(-enable-kvm -cpu host)
 elif [[ "${_arch}" == "aarch64" ]]; then
-	echo "==> ${_arch} guest on a $(uname -m) host: TCG (slow), profile ${_profile} (${_cpu}, ${_smp} cores, ${_mem} MiB)"
+	echo "==> ${_arch} guest on a $(uname -m) host: TCG (slow), -cpu ${_cpu} -smp ${_smp} -m ${_mem}"
 	_accel_args=(-cpu "${_cpu}")
 else
 	echo "==> WARNING: KVM not available, using TCG (slow)"
@@ -239,6 +261,18 @@ else
 	_disk_args=(-device 'ahci,id=ahci0' -device 'ide-hd,drive=hd0,bus=ahci0.0')
 	_tpm_device='tpm-crb,tpmdev=tpm0'
 	_input_args=(-usb -device usb-tablet)
+fi
+
+# --no-tpm removes the TPM entirely: no swtpm, no chardev, no device.
+# The image's crypttab unlocks /var through the TPM alone, so this is
+# what a TPM-less or not-yet-ready first boot sees.
+_tpm_args=()
+if [[ "${_no_tpm}" != "true" ]]; then
+	_tpm_args=(
+		-chardev "socket,id=chrtpm,path=${_qemu_tmpdir}/tpm/sock"
+		-tpmdev 'emulator,id=tpm0,chardev=chrtpm'
+		-device "${_tpm_device}"
+	)
 fi
 
 # --- Build QEMU command ---
@@ -275,9 +309,7 @@ _qemu_args=(
 	-device 'virtio-net-pci,netdev=net0,romfile='
 	-object 'rng-random,filename=/dev/urandom,id=rng0'
 	-device 'virtio-rng-pci,rng=rng0'
-	-chardev "socket,id=chrtpm,path=${_qemu_tmpdir}/tpm/sock"
-	-tpmdev 'emulator,id=tpm0,chardev=chrtpm'
-	-device "${_tpm_device}"
+	"${_tpm_args[@]}"
 	"${_input_args[@]}"
 	"${_reboot_args[@]}"
 )
@@ -315,7 +347,11 @@ if [[ "${_ci}" == "true" ]]; then
 	_smoke_args=("${_serial_sock}" lama lamadist "${_timeout}")
 	# Stage-B gate: the smoke itself must prove Secure Boot is
 	# enabled in-guest, not just that SB firmware was selected.
-	[[ "${_secureboot}" == "true" ]] && _smoke_args+=(secureboot)
+	if [[ "${_tamper_uki}" == "true" ]]; then
+		_smoke_args+=(refuse-uki)
+	elif [[ "${_secureboot}" == "true" ]]; then
+		_smoke_args+=(secureboot)
+	fi
 	python3 "${MISE_CONFIG_ROOT}/.mise/lib/smoke_login.py" \
 		"${_smoke_args[@]}" || _smoke_rc=$?
 
