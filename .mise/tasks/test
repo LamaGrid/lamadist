@@ -6,7 +6,7 @@
 #USAGE }
 #USAGE flag "-c --ci" help="CI mode"
 #USAGE flag "-n --no-boot" help="Skip the QEMU login smoke test"
-#USAGE flag "-S --secureboot" help="Run the login smoke AND the OTA cycle under Secure Boot firmware with the enrolled vars artifact (M4 stage-B gate); build it first with 'mise run ovmf-vars'"
+#USAGE flag "-S --secureboot" help="Run the login smoke AND the OTA cycle (x86_64 only) under Secure Boot firmware with the enrolled vars artifact (M4 stage-B gate); build it first with 'mise run ovmf-vars'"
 # TODO: Implement CI mode behavior (e.g., machine-readable output, stricter validation)
 set -o errexit
 set -o nounset
