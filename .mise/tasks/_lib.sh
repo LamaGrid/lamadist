@@ -293,6 +293,81 @@ bsp_to_machine() {
 	fi
 }
 
+# aavmf_firmware ROLE
+#
+# Prints the first readable NON-EMPTY edk2 aarch64 firmware file for
+# ROLE, one of code, vars, sb-code, or sb-vars, and fails when none
+# exists.  Distros ship the same edk2 builds under different names and
+# formats (raw .fd or qcow2), so the first usable candidate wins and a
+# LAMADIST_AAVMF_* environment override takes precedence.  A candidate
+# must be non-empty: some images carry a 0-byte placeholder that is
+# readable but not a varstore, and virt-fw-vars faults on it.
+#
+# Secure Boot capable AAVMF is a separate artifact only where qemu's own
+# edk2 build has SB compiled out: Gentoo ships it as qcow2 (the INSECURE
+# suffix records that ArmVirt has no SMM to isolate the variable store,
+# acceptable for a boot gate).  The Debian family and the qemu package's
+# own edk2 aarch64 build carry SB in the default image, so the sb-* roles
+# fall back to the plain firmware; the smoke's in-guest SecureBoot=1
+# assertion is what proves SB actually engaged.
+#
+# An sb-vars template must be an INITIALIZED varstore: Debian and Ubuntu
+# ship the blank AAVMF_VARS.fd as erased flash that virt-fw-vars cannot
+# parse, so the pre-keyed snakeoil template is preferred ahead of it.
+# Enrolment sets our PK and adds our KEK/db; the template's own throwaway
+# test keys stay in the CI-only varstore, which the gate tolerates
+# because it asserts only that our signed UKI is trusted and a tampered
+# one is refused, never that our key is the sole entry in db.  Both the
+# vm task and ovmf-vars resolve through here so the enrolled vars
+# artifact and the drift guard that checks it always name the same
+# template.
+aavmf_firmware() {
+	local _role="$1" _f
+	local -a _candidates
+	case "${_role}" in
+		code)
+			_candidates=("${LAMADIST_AAVMF_CODE:-}"
+				/usr/share/qemu/edk2-aarch64-code.fd
+				/usr/share/AAVMF/AAVMF_CODE.fd
+				/usr/share/edk2/aarch64/QEMU_EFI-pflash.raw)
+			;;
+		vars)
+			_candidates=("${LAMADIST_AAVMF_VARS:-}"
+				/usr/share/qemu/edk2-arm-vars.fd
+				/usr/share/AAVMF/AAVMF_VARS.fd
+				/usr/share/edk2/aarch64/vars-template-pflash.raw)
+			;;
+		sb-code)
+			_candidates=("${LAMADIST_AAVMF_SB_CODE:-}"
+				/usr/share/edk2/ArmVirtQemu-AARCH64/QEMU_EFI.secboot_INSECURE.qcow2
+				/usr/share/AAVMF/AAVMF_CODE.secboot.fd
+				/usr/share/AAVMF/AAVMF_CODE.fd
+				/usr/share/qemu/edk2-aarch64-code.fd
+				/usr/share/edk2/aarch64/QEMU_EFI-pflash.raw)
+			;;
+		sb-vars)
+			_candidates=("${LAMADIST_AAVMF_SB_VARS:-}"
+				/usr/share/edk2/ArmVirtQemu-AARCH64/QEMU_VARS.secboot_INSECURE.qcow2
+				/usr/share/AAVMF/AAVMF_VARS.secboot.fd
+				/usr/share/AAVMF/AAVMF_VARS.snakeoil.fd
+				/usr/share/AAVMF/AAVMF_VARS.fd
+				/usr/share/qemu/edk2-arm-vars.fd
+				/usr/share/edk2/aarch64/vars-template-pflash.raw)
+			;;
+		*)
+			echo "aavmf_firmware: unknown role '${_role}'" >&2
+			return 2
+			;;
+	esac
+	for _f in "${_candidates[@]}"; do
+		if [[ -n "${_f}" && -r "${_f}" && -s "${_f}" ]]; then
+			echo "${_f}"
+			return 0
+		fi
+	done
+	return 1
+}
+
 # run_in_container [--no-tty] [--entrypoint CMD] -- COMMAND [ARGS...]
 #
 # Runs a command inside the builder container with standard volume mounts,
