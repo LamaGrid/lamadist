@@ -255,15 +255,22 @@ jobs:
           # matching the hardware jobs.  hashserv still dedups sstate.
           LAMADIST_HASHSERVE: ${{ secrets.LAMADIST_HASHSERVE }}
 
-      # AAVMF -> systemd-boot -> UKI -> dm-verity root -> login, driven
-      # over the serial console by the same smoke the x86_64 image
-      # passes locally.  The UKI is signed, but AAVMF here uses
-      # unenrolled vars, so Secure Boot is OFF and the signature is not
-      # verified: this proves the boot and OS stack, not the SB chain.
-      # The pod has no KVM, so it is pure TCG under the test task's
-      # 900 s budget.
+      # Secure Boot on the aarch64 gate.  Enroll the project PK/KEK/db
+      # into the container's AAVMF varstore (virt-fw-vars runs directly
+      # here, since this job already executes inside the builder image),
+      # then boot AAVMF -> systemd-boot -> signed UKI -> dm-verity root
+      # -> login with Secure Boot enforcing, driven over the serial
+      # console by the same smoke the x86_64 image passes locally.  The
+      # smoke asserts SecureBoot=1 in-guest: firmware sets that variable
+      # only when it enforced image verification on the UKI it launched.
+      # The db certificate and the UKI signing key are the committed dev
+      # keys, so this proves the mechanism, not key custody.  The pod has
+      # no KVM, so it is pure TCG under the test task's 900 s budget.
+      - name: Enroll Secure Boot vars
+        run: mise run ovmf-vars --bsp qemuarm64 --ci
+
       - name: Boot smoke
-        run: mise run test --bsp qemuarm64 --ci
+        run: mise run test --bsp qemuarm64 --ci --secureboot
 
   build-rk1:
     name: Build RK1
