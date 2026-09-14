@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #MISE description="Build the enrolled OVMF vars artifact for --secureboot VM runs"
 #USAGE flag "-b --bsp <bsp>" help="BSP target to build vars for" default="x86_64" {
-#USAGE   choices "x86_64"
+#USAGE   choices "x86_64" "qemuarm64"
 #USAGE }
+#USAGE flag "-c --ci" help="CI mode: run virt-fw-vars directly (already inside the builder container)"
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -32,8 +33,16 @@ set -o pipefail
 # (meta-lamadist/files/sb-dev/); the GUID below is fixed there
 # (regen-dev-sb-keys.sh) precisely so this task does not need to
 # change when dev keys are rotated.
+#
+# aarch64 runs the same flow against the Secure Boot capable AAVMF vars
+# template that aavmf_firmware (_lib.sh) resolves, which is the file
+# the vm task's drift guard later hashes.  Gentoo ships that template
+# as qcow2, so it is converted to the raw pflash image qemu expects
+# behind the .fd artifact name; virt-fw-vars then edits the raw
+# varstore in place exactly as it does for OVMF.
 
 _bsp="${usage_bsp:-x86_64}"
+_ci="${usage_ci:-false}"
 
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
@@ -45,16 +54,21 @@ _deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
 # on purpose -- see that script's header comment.
 _sb_dev_guid='0d648e51-9f2d-453a-bbc1-2200cf8ebe0e'
 
-_host_ovmf_vars_template='/usr/share/edk2/OvmfX64/OVMF_VARS.fd'
+if [[ "${_bsp}" == "qemuarm64" ]]; then
+	_host_vars_template=$(aavmf_firmware sb-vars) || _host_vars_template=""
+else
+	_host_vars_template='/usr/share/edk2/OvmfX64/OVMF_VARS.fd'
+fi
 _host_sb_dev_dir="${MISE_CONFIG_ROOT}/meta-lamadist/files/sb-dev"
 _vars_file="${_deploy_dir}/ovmf-vars-enrolled.fd"
 
 # --- Prerequisites (host-side; fail fast with a clear message) ---
 
-[[ -f "${_host_ovmf_vars_template}" ]] || {
-	echo "ERROR: OVMF VARS template not found at ${_host_ovmf_vars_template}"
+[[ -n "${_host_vars_template}" && -s "${_host_vars_template}" ]] || {
+	echo "ERROR: Secure Boot VARS template not found or empty (${_host_vars_template:-no candidate readable})"
 	exit 1
 }
+echo "==> Secure Boot VARS template: ${_host_vars_template} ($(stat -c%s "${_host_vars_template}") bytes)"
 for _cert in pk kek db; do
 	[[ -f "${_host_sb_dev_dir}/${_cert}.cert.pem" ]] || {
 		echo "ERROR: ${_host_sb_dev_dir}/${_cert}.cert.pem not found (run W8's" \
@@ -67,32 +81,68 @@ unset _cert
 # --- Stage a fresh copy of the template into the deploy dir ---
 
 mkdir -p "${_deploy_dir}"
-cp "${_host_ovmf_vars_template}" "${_vars_file}"
+if [[ "${_host_vars_template}" == *.qcow2 ]]; then
+	command -v qemu-img >/dev/null || {
+		echo 'ERROR: qemu-img not found (needed to convert the qcow2 vars template)'
+		exit 1
+	}
+	qemu-img convert -f qcow2 -O raw "${_host_vars_template}" "${_vars_file}"
+else
+	cp "${_host_vars_template}" "${_vars_file}"
+fi
 
-# --- Enroll PK/KEK/db and enable Secure Boot, inside the container ---
-# Paths below are container-side: MISE_CONFIG_ROOT is bind-mounted at
-# KAS_WORK_DIR and the deploy dir at KAS_WORK_DIR/deploy (see
-# run_in_container in _lib.sh).  The image's ENTRYPOINT is kas, so
-# reaching virt-fw-vars (installed via container/requirements.txt)
-# needs an --entrypoint override, same pattern as
-# container/builder/shell.
+# An empty varstore faults virt-fw-vars with an opaque struct error;
+# fail here instead.  A size floor would risk the small x86 OVMF_VARS
+# template (128 KiB), so this only rejects a genuinely empty file.
+if [[ ! -s "${_vars_file}" ]]; then
+	echo "ERROR: staged varstore ${_vars_file} is empty; the template"
+	echo "       ${_host_vars_template} is a 0-byte placeholder, not a varstore"
+	exit 1
+fi
 
-_container_vars_file="${KAS_WORK_DIR}/deploy/images/${_machine}/ovmf-vars-enrolled.fd"
-_container_sb_dev_dir="${KAS_WORK_DIR}/meta-lamadist/files/sb-dev"
+# --- Enroll PK/KEK/db and enable Secure Boot ---
+# virt-fw-vars lives in the builder container (container/pyproject.toml).
+# In CI this task already runs inside that container, so --ci calls the
+# tool directly on host-side paths.  Otherwise it runs through
+# run_in_container with container-side paths: MISE_CONFIG_ROOT is
+# bind-mounted at KAS_WORK_DIR and the deploy dir at KAS_WORK_DIR/deploy
+# (see _lib.sh), and the image's ENTRYPOINT is kas, so reaching the tool
+# needs an --entrypoint override, same pattern as container/builder/shell.
 
+if [[ "${_ci}" == "true" ]]; then
+	command -v virt-fw-vars >/dev/null || {
+		echo 'ERROR: virt-fw-vars not found (--ci runs it directly, inside the builder container)'
+		exit 1
+	}
+	_tool_vars_file="${_vars_file}"
+	_tool_sb_dev_dir="${_host_sb_dev_dir}"
+	_virt_fw_vars() { virt-fw-vars "$@"; }
+else
+	_tool_vars_file="${KAS_WORK_DIR}/deploy/images/${_machine}/ovmf-vars-enrolled.fd"
+	_tool_sb_dev_dir="${KAS_WORK_DIR}/meta-lamadist/files/sb-dev"
+	_virt_fw_vars() {
+		run_in_container --no-tty --entrypoint '["/bin/dumb-init", "-r", "2:15"]' -- virt-fw-vars "$@"
+	}
+fi
+
+# --set-pk clears the PK sigdb then sets ours; --add-kek/--add-db append
+# ours.  On aarch64 the template is a pre-keyed one (the blank AAVMF
+# template is unparseable), so its own test keys remain in KEK/db beside
+# ours.  That is fine for a CI-only varstore: the gate asserts our UKI is
+# trusted and a tampered one refused, not that db holds our key alone.
 echo "==> Enrolling PK/KEK/db + SecureBoot into ${_vars_file}"
-run_in_container --no-tty --entrypoint '["/bin/dumb-init", "-r", "2:15"]' -- virt-fw-vars \
+_virt_fw_vars \
 	--loglevel info \
-	--inplace "${_container_vars_file}" \
-	--set-pk "${_sb_dev_guid}" "${_container_sb_dev_dir}/pk.cert.pem" \
-	--add-kek "${_sb_dev_guid}" "${_container_sb_dev_dir}/kek.cert.pem" \
-	--add-db "${_sb_dev_guid}" "${_container_sb_dev_dir}/db.cert.pem" \
+	--inplace "${_tool_vars_file}" \
+	--set-pk "${_sb_dev_guid}" "${_tool_sb_dev_dir}/pk.cert.pem" \
+	--add-kek "${_sb_dev_guid}" "${_tool_sb_dev_dir}/kek.cert.pem" \
+	--add-db "${_sb_dev_guid}" "${_tool_sb_dev_dir}/db.cert.pem" \
 	--sb
 
 echo "==> Verifying enrolled vars"
-_print_output="$(run_in_container --no-tty --entrypoint '["/bin/dumb-init", "-r", "2:15"]' -- virt-fw-vars \
+_print_output="$(_virt_fw_vars \
 	--loglevel info \
-	--input "${_container_vars_file}" \
+	--input "${_tool_vars_file}" \
 	--print)"
 printf '%s\n' "${_print_output}"
 if ! printf '%s' "${_print_output}" | grep -q 'SecureBootEnable'; then
@@ -107,7 +157,7 @@ fi
 # live template and demands a re-run on mismatch instead of booting
 # a stale-vars guest whose SB state no longer matches what the test
 # claims to exercise.
-sha256sum "${_host_ovmf_vars_template}" | awk '{print $1}' \
+sha256sum "${_host_vars_template}" | awk '{print $1}' \
 	> "${_vars_file}.template.sha256"
 
 echo "==> Enrolled OVMF vars: ${_vars_file}"
