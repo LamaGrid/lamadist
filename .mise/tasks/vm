@@ -49,40 +49,17 @@ if [[ "${_profile}" != "default" && "${_arch}" != "aarch64" ]]; then
 	exit 1
 fi
 
-# The edk2 firmware for the guest.  Distros ship the same edk2 builds
-# under different names, so the first readable candidate wins and an
-# environment override takes precedence.  Vars templates are copied
-# fresh per run (firmware writes them).
-first_readable() {
-	local _f
-	for _f in "$@"; do
-		[[ -n "${_f}" && -r "${_f}" ]] && { echo "${_f}"; return 0; }
-	done
-	return 1
-}
+# The edk2 firmware for the guest.  The aarch64 candidates live in
+# aavmf_firmware (.mise/tasks/_lib.sh) so the ovmf-vars task enrolls
+# into the same Secure Boot vars template the drift guard below checks
+# against.  Vars templates are copied fresh per run (firmware writes
+# them).
 if [[ "${_arch}" == "aarch64" ]]; then
 	_fw_name="AAVMF"
-	_fw_code_default=$(first_readable "${LAMADIST_AAVMF_CODE:-}" \
-		/usr/share/qemu/edk2-aarch64-code.fd \
-		/usr/share/AAVMF/AAVMF_CODE.fd \
-		/usr/share/edk2/aarch64/QEMU_EFI-pflash.raw) || _fw_code_default=""
-	_fw_vars_default=$(first_readable "${LAMADIST_AAVMF_VARS:-}" \
-		/usr/share/qemu/edk2-arm-vars.fd \
-		/usr/share/AAVMF/AAVMF_VARS.fd \
-		/usr/share/edk2/aarch64/vars-template-pflash.raw) || _fw_vars_default=""
-	# Secure Boot capable AAVMF.  qemu's own edk2 build has SB compiled
-	# out, so this is a separate artifact: Gentoo ships it as qcow2
-	# (the INSECURE suffix records that ArmVirt has no SMM to isolate
-	# the variable store, which is fine for a boot gate), Debian family
-	# builds SB into the default image.
-	_fw_sb_code=$(first_readable "${LAMADIST_AAVMF_SB_CODE:-}" \
-		/usr/share/edk2/ArmVirtQemu-AARCH64/QEMU_EFI.secboot_INSECURE.qcow2 \
-		/usr/share/AAVMF/AAVMF_CODE.secboot.fd \
-		/usr/share/AAVMF/AAVMF_CODE.fd) || _fw_sb_code=""
-	_fw_sb_vars_host=$(first_readable "${LAMADIST_AAVMF_SB_VARS:-}" \
-		/usr/share/edk2/ArmVirtQemu-AARCH64/QEMU_VARS.secboot_INSECURE.qcow2 \
-		/usr/share/AAVMF/AAVMF_VARS.secboot.fd \
-		/usr/share/AAVMF/AAVMF_VARS.fd) || _fw_sb_vars_host=""
+	_fw_code_default=$(aavmf_firmware code) || _fw_code_default=""
+	_fw_vars_default=$(aavmf_firmware vars) || _fw_vars_default=""
+	_fw_sb_code=$(aavmf_firmware sb-code) || _fw_sb_code=""
+	_fw_sb_vars_host=$(aavmf_firmware sb-vars) || _fw_sb_vars_host=""
 else
 	_fw_name="OVMF"
 	_fw_code_default="/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
