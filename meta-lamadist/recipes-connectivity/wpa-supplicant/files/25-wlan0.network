@@ -1,0 +1,16 @@
+# DHCP on the WiFi station interface.  wlan0 takes a high route metric
+# (2048) so that a lower-metric wired interface, if one is present,
+# stays the primary default route; on a WiFi-only machine wlan0 is the
+# sole default.
+[Match]
+Name=wlan0
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+
+[DHCPv4]
+RouteMetric=2048
+
+[IPv6AcceptRA]
+RouteMetric=2048
