@@ -3,8 +3,9 @@
 # File context specifications for the lamadist local policy module
 # (see lamadist.te).
 #
-# Intentionally empty after the W12 triage: none of the residual
-# denials is fixed by a file-context entry here.  The natural
+# Almost empty after the W12 triage: none of the residual denials from
+# then is fixed by a file-context entry, and the sole entry this file
+# now carries -- the WiFi config, below -- came later.  The natural
 # candidate was the persisted ssh host keys at /var/lib/ssh (a
 # sshd_key_t label would let refpolicy handle ssh_keygen_t/sshd_t
 # access natively, replacing the var_lib_t allows in lamadist.te),
@@ -16,6 +17,16 @@
 # classes/lamadist-image.bbclass (outside this recipe's file set) --
 # recorded for a later pass; the lamadist.te allows cover it for now.
 #
+# The wpa_supplicant WiFi station config under /var/lib/lamadist-wifi is
+# the one case that DOES take an entry here (below), because refpolicy
+# already defines a fitting type -- NetworkManager_var_lib_t, which the
+# confined supplicant domain manages -- unlike /var/lib/ssh, whose
+# sshd_key_t would need refpolicy wiring not yet in place.  The LUKS
+# /var is still never relabeled on its own, so the entry alone is inert:
+# a tmpfiles `Z` (files/lamadist-wifi.conf in the wpa-supplicant
+# bbappend) applies it every boot, and lamadist.te grants
+# systemd_tmpfiles_t that relabel.
+#
 # The /etc/ld.so.cache var_t mislabel that drove the denial storm is
 # fixed at its source -- lamadist-image.bbclass masks ldconfig.service,
 # so the cache is served correctly-labeled from the read-only lower --
@@ -23,3 +34,5 @@
 # merged /etc root itself stays var_t (the overlay upperdir's type) and
 # is deliberately not relabeled: base refpolicy lets every domain
 # search a var_t dir, so it needs no fc entry.
+
+/var/lib/lamadist-wifi(/.*)?	gen_context(system_u:object_r:NetworkManager_var_lib_t,s0)
