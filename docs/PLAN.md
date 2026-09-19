@@ -794,6 +794,17 @@ working constraints are lifted.
 - [ ] SBOM (SPDX 3.0.1) published with artifacts
 - [ ] Tag-triggered release workflow with notes generated from
   Conventional Commits
+- [x] Release-heavy work leaves the merge path: a push to `main`
+  runs the same fast build its PR ran (`--qa --include-scans`),
+  and the `--release` build runs only by manual dispatch.  Every
+  merge had paid a 40 min to 3 h build for an artifact no release
+  consumes.
+- [ ] Give the `--release` build its permanent home in the
+  tag-triggered release workflow above, and make it fast on a
+  cold cache: `do_create_spdx` carries a per-commit version in its
+  signature and so never restores across commits -- a
+  `do_create_spdx[vardepsexclude]` on that version is the fix, a
+  sibling of the open `do_rootfs[vardeps]` item.
 - [ ] CVE monitoring cadence and a security-update SLA
 - [ ] Storage Immutability Spec enforcement: per-entity
   classification table in SECURITY.md, plus a write-window audit
