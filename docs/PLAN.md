@@ -1124,6 +1124,24 @@ Deferred until the milestones above are complete:
 - Ship debug and test tooling as a filesystem overlay on one
   production image instead of building separate production and
   non-production images.
+- Per-device kernel configuration management.  A baseline "sane
+  defaults" kernel config is a good starting point, but a
+  single-hardware deployment wants a stripped-down, minimal kernel
+  rather than the superset.  The choice is per-feature: hardware
+  that is only sometimes present (hot-plugged USB devices, say) is
+  right as a module; hardware that is always present on a given
+  board is better built in (monolithic), skipping the module-load
+  path; hardware that can never appear on a board should be dropped
+  entirely, not shipped as an inert module, because an unused
+  module is not free -- it still costs rootfs space and OTA
+  transfer time on every update.  The MT7921E fragment added for
+  the WiFi work is a concrete instance: it rides every linux-yocto
+  machine as a module and sits inert on boards with no such card.
+  Needs a research spike before any design -- how to express
+  per-device config deltas over the baseline (config fragments, a
+  KERNEL_FEATURES-style layer, or a per-machine config), how the
+  machine and boot-backend axis selects them, and how to keep it
+  maintainable instead of a hand-tuned .config per device.
 - LTS / backport policy and long-term maintenance tracks
 - Test-pyramid / coverage-gap review.  The suite is heavy on the
   QEMU end-to-end end and thin on the data-type and unit layers
