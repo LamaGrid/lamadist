@@ -26,11 +26,11 @@ SRC_URI += " \
 # repeated in SRC_URI above.
 RAUC_KEYRING_FILE = "dev-ca.cert.pem"
 
-# DEVELOPMENT-ONLY forced-unhealthy test hook (decision 5): gates
-# lamadist-health-check's /var/lamadist-force-unhealthy check behind
-# a marker file baked onto the read-only rootfs at build time, so a
-# writable /var can never resurrect the hook on an image built with
-# this unset.  Defaults on because every image built today is a
+# DEVELOPMENT-ONLY test hooks (decision 5): gates lamadist-health-
+# check's /var/lamadist-force-unhealthy and
+# /var/lamadist-force-no-network checks behind a marker file baked
+# onto the read-only rootfs at build time, so a writable /var can
+# never resurrect a hook on an image built with this unset.  Defaults on because every image built today is a
 # dev/CI image signed with the dev keyring above; M6's release image
 # build MUST set this to "0".  See ../../files/rauc-dev/README.md.
 LAMADIST_OTA_TEST_HOOKS ??= "1"

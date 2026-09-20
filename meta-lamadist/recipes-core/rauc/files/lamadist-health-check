@@ -11,17 +11,31 @@
 # there is no counter left to burn and no other slot to fall back to
 # -- rebooting unconditionally there would loop forever instead of
 # degrading gracefully.
+#
+# Healthy means: startup finished with no failed unit, at least one
+# managed link is routable, and sshd.socket is listening.  The link
+# check is what keeps a headless, network-only device recoverable:
+# a slot that boots but never gets a route can be reached by nobody,
+# so committing it would strand the machine on it.
 
 set -eu
 
 FLAG=/var/lamadist-force-unhealthy
+NO_NETWORK_FLAG=/var/lamadist-force-no-network
 # Marker baked onto the read-only rootfs at build time (rauc-conf.
-# bbappend's LAMADIST_OTA_TEST_HOOKS); the FLAG check below is a
-# no-op without it, so a plain write to the writable /var partition
+# bbappend's LAMADIST_OTA_TEST_HOOKS); both flag checks below are
+# no-ops without it, so a plain write to the writable /var partition
 # can never suppress an update on an image built with that switch
-# off (M6 release builds).
+# off (release builds).
 TEST_HOOKS_MARKER=/etc/lamadist/ota-test-hooks-enabled
 ESP_ENTRIES=/boot/loader/entries
+
+# Longest startup may still take once this service has started (it
+# is ordered after multi-user.target, so normally nothing is left),
+# and longest a link may take to become routable.  Both err long: a
+# burned try costs one reboot, a false commit costs the device.
+STARTUP_TIMEOUT=120
+NETWORK_TIMEOUT=300
 
 slot=""
 for tok in $(cat /proc/cmdline); do
@@ -57,12 +71,37 @@ if [ -e "${TEST_HOOKS_MARKER}" ] && [ -e "${FLAG}" ]; then
 	fail "forced-unhealthy flag present (${FLAG})"
 fi
 
-state=$(systemctl is-system-running 2>/dev/null || true)
+# `starting` is not a verdict: is-system-running reports it until
+# the initial job queue drains, and a unit can still fail after this
+# service has started.  --wait blocks until startup has finished
+# (this service is Type=exec, so its own job does not hold startup
+# open); an empty result is the timeout.
+state=$(timeout "${STARTUP_TIMEOUT}" systemctl is-system-running --wait 2>/dev/null || true)
 case "${state}" in
-degraded | failed)
+running)
+	;;
+"")
+	fail "startup did not finish within ${STARTUP_TIMEOUT}s"
+	;;
+*)
 	fail "systemd is-system-running reports '${state}'"
 	;;
 esac
+
+# At least one managed link must be routable.  --any, not the
+# default wait for every link: a wired port with no cable stays
+# "configuring" forever and must not veto a slot whose WiFi is up,
+# nor the other way round.  The test hook waits on a link that
+# cannot exist, so the real timeout path runs, on a short clock.
+if [ -e "${TEST_HOOKS_MARKER}" ] && [ -e "${NO_NETWORK_FLAG}" ]; then
+	set -- --interface=lamadist-nonet0 --timeout=15
+else
+	set -- --any --timeout="${NETWORK_TIMEOUT}"
+fi
+if ! /usr/lib/systemd/systemd-networkd-wait-online \
+		--operational-state=routable "$@"; then
+	fail "no routable link (systemd-networkd-wait-online $*)"
+fi
 
 if ! systemctl is-active --quiet sshd.socket; then
 	fail "sshd.socket is not active"
