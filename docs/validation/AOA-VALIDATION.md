@@ -558,6 +558,10 @@ item it guards.
 | 11 | P15 sshd refuses passwords | G3 | A probe with no key offered is refused with `publickey` as the only method sshd advertises | no | Policy: no password authentication over the network |
 | 12 | P17 OTA moves the boot, old slot untouched | G2 | Given a `--baseline` snapshot from before an update, `rauc status --detailed` shows the boot moved to the other slot and the previous slot is inactive, good, and the same install (checksum, size, timestamp, count) | no | Deselected without a baseline, never skipped |
 | 13 | P18 Wrong-CA bundle refused | G2 | A bundle signed by a certificate authority the image does not trust is refused at signature verification before any slot is written, and every slot is unchanged | yes | `push` (`-O`), then root `rauc install` |
+| 14 | P19 iwd confined | G4 | `systemctl is-active iwd` is `active`; the daemon's `/proc/<pid>/attr/current` is `NetworkManager_t` | yes | ADR 0014 decision 5 |
+| 15 | P20 WiFi state types | G4 | `/var/lib/iwd` is `NetworkManager_var_lib_t` and `/etc/iwd/main.conf` is `NetworkManager_etc_t` | yes | ADR 0014 decisions 4 and 5: the LUKS `/var` is relabeled by tmpfiles, never by an fc entry |
+| 16 | P21 Association and lease | G4 | On two `mac80211_hwsim` radios with iwd as the access point, the station connects and networkd reports `wlan0` routable with a default route at metric 2048 | yes | `@hwsim`: emulated target only; deselected on the device, never skipped |
+| 17 | P22 No SELinux denial | G4 | Zero `avc:` lines in the kernel log and zero `USER_AVC` records in the audit log for this boot | yes | Enforcing without silent breakage; D-Bus denials never reach the kernel log |
 
 Check 3 is unprivileged.  `.mise/lib/smoke_login.py:258-269` already
 reads that efivar as the `lama` user after login, so no elevation

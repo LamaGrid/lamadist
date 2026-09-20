@@ -423,3 +423,73 @@ def _sample_not_refusal(ctx: Context, name: str) -> None:
     assert not is_refusal(rc, text), (
         f"negative control failed: {name} read as a refusal"
     )
+
+
+# --- Goal 4: the WiFi backend on virtual radios ------------------------
+
+# Two mac80211_hwsim radios: iwd runs an access point on wlan1 (its own
+# AP mode, driven over D-Bus) and the station on wlan0 through a known
+# network profile; networkd serves the lease on wlan1 and takes it on
+# wlan0 through the image's own wlan0 profile.  The passphrase is a
+# test constant.  refpolicy gates networkd's DHCP server port bind
+# behind a boolean that is off by default and dontaudits the denial,
+# so the rig turns it on for the run; the guest is a snapshot.
+_HWSIM_PASSPHRASE: Final[str] = "hwsim-test-passphrase"
+_HWSIM_RIG: Final[str] = r"""
+set -e
+fail() { echo "rig: $*" >&2; exit 1; }
+modprobe mac80211_hwsim radios=2
+mkdir -p /var/lib/iwd/ap
+printf '[Security]\nPassphrase=@PASS@\n' > /var/lib/iwd/ap/lamatest.ap
+chmod 600 /var/lib/iwd/ap/lamatest.ap
+printf '[Match]\nName=wlan1\n\n[Network]\nAddress=10.99.0.1/24\nDHCPServer=yes\n' \
+    > /run/systemd/network/10-wlan1-ap.network
+setsebool systemd_networkd_dhcp_server 1
+systemctl restart systemd-networkd
+# iwd publishes one Device object per radio only after it has read the
+# new wiphy, a few seconds behind modprobe and not tied to the netdev
+# appearing, so wait for both objects rather than for a fixed time.
+ap=""; sta=""
+for _ in $(seq 1 30); do
+    for d in $(busctl tree net.connman.iwd --list | grep -E '^/net/connman/iwd/[0-9]+/[0-9]+$'); do
+        n=$(busctl get-property net.connman.iwd "$d" net.connman.iwd.Device Name 2>/dev/null | cut -d'"' -f2 || true)
+        case "$n" in wlan0) sta=$d ;; wlan1) ap=$d ;; esac
+    done
+    if [ -n "$ap" ] && [ -n "$sta" ]; then break; fi
+    sleep 1
+done
+if [ -z "$ap" ] || [ -z "$sta" ]; then
+    fail "iwd did not publish wlan0 and wlan1 within 30 s (station='$sta' ap='$ap')"
+fi
+busctl set-property net.connman.iwd "$ap" net.connman.iwd.Device Mode s ap
+sleep 2
+busctl call net.connman.iwd "$ap" net.connman.iwd.AccessPoint StartProfile s lamatest
+printf '[Security]\nPassphrase=@PASS@\n' > /var/lib/iwd/lamatest.psk
+chmod 600 /var/lib/iwd/lamatest.psk
+sleep 2
+busctl call net.connman.iwd "$sta" net.connman.iwd.Station Scan > /dev/null 2>&1 || true
+s=""
+for _ in $(seq 1 45); do
+    s=$(busctl get-property net.connman.iwd "$sta" net.connman.iwd.Station State | cut -d'"' -f2)
+    [ "$s" = connected ] && break
+    sleep 2
+done
+[ "$s" = connected ] || fail "station state '$s' after 90 s"
+/usr/lib/systemd/systemd-networkd-wait-online -i wlan0 --operational-state=routable --timeout=60 \
+    || fail "wlan0 not routable within 60 s of association"
+echo "station $s, wlan0 routable"
+"""
+
+
+@step(
+    r"a virtual radio pair with iwd as the access point on wlan1 "
+    r"and the station on wlan0"
+)
+def _hwsim_rig(ctx: Context) -> None:
+    res = ctx["target"].run_root(_HWSIM_RIG.replace("@PASS@", _HWSIM_PASSPHRASE))
+    if res.rc != 0:
+        pytest.fail(
+            f"the virtual radio rig did not come up (rc={res.rc}):\n"
+            f"stdout: {res.stdout}\nstderr: {res.stderr}"
+        )
+    ctx["output"] = res.stdout

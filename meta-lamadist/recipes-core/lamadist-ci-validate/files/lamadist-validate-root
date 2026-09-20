@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Privileged half of the CI validation collector.  Runs exactly the
-# four check commands that need root and prints their results as a
-# JSON object keyed by the command string, for the entrypoint
+# check commands that need root and prints their results as a JSON
+# object keyed by the command string, for the entrypoint
 # (lamadist-validate-device) to merge with the unprivileged facts.
 #
 # It is reachable only through one NOPASSWD sudoers rule
 # (/etc/sudoers.d/lamadist-ci-validate) that names this exact path and
-# no arguments, so the CI key can elevate for these four fixed
-# commands and nothing else.  It reads no arguments and no stdin.
+# no arguments, so the CI key can elevate for these fixed commands and
+# nothing else.  It reads no arguments and no stdin.
 set -u
 
 exec /usr/bin/python3 - <<'PY'
@@ -19,9 +19,13 @@ import sys
 
 # Exactly the "as root" commands the features run, verbatim.
 ROOT = [
+    "ausearch -m USER_AVC -ts boot 2>/dev/null | grep -c 'avc:'",
+    "cat /proc/$(systemctl show iwd -p MainPID --value)/attr/current",
     "cat /proc/1/attr/current",
     "cryptsetup luksDump $(cryptsetup status $(basename $(awk '$2 == \"/var\" {print $1}' /proc/mounts)) | awk '/^ *device:/ {print $2}')",
     "dmsetup info -c --noheadings -o uuid $(awk '$2 == \"/var\" {print $1}' /proc/mounts)",
+    "journalctl -k -b --no-pager | grep -c 'avc: '",
+    "ls -Zd /var/lib/iwd",
     "wc -l < /sys/kernel/security/ima/ascii_runtime_measurements",
 ]
 

@@ -521,12 +521,14 @@ committed and the device stranded.  That guard comes first.
 - [x] Kernel: `pkcs8_key_parser` module (iwd's modules-load.d asks
   for it) and a QA-only `mac80211_hwsim` for radio-less QEMU tests
   (PR #45)
-- [ ] The swap: `WIRELESS_DAEMON = "iwd"`, daemon-only build, `/var`
+- [x] The swap: `WIRELESS_DAEMON = "iwd"`, daemon-only build, `/var`
   ordering drop-in, tmpfiles relabel, the missing `watch` rule, baked
   `main.conf`; proven enforcing in QEMU against two virtual radios
-  with zero new denials (ADR 0014)
-- [ ] Validate feature: association, lease, daemon domain, and an AVC
-  baseline on both targets (`@hwsim` steps deselected on the device)
+  with zero new denials (ADR 0014, PR #48)
+- [x] Validate feature: association, lease, daemon domain, and an AVC
+  baseline on both targets (`@hwsim` steps deselected on the device);
+  lands after the device rollout, since its daemon and label checks
+  assert the iwd image
 - [ ] Device rollout: profile provisioned from the running slot
   first, install through the CI device path, the guard commits, the
   old configuration retired only after an unrelated reboot
