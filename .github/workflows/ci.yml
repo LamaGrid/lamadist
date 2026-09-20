@@ -21,6 +21,13 @@ on:
           - soquartz
           - orin-nx
           - all
+      release:
+        description: >-
+          Build x86_64 with --release (full SPDX source inventory,
+          xz -9e, no test SSH key)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -148,9 +155,11 @@ jobs:
       image: registry.local/lamagrid/lamadist-builder:latest
     env:
       KAS_WORK_DIR: ${{ github.workspace }}
-    # Release builds (main push) serialize the SPDX chain at the
-    # 11 GiB pod ceiling: measured ~6.4 h for SPDX alone (run
-    # 33823958778), so the default 480 leaves no margin.
+    # A release build (dispatch with release=true) serializes the
+    # SPDX chain at the 11 GiB pod ceiling: measured ~6.4 h for
+    # SPDX alone (run 33823958778), so the default 480 leaves no
+    # margin.  Push and PR builds run the QA profile and never pay
+    # it: ~12 min warm, ~4 h cold.
     timeout-minutes: 720
     steps:
       - name: Checkout
@@ -165,9 +174,15 @@ jobs:
           rm -rf "${GITHUB_WORKSPACE}/build/tmp"
           echo "Cleaned build/tmp directory"
 
+      # A push to main runs the same build its PR ran: same sstate
+      # universe, so the merge re-verifies what the PR proved in
+      # minutes.  The release profile (full SPDX source inventory,
+      # xz -9e, no test key) is dispatch-only: its SPDX chain never
+      # restores across commits, so on every merge it cost hours for
+      # an artifact nothing consumed.
       - name: Build
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${{ inputs.release }}" = "true" ]; then
             mise run build --bsp x86_64 --ci --release --icecc
           else
             mise run build --bsp x86_64 --ci --qa --include-scans --icecc
