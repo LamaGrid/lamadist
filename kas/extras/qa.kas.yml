@@ -8,3 +8,6 @@ local_conf_header:
     # Fast image compression for QA/PR turnaround; release keeps
     # the distro default (22).
     LAMADIST_IMAGE_ZSTD_LEVEL = '3'
+    # Virtual radios for the QEMU WiFi test (kernel fragment
+    # hwsim.cfg); test-only, never in a release kernel.
+    LAMADIST_TEST_HWSIM = '1'

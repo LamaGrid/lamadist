@@ -21,3 +21,7 @@ local_conf_header:
 
     # Uncompressed image types for local dev builds
     IMAGE_FSTYPES                         = 'ext4 wic'
+
+    # Virtual radios for the QEMU WiFi test (kernel fragment
+    # hwsim.cfg); test-only, never in a release kernel.
+    LAMADIST_TEST_HWSIM                   = '1'
