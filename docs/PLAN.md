@@ -504,6 +504,33 @@ Related, not gated on the checkpoint: the USB installer, pulled
 forward into an active pass 2026-07-23 (see the Installer Pass
 section below).
 
+### WiFi Backend (iwd, active 2026-09-20)
+
+The live device is WiFi-only.  Its station came up on wpa_supplicant
+through an `ExecStart` rewrite that pointed the daemon at a
+configuration on the encrypted `/var`; iwd replaces it as one
+confined process with native `/var` state (ADR 0014).  The spike
+that chose it found the larger risk elsewhere: the RAUC health gate
+had no network predicate, so a slot that booted without WiFi was
+committed and the device stranded.  That guard comes first.
+
+- [x] RAUC health gate never commits a slot without a routable link,
+  and waits for startup to finish before judging it (PR #44); the OTA
+  test drives the no-network rollback and checks that a committed
+  slot never reboots on a health failure
+- [x] Kernel: `pkcs8_key_parser` module (iwd's modules-load.d asks
+  for it) and a QA-only `mac80211_hwsim` for radio-less QEMU tests
+  (PR #45)
+- [ ] The swap: `WIRELESS_DAEMON = "iwd"`, daemon-only build, `/var`
+  ordering drop-in, tmpfiles relabel, the missing `watch` rule, baked
+  `main.conf`; proven enforcing in QEMU against two virtual radios
+  with zero new denials (ADR 0014)
+- [ ] Validate feature: association, lease, daemon domain, and an AVC
+  baseline on both targets (`@hwsim` steps deselected on the device)
+- [ ] Device rollout: profile provisioned from the running slot
+  first, install through the CI device path, the guard commits, the
+  old configuration retired only after an unrelated reboot
+
 ### Installer Pass (active, pulled forward 2026-07-23)
 
 **Status:** Increment 1 (raw-image review installer) WORKING and
