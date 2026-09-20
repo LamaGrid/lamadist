@@ -7,12 +7,20 @@
 # instead of a graceful degrade.  lamadist-health-check itself checks
 # whether the boot is still a pending boot-counting trial and only
 # reboots in that case.
+#
+# Type=exec, not oneshot: the check waits for startup to finish
+# (`systemctl is-system-running --wait`), and a oneshot's own start
+# job keeps startup unfinished until ExecStart exits, so the check
+# would wait on itself.  With exec the job completes once the process
+# is running and startup can finish underneath it.  RemainAfterExit
+# keeps the unit active after a successful run, so a repeated start
+# does not run the gate again.
 [Unit]
 Description=LamaDist RAUC health gate (mark-good on success, reboot while pending)
 After=multi-user.target sshd.socket
 
 [Service]
-Type=oneshot
+Type=exec
 RemainAfterExit=yes
 ExecStart=/usr/lib/rauc/lamadist-health-check
 

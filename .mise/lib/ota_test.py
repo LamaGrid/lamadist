@@ -20,13 +20,17 @@ Flow:
    `lamadist.slot=b`), the health service committed the boot
    (`lamadist-health.service` Result=success), and `rauc status`
    agrees slot b is good.
-4. Touch the forced-unhealthy test flag, install the bundle again
+4. On the committed slot b, run the health check with the
+   forced-unhealthy flag set: it must fail without rebooting (the
+   counter is gone, so a reboot would loop).
+5. Touch the forced-no-network test flag, install the bundle again
    (now targeting the inactive slot a), and reboot.
-5. The health check fails on slot a every time (the flag lives on
-   the shared /var partition), systemd-boot burns down its boot
-   counter across however many attempts, and falls back to slot b.
-   Watch that play out over the same serial connection and assert
-   the final slot is b and rauc status now reports slot a bad.
+6. The health check's network guard times out on slot a every time
+   (the flag lives on the shared /var partition), systemd-boot
+   burns down its boot counter across however many attempts, and
+   falls back to slot b.  Watch that play out over the same serial
+   connection and assert the final slot is b and rauc status now
+   reports slot a bad.
 
 Exit 0 on success, 1 on failure (with the transcript tail on
 stderr), matching smoke_login.py's convention.
@@ -48,6 +52,9 @@ from smoke_login import SerialSession, SerialTimeoutError, login
 REMOTE_BUNDLE_DIR = "/var/cache/lamadist-ota"
 REMOTE_BUNDLE_PATH = f"{REMOTE_BUNDLE_DIR}/bundle.raucb"
 FORCE_UNHEALTHY_FLAG = "/var/lamadist-force-unhealthy"
+FORCE_NO_NETWORK_FLAG = "/var/lamadist-force-no-network"
+HEALTH_CHECK = "/usr/lib/rauc/lamadist-health-check"
+BOOT_ID = "/proc/sys/kernel/random/boot_id"
 SSH_HOST = "127.0.0.1"
 SSH_OPTS = [
     "-o", "StrictHostKeyChecking=no",
@@ -83,10 +90,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--boot-attempt-timeout",
         type=int,
-        default=120,
+        default=240,
         help="Per-attempt window (seconds) while watching the boot-counted "
         "rollback; bounds a single stuck login so the retry loop can move "
-        "on instead of burning the whole --timeout on one missed prompt",
+        "on instead of burning the whole --timeout on one missed prompt.  "
+        "Must cover one whole trial cycle: boot, the wlan0 device job that "
+        "holds multi-user.target for 90 s on a guest with no radio, the "
+        "gate's 15 s forced-no-network wait, and the reboot -- a login on "
+        "the failing slot is followed by a wait for the NEXT prompt",
     )
     return parser.parse_args()
 
@@ -281,21 +292,65 @@ def install_bundle(
         )
 
 
+def wait_for_health_verdict(args: argparse.Namespace, deadline: float) -> str:
+    """Block until lamadist-health.service has finished its run and
+    return its Result.  The unit is Type=exec, so it stays running for
+    as long as the check waits on startup and the network, and Result
+    reads `success` for any running service; it is only a verdict
+    once the unit has left that state (exited on success, failed
+    otherwise)."""
+    in_progress = {"start-pre", "start", "start-post", "running"}
+    while time.monotonic() < deadline:
+        result = ssh_run(
+            args,
+            deadline,
+            "systemctl show -p SubState -p Result --value lamadist-health.service",
+        )
+        sub_state, verdict = (result.stdout.strip().split("\n") + ["", ""])[:2]
+        if sub_state.strip() not in in_progress:
+            return verdict.strip()
+        time.sleep(5)
+    raise OtaTestError("lamadist-health.service did not finish before the deadline")
+
+
 def assert_health_committed(args: argparse.Namespace, deadline: float, slot: str) -> None:
-    result = ssh_run(
-        args, deadline, "systemctl show -p Result --value lamadist-health.service"
-    )
-    if result.stdout.strip() != "success":
+    verdict = wait_for_health_verdict(args, deadline)
+    if verdict != "success":
         raise OtaTestError(
             f"lamadist-health.service on slot {slot} did not report "
-            f"Result=success (got {result.stdout.strip()!r}); health "
-            "check likely did not run, or failed"
+            f"Result=success (got {verdict!r}); health check failed"
         )
     raw = rauc_status_raw(args, deadline)
     if not _slot_status_mentions(raw, slot, ["good"]):
         raise OtaTestError(
             f"rauc status did not report boot-status good for slot "
             f"{slot} after mark-good:\n{raw}"
+        )
+
+
+def assert_committed_slot_failure_does_not_reboot(
+    args: argparse.Namespace, deadline: float
+) -> None:
+    """With the forced-unhealthy flag set on a committed slot, the
+    health check must exit non-zero with its reason and leave the
+    guest running: the slot's counter is gone, so a reboot would loop
+    rather than fall back.  An unchanged boot_id proves no reboot."""
+    boot_id = ssh_run(args, deadline, f"cat {BOOT_ID}").stdout.strip()
+    sudo_run(args, deadline, f"touch {FORCE_UNHEALTHY_FLAG}")
+    result = sudo_run(args, deadline, HEALTH_CHECK, check=False)
+    sudo_run(args, deadline, f"rm -f {FORCE_UNHEALTHY_FLAG}", check=False)
+    if result.returncode == 0 or "forced-unhealthy" not in result.stderr:
+        raise OtaTestError(
+            "health check with the forced-unhealthy flag on a committed "
+            f"slot should fail with its reason (rc={result.returncode}):\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+    time.sleep(10)  # a `systemctl reboot` would have taken the guest down by now
+    after = ssh_run(args, deadline, f"cat {BOOT_ID}").stdout.strip()
+    if after != boot_id:
+        raise OtaTestError(
+            "guest rebooted after a health failure on a committed slot "
+            f"(boot_id {boot_id} -> {after})"
         )
 
 
@@ -321,15 +376,27 @@ def run(session: SerialSession, args: argparse.Namespace) -> None:
     assert_health_committed(args, deadline, slot="b")
     print("==> Slot b installed, booted, and committed good.")
 
-    # Phase 3: forced failure -- flag persists on the shared /var
-    # partition, so the next boot into the freshly-updated (and
-    # still-pending) slot a will fail health every time.
-    sudo_run(args, deadline, f"touch {FORCE_UNHEALTHY_FLAG}")
-    print("==> Installing second bundle (targets inactive slot a) with force-unhealthy flag set...")
+    # Phase 3: a health failure on a COMMITTED slot must not reboot
+    # (its counter is gone, so a reboot would loop, not degrade).
+    # Drive the check directly so its exit status and message are
+    # observable, then prove the guest kept the same boot.
+    assert_committed_slot_failure_does_not_reboot(args, deadline)
+    print("==> Health failure on the committed slot logged without a reboot.")
+
+    # Phase 4: forced no-network -- the flag persists on the shared
+    # /var partition and makes the guard wait on a link that cannot
+    # exist, so every trial boot of the freshly-updated (and
+    # still-pending) slot a times out on the real wait-online path
+    # and fails health.
+    sudo_run(args, deadline, f"touch {FORCE_NO_NETWORK_FLAG}")
+    print(
+        "==> Installing second bundle (targets inactive slot a) "
+        "with force-no-network flag set..."
+    )
     install_bundle(args, deadline, other_slot="a", ok_keywords=["good", "pending"])
     reboot_guest(args, deadline)
 
-    # Phase 4: watch the boot-counted rollback play out and land back
+    # Phase 5: watch the boot-counted rollback play out and land back
     # on slot b.
     print("==> Watching for automatic rollback to slot b...")
     slot = await_fallback_slot(
@@ -341,6 +408,7 @@ def run(session: SerialSession, args: argparse.Namespace) -> None:
     raw = rauc_status_raw(args, deadline)
     if not _slot_status_mentions(raw, "a", ["bad"]):
         raise OtaTestError(f"rauc status did not report slot a as bad after rollback:\n{raw}")
+    sudo_run(args, deadline, f"rm -f {FORCE_NO_NETWORK_FLAG}")
     print("==> Rolled back to slot b; slot a marked bad.")
 
 

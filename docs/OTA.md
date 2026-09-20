@@ -48,8 +48,15 @@ loader entry `lamadist-<x>+3.conf`, and marks the slot primary.
 
 The freshly installed slot boots as a systemd-boot counted trial
 (3 tries).  `lamadist-health.service` commits the boot by running
-`rauc status mark-good` only when the system is healthy: systemd
-`is-system-running` not degraded/failed and `sshd.socket` active.
+`rauc status mark-good` only when the system is healthy: startup
+finished with `systemctl is-system-running --wait` reporting
+`running` (120 s), at least one managed link routable
+(`systemd-networkd-wait-online --any --operational-state=routable`,
+300 s), and `sshd.socket` active.  The link check is what keeps a
+headless, network-only device recoverable: a slot that boots but
+never gets a route can be reached by nobody, so it is never
+committed.  `--any` matters: a wired port with no cable stays
+"configuring" forever and must not veto a slot whose WiFi is up.
 Committing strips the entry's counter (renames it to the bare
 `lamadist-<x>.conf`).
 
@@ -73,9 +80,9 @@ slot forever.  See the header of
 Bundles are dev-signed with the committed, intentionally public
 development CA in `meta-lamadist/files/rauc-dev/` (CN "LamaDist
 Development CA").  Every image built today trusts only that CA;
-M6 owns real release signing.  `rauc-conf` also bakes a
-DEVELOPMENT-ONLY forced-unhealthy hook
-(`/var/lamadist-force-unhealthy`, gated on a rootfs marker) used
+M6 owns real release signing.  `rauc-conf` also bakes
+DEVELOPMENT-ONLY test hooks (`/var/lamadist-force-unhealthy` and
+`/var/lamadist-force-no-network`, gated on a rootfs marker) used
 by the rollback test; release builds must set
 `LAMADIST_OTA_TEST_HOOKS = "0"`.
 
@@ -85,13 +92,14 @@ by the rollback test; release builds must set
 mise run test-ota --bsp x86_64
 ```
 
-Boots the newest WIC in QEMU (headless, snapshot), installs the
+Boots the newest WIC in QEMU (headless, snapshot) and installs the
 newest bundle twice: once cleanly (asserts the reboot lands on the
-new slot and health commits it), then again with the
-forced-unhealthy flag set (asserts the boot-counted trials burn
-out and the machine rolls back to the previous slot, with the
-failed slot marked bad).  Needs `sshpass` on the host.  On
-failure the full serial transcript is preserved at
+new slot and health commits it), then, after checking that a
+health failure on the committed slot fails without rebooting, again
+with the forced-no-network flag set (asserts the guard's
+`wait-online` timeout burns the boot-counted trials and the machine
+rolls back to the previous slot, with the failed slot marked bad).
+On failure the full serial transcript is preserved at
 `.cache/agents/ota-serial-fail.log`.
 
 ## Known limitations (pass 1)
