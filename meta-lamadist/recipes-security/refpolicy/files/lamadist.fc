@@ -3,10 +3,11 @@
 # File context specifications for the lamadist local policy module
 # (see lamadist.te).
 #
-# Almost empty after the W12 triage: none of the residual denials from
-# then is fixed by a file-context entry, and the sole entry this file
-# now carries -- the WiFi config, below -- came later.  The natural
-# candidate was the persisted ssh host keys at /var/lib/ssh (a
+# Empty after the W12 triage: none of the residual denials from then
+# is fixed by a file-context entry, and the one entry this file carried
+# for a while (the WiFi configuration, see below) is covered upstream
+# now.  The natural candidate was the persisted ssh host keys at
+# /var/lib/ssh (a
 # sshd_key_t label would let refpolicy handle ssh_keygen_t/sshd_t
 # access natively, replacing the var_lib_t allows in lamadist.te),
 # but nothing relabels /var: /var/lib/ssh is created at runtime on
@@ -17,15 +18,17 @@
 # classes/lamadist-image.bbclass (outside this recipe's file set) --
 # recorded for a later pass; the lamadist.te allows cover it for now.
 #
-# The wpa_supplicant WiFi station config under /var/lib/lamadist-wifi is
-# the one case that DOES take an entry here (below), because refpolicy
-# already defines a fitting type -- NetworkManager_var_lib_t, which the
-# confined supplicant domain manages -- unlike /var/lib/ssh, whose
-# sshd_key_t would need refpolicy wiring not yet in place.  The LUKS
-# /var is still never relabeled on its own, so the entry alone is inert:
-# a tmpfiles `Z` (files/lamadist-wifi.conf in the wpa-supplicant
-# bbappend) applies it every boot, and lamadist.te grants
-# systemd_tmpfiles_t that relabel.
+# The iwd WiFi state under /var/lib/iwd needs no entry here: upstream
+# refpolicy's networkmanager module already labels /var/lib/iwd(/.*)?
+# NetworkManager_var_lib_t, the type the confined daemon manages, and
+# that entry is compiled into the image's file_contexts.  (Its
+# predecessor, a /var/lib/lamadist-wifi entry for wpa_supplicant's
+# config, was the one entry this file ever carried; wpa_supplicant had
+# no upstream path of its own.)  The LUKS /var is still never
+# relabeled on its own, so the upstream entry alone is inert for
+# anything an operator copies in: a tmpfiles `Z`
+# (files/lamadist-wifi.conf in the iwd bbappend) applies it every
+# boot, and lamadist.te grants systemd_tmpfiles_t that relabel.
 #
 # The /etc/ld.so.cache var_t mislabel that drove the denial storm is
 # fixed at its source -- lamadist-image.bbclass masks ldconfig.service,
@@ -34,5 +37,3 @@
 # merged /etc root itself stays var_t (the overlay upperdir's type) and
 # is deliberately not relabeled: base refpolicy lets every domain
 # search a var_t dir, so it needs no fc entry.
-
-/var/lib/lamadist-wifi(/.*)?	gen_context(system_u:object_r:NetworkManager_var_lib_t,s0)

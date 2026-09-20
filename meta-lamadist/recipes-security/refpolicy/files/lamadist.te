@@ -59,6 +59,7 @@ gen_require(`
 	type syslogd_runtime_t;
 	type ssh_keygen_t;
 	type var_lib_t;
+	type NetworkManager_t;
 	type NetworkManager_var_lib_t;
 	type systemd_tmpfiles_t;
 	type unconfined_t;
@@ -71,7 +72,7 @@ gen_require(`
 	class process { transition noatsecure rlimitinh siginh };
 	class dir { getattr search open read write add_name remove_name
 		create rename reparent setattr relabelfrom relabelto rmdir
-		mounton };
+		mounton watch watch_reads };
 	class file { getattr setattr create read write open unlink rename
 		link map execute mounton relabelfrom relabelto };
 	class chr_file { getattr open read write ioctl append lock create
@@ -283,31 +284,40 @@ allow sshd_t var_lib_t:file { getattr open read };
 	# L172,L175,L177,L186,L189,L191  (sshd reading the persisted key)
 
 ########################################################################
-# wpa_supplicant WiFi station config under /var/lib/lamadist-wifi.  The
-# SSID and PSK live on the encrypted /var (provisioned out of band,
-# never baked into the image).  refpolicy folds wpa_supplicant into its
-# networkmanager module, so systemd runs the daemon confined as
-# NetworkManager_t, which base refpolicy already lets manage
-# NetworkManager_var_lib_t -- so the config only needs that label, and
-# no NetworkManager_t rule belongs here.  A broad var_lib_t:file read
-# for that domain (the shape the ssh block above still uses) is avoided
-# on purpose: wpa_supplicant parses untrusted over-the-air frames, so
-# handing it every /var secret (the ssh host keys among them) is the
-# larger risk.  Nothing relabels the LUKS /var (see lamadist.fc), so the
-# label is applied by a tmpfiles `Z` (files/lamadist-wifi.conf, shipped
-# by the wpa-supplicant bbappend) that systemd-tmpfiles runs each boot,
-# relabeling the provisioned dir and file from the var_lib_t they
-# inherit to NetworkManager_var_lib_t.  Grant that relabel to
-# systemd_tmpfiles_t here rather than lean on the
+# iwd WiFi state under /var/lib/iwd.  The network profiles (SSID and
+# passphrase) live on the encrypted /var (provisioned out of band,
+# never baked into the image).  refpolicy folds iwd into its
+# networkmanager module, as it does wpa_supplicant, so systemd runs the
+# daemon confined as NetworkManager_t, which base refpolicy already
+# lets manage NetworkManager_var_lib_t; upstream also labels
+# /var/lib/iwd(/.*)? with that type, so no fc entry of ours is needed.
+# A broad var_lib_t:file read for that domain (the shape the ssh block
+# above still uses) is avoided on purpose: iwd parses untrusted
+# over-the-air frames, so handing it every /var secret (the ssh host
+# keys among them) is the larger risk.  Nothing relabels the LUKS /var
+# (see lamadist.fc), so the label is applied by a tmpfiles `Z`
+# (files/lamadist-wifi.conf, shipped by the iwd bbappend) that
+# systemd-tmpfiles runs each boot, relabeling whatever an operator
+# copied in from the var_lib_t it inherits to NetworkManager_var_lib_t.
+# Grant that relabel to systemd_tmpfiles_t here rather than lean on the
 # systemd_tmpfiles_manage_all tunable staying on: the tunable is the
 # working mechanism today, these bounded rules are the floor if it is
-# turned off.  Proven on the live device: with the config labeled
-# NetworkManager_var_lib_t the confined domain associated and took a
-# lease with zero AVCs.
+# turned off.  First proven on the live device with wpa_supplicant's
+# config under the same label: the confined domain associated and took
+# a lease with zero AVCs.
 allow systemd_tmpfiles_t var_lib_t:dir { getattr search open read relabelfrom };
 allow systemd_tmpfiles_t var_lib_t:file { getattr relabelfrom };
 allow systemd_tmpfiles_t NetworkManager_var_lib_t:dir { getattr search open read setattr relabelto };
 allow systemd_tmpfiles_t NetworkManager_var_lib_t:file { getattr setattr relabelto };
+
+# iwd watches its state directory with inotify so a profile dropped
+# into /var/lib/iwd is picked up without a restart; the watch mask
+# includes IN_ACCESS and IN_CLOSE_NOWRITE, which need watch_reads on
+# top of watch.  Base refpolicy grants NetworkManager_t watch on its
+# /etc directory type but not on NetworkManager_var_lib_t (checked
+# with sesearch on the built policy), so the inotify_add_watch would
+# be denied and only profiles present at startup would be seen.
+allow NetworkManager_t NetworkManager_var_lib_t:dir { watch watch_reads };
 
 ########################################################################
 # SSH interactive login transition.  On this targeted policy the

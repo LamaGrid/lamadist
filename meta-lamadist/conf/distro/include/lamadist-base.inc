@@ -52,6 +52,14 @@ DISTRO_FEATURES_NATIVE = 'acl x11 xattr ipv4 ipv6 selinux luks ima'
 DISTRO_EXTRA_RDEPENDS += 'packagegroup-core-boot'
 DISTRO_EXTRA_RRECOMMENDS += ''
 
+# WiFi supplicant.  oe-core's packagegroup-base-wifi pulls in one
+# wireless daemon (wpa-supplicant by default).  iwd is the LamaDist
+# choice: one confined process whose state lives natively on /var,
+# the hardened upstream unit, and no readline or libnl of its own
+# (docs/adr/0014-iwd-wifi-backend.md).  The image-side plumbing is
+# in recipes-connectivity/iwd.
+WIRELESS_DAEMON = "iwd"
+
 # Wrynose ships Linux 6.18 LTS; the 6.6 recipes left oe-core
 PREFERRED_VERSION_linux-yocto ?= '6.18%'
 PREFERRED_VERSION_linux-yocto-rt ?= '6.18%'
