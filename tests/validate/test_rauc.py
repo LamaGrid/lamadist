@@ -91,6 +91,41 @@ AFTER = _status(
 )
 
 
+def _flashed_slot(
+    name: str, bootname: str, state: str, boot_status: str | None = None
+) -> dict[str, Any]:
+    """A slot RAUC never installed: the image was flashed, not updated.
+
+    This is every slot of a snapshot boot from the deploy directory:
+    no checksum, no install stamp, and no boot status until the health
+    gate marks the booted slot good.
+    """
+    return {
+        name: {
+            "class": name.split(".")[0],
+            "device": f"/dev/disk/by-partlabel/{name}",
+            "type": "raw",
+            "bootname": bootname,
+            "state": state,
+            "parent": None,
+            "mountpoint": None,
+            "boot_status": boot_status,
+            "slot_status": {"bundle": {"compatible": None}},
+        }
+    }
+
+
+# A fresh boot of a flashed image after the health gate committed it.
+FLASHED = _status(
+    "a",
+    "rootfs.0",
+    [
+        _flashed_slot("rootfs.0", "a", "booted", "good"),
+        _flashed_slot("rootfs.1", "b", "inactive"),
+    ],
+)
+
+
 def test_parse_reads_the_detailed_shape() -> None:
     status = parse_status(BEFORE)
     assert status.booted == "a"
@@ -163,6 +198,18 @@ def test_facts_round_trip_through_the_snapshot() -> None:
     assert from_facts(facts) == status
 
 
+def test_parse_accepts_slots_rauc_never_installed() -> None:
+    status = parse_status(FLASHED)
+    booted = status.slots["rootfs.0"]
+    assert (booted.state, booted.boot_status) == ("booted", "good")
+    assert (booted.sha256, booted.size) == (None, None)
+    assert (booted.installed_at, booted.installed_count) == (None, None)
+    assert status.slots["rootfs.1"].boot_status == ""
+    assert unchanged(status, parse_status(FLASHED))
+    facts = json.loads(json.dumps(to_facts(status)))
+    assert from_facts(facts) == status
+
+
 def test_parse_fails_loudly_on_shape_drift() -> None:
     with pytest.raises(ValueError):
         parse_status(json.dumps({"booted": "a"}))
@@ -170,3 +217,8 @@ def test_parse_fails_loudly_on_shape_drift() -> None:
     del drifted["slots"][0]["rootfs.0"]["slot_status"]
     with pytest.raises(ValueError):
         parse_status(json.dumps(drifted))
+    # A checksum that is present but hollow is drift, not a flashed slot.
+    hollow = json.loads(BEFORE)
+    hollow["slots"][0]["rootfs.0"]["slot_status"]["checksum"] = {}
+    with pytest.raises(ValueError):
+        parse_status(json.dumps(hollow))

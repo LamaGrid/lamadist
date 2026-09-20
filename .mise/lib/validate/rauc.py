@@ -4,7 +4,9 @@
 ``rauc status --detailed --output-format=json`` is reduced to one
 ``Status`` value: which slot is booted, which is the boot primary, and
 for every slot its install identity (checksum, size, install stamp and
-count) and boot status.  The predicates over two such values are the
+count) and boot status.  A slot RAUC never installed -- every slot of
+a flashed image until an update lands -- has no install identity, and
+its fields are ``None``.  The predicates over two such values are the
 whole of Goal 2's dynamic half:
 
 - ``moved``: an update carried the boot to the other slot;
@@ -34,10 +36,10 @@ class Slot:
     bootname: str
     state: str
     boot_status: str
-    sha256: str
-    size: int
-    installed_at: str
-    installed_count: int
+    sha256: str | None
+    size: int | None
+    installed_at: str | None
+    installed_count: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +49,22 @@ class Status:
     slots: dict[str, Slot]
 
 
+def _install_identity(
+    detail: Mapping[str, Any],
+) -> tuple[str | None, int | None, str | None, int | None]:
+    """Checksum, size, install stamp, and count; ``None`` where RAUC
+    recorded nothing because it never installed the slot.  An entry that
+    is present but incomplete is shape drift and raises like any other."""
+    checksum = detail.get("checksum")
+    installed = detail.get("installed")
+    return (
+        None if checksum is None else str(checksum["sha256"]),
+        None if checksum is None else int(checksum["size"]),
+        None if installed is None else str(installed["timestamp"]),
+        None if installed is None else int(installed["count"]),
+    )
+
+
 def parse_status(raw: str) -> Status:
     """Reduce the detailed JSON; raise ``ValueError`` on any shape drift."""
     try:
@@ -54,16 +72,18 @@ def parse_status(raw: str) -> Status:
         slots: dict[str, Slot] = {}
         for entry in data["slots"]:
             for name, slot in entry.items():
-                detail = slot["slot_status"]
+                sha256, size, installed_at, count = _install_identity(
+                    slot["slot_status"]
+                )
                 slots[name] = Slot(
                     name=name,
                     bootname=slot.get("bootname") or "",
                     state=slot["state"],
                     boot_status=slot.get("boot_status") or "",
-                    sha256=detail["checksum"]["sha256"],
-                    size=int(detail["checksum"]["size"]),
-                    installed_at=detail["installed"]["timestamp"],
-                    installed_count=int(detail["installed"]["count"]),
+                    sha256=sha256,
+                    size=size,
+                    installed_at=installed_at,
+                    installed_count=count,
                 )
         return Status(booted=data["booted"], primary=data["boot_primary"], slots=slots)
     except (AttributeError, KeyError, TypeError, ValueError) as err:
