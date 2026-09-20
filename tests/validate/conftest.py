@@ -28,14 +28,19 @@ from steps import FACTS
 from validate.target import CollectorTarget, SshTarget, TargetError, from_env
 
 MARKERS: Final[tuple[str, ...]] = (
-    *(f"P{n}: property {n} of the validation suite" for n in range(1, 19)),
+    *(f"P{n}: property {n} of the validation suite" for n in range(1, 23)),
     "G1: goal 1, the image works",
     "G2: goal 2, nothing breaks across an OTA update",
     "G3: goal 3, the security properties hold",
+    "G4: goal 4, the WiFi backend runs confined and takes a lease",
     "root: the check needs root on the target",
     "negative: negative control, runs without a target",
     "device_only: cannot run on the emulated target",
     "advisory: recorded, never gates",
+    (
+        "hwsim: needs the virtual radio pair (mac80211_hwsim), so only the "
+        "emulated target; deselected on the device, never skipped"
+    ),
     (
         "ota: compares against a snapshot from before an update "
         "(LAMADIST_VALIDATE_BASELINE); deselected without one, never skipped"
@@ -64,12 +69,15 @@ def pytest_collection_modifyitems(
     summary, never skipped (rule 2).  The ``ota`` checks need a baseline
     (LAMADIST_VALIDATE_BASELINE); the ``device_write`` checks push and
     install, which the read-only CI collector (LAMADIST_VALIDATE_COLLECTOR)
-    cannot do."""
+    cannot do; the ``hwsim`` checks load virtual radios, which only the
+    emulated target (LAMADIST_VALIDATE_TARGET=qemu) carries."""
     drop: list[str] = []
     if not os.environ.get("LAMADIST_VALIDATE_BASELINE"):
         drop.append("ota")
     if os.environ.get("LAMADIST_VALIDATE_COLLECTOR"):
         drop.append("device_write")
+    if os.environ.get("LAMADIST_VALIDATE_TARGET") != "qemu":
+        drop.append("hwsim")
     if not drop:
         return
     dropped = [it for it in items if any(it.get_closest_marker(m) for m in drop)]
