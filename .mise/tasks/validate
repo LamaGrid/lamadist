@@ -14,9 +14,12 @@
 # needs, from {{project_dir}}/fnox.local.toml (gitignored):
 #   LAMADIST_VALIDATE_HOST, LAMADIST_VALIDATE_PORT,
 #   LAMADIST_VALIDATE_SUDO_PASSWORD
-# The emulated target takes the same variables from fnox when that
-# file exists, and otherwise falls back to the baked development
-# password, which is public in lamadist-image.bbclass.
+# Only the device target runs under fnox: `fnox exec` exports every
+# value in that file over the caller's environment, so wrapping the
+# emulated run too would point it at the device's address and port.
+# The emulated target uses the QEMU port forward and the baked
+# development password (public in lamadist-image.bbclass), which the
+# environment may override.
 #
 # Exit status is pytest's: 0 green, 1 a check failed, 2 the target
 # was unavailable or unidentified, 3 a full run had skipped checks.
@@ -104,7 +107,7 @@ _pytest=("${_venv}/bin/python" -m pytest "${MISE_CONFIG_ROOT}/tests/validate"
 
 _fnox_cfg="${MISE_CONFIG_ROOT}/fnox.local.toml"
 _runner=()
-if [[ -f "${_fnox_cfg}" ]]; then
+if [[ "${_target}" == "device" && -f "${_fnox_cfg}" ]]; then
 	_runner=(fnox exec -c "${_fnox_cfg}" --)
 fi
 
