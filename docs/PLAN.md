@@ -581,8 +581,11 @@ Boot enforcing (evidence: `.local/state/agents/installer-test/`):
   signed UKI plus the named unsigned enrollment inputs
 - [ ] Stage 5 (flows): headless manifest install + the full
   fail-closed abort matrix (SPEC 3.3), consumed-stick refusal
-- [ ] ARM port of the installer (M5; enrollment stage is the only
-  x86-specific piece)
+- [ ] ARM port of the installer (deferred past M5: under ADR 0013
+  the enrollment stage is replaced by the U-Boot preseed and
+  ADR 0007's efivarfs `.auth` writes are unsupported on U-Boot; the
+  stick's own boot path on Rockchip is undesigned, so the first ARM
+  deliverable is a flashed image)
 
 **Exit criteria (full SPEC):** every SPEC section 8 gate exit-0; one
 documented command reproduces the stick from a clean checkout.
@@ -606,8 +609,9 @@ class:
 1. **Immutable** (active root slot, verity hash partitions, /etc
    lower): MUST carry block-level cryptographic integrity
    (dm-verity) whose root hash is anchored in a Secure-Boot-signed
-   artifact -- the UKI cmdline on x86_64, the signed FIT on ARM
-   (M5).  SHOULD additionally use a read-only-by-format filesystem
+   artifact -- the UKI cmdline on x86_64 and on the Rockchip boards
+   (ADR 0013); Tegra per its own backend decision.  SHOULD
+   additionally use a read-only-by-format filesystem
    (EROFS) and be mounted read-only, as hygiene.  Runtime-revocable
    controls (SELinux, the `ro` mount flag, `blockdev --setro`, GPT
    read-only attributes) MUST NOT be the sole mechanism: none of
@@ -670,10 +674,12 @@ suite green on both targets).
      per-backend image classes via `IMAGE_CLASSES`, distro layer
      keeps invariants only (EFI_PROVIDER/bootloader/UKI_SB_* move
      OUT of distro includes).
-  2. Update backend: RAUC everywhere.  Rockchip = native uboot
-     backend; Tegra = custom nvbootctrl backend on the same
-     five-verb contract as the existing systemd-boot backend, with
-     NVIDIA's auto-verifier masked.  SWUpdate rejected.  TRIPWIRE:
+  2. Update backend: RAUC everywhere.  Rockchip = the same custom
+     systemd-boot backend as x86_64 (superseded 2026-09-20 by
+     ADR 0013; the review had chosen the native uboot backend);
+     Tegra = custom nvbootctrl backend on the same five-verb
+     contract as the existing systemd-boot backend, with NVIDIA's
+     auto-verifier masked.  SWUpdate rejected.  TRIPWIRE:
      if fused slot-pairing/ESRT proves unworkable under a custom
      backend, fall back to SWUpdate behind the common health gate
      -- escalate to Lucas (M5/M6 checkbox below).  Firmware
@@ -681,10 +687,15 @@ suite green on both targets).
   3. Boot chains: x86 unchanged (systemd-boot+UKI); Rockchip first
      port = U-Boot extlinux/FIT + U-Boot-env bootcount (NO
      verified boot initially -- state the regression in
-     SECURITY.md and the RK machine include); Tegra = L4TLauncher
-     + CMS-signed extlinux + nvbootctrl.  The five-point health
-     gate contract (trial/commit/burn/fallback/bad) is the
-     platform-invariant `test-ota` asserts.
+     SECURITY.md and the RK machine include) -- SUPERSEDED for
+     Rockchip by ADR 0013 (proposed 2026-09-20): U-Boot is the UEFI
+     provider and the boards run `sdboot-uki`; extlinux survives
+     only as a non-shipping bring-up rung, and this text returns
+     only if ADR 0013 kill-switch check 4 (the loader-entry rename)
+     fails; Tegra = L4TLauncher + CMS-signed extlinux +
+     nvbootctrl.  The five-point health gate contract
+     (trial/commit/burn/fallback/bad) is the platform-invariant
+     `test-ota` asserts.
   4. kas rule: "kas selects and pins; layers define" -- explicit
      branch pins, machine names that exist, target
      lamadist-image-base, zero hardware policy in kas.
@@ -742,11 +753,37 @@ Gated on the Post-M4 validation gate (implementation):
   no present benefit and lock in a pending-detection design before its
   motivating backend exists.  Do it with the first real second backend,
   behind an x86_64 `test-ota` cycle and a Fable review.
-- [ ] `soquartz.conf` (thin leaf per pattern) +
-  `lamadist-boot-uboot.inc` + RK wks template (fixed-sector
-  prelude incl. REQUIRED uboot_env partition, A/B verity after
-  sector 32768); update PARTITIONING.md's Rockchip layout (it
-  omits uboot_env -- MAJOR doc finding)
+- [ ] `soquartz.conf` (thin leaf per pattern: meta-rockchip SoC
+  include + `lamadist-dmverity.inc` + `lamadist-boot-sdboot-uki.inc`,
+  no `lamadist-tpm2.inc`, plus the ADR 0013 decision 10
+  neutralisations) + a machine-scoped `u-boot` bbappend carrying the
+  ADR 0013 EFI fragment and generated preseed + RK wks template
+  (fixed-sector prelude at the upstream offsets, U-Boot built with
+  no persistent environment, then the same ESP + A/B verity + LUKS2
+  var as x86_64); `lamadist-boot-uboot.inc` is NOT authored
+  (ADR 0013).  Update PARTITIONING.md's Rockchip layout to the
+  shipped prelude.
+- [ ] ADR 0013 kill-switch spike before any board build: layer
+  re-verification against the wrynose pin (check 11), then the two
+  leaves, then the build-time checks (U-Boot `.config`, loader2
+  fit), then the QEMU `vm --firmware u-boot` payload for the
+  mechanism checks (BOOTAA64.EFI launch, `+3` -> `+2-1` rename,
+  tampered UKI refused, preseed write-protected, `SecureBoot=1` via
+  efivarfs, non-EFI boot paths absent, env inert, DTB from medium
+  ignored, FAT soak)
+- [ ] Preseed generator: build-time `ubootefi.var` seed from the
+  `files/sb-dev/` PK/KEK/db (the same material the x86_64
+  `ovmf-vars` task enrolls; never committed), mechanism per
+  ADR 0013 decision 3
+- [ ] Device tree inside the UKI (`ukify --devicetree`) in
+  `lamadist-uki.bbclass`, with `KERNEL_DEVICETREE` per board
+- [ ] No-TPM `/var` seam: machine-conditional crypttab,
+  `lamadist-luks-var` without the hard `tpm2` requirement,
+  TPM-dependent units conditioned on TPM presence; the crypttab
+  fallback designed and tested against `vm --no-tpm` before the
+  first board image (ADR 0012 decision 5, ADR 0013 decision 7)
+- [ ] `kas/bsp/soquartz.kas.yml`: add the missing meta-rockchip
+  branch pin (review decision 4) before ADR 0013 check 11
 - [ ] `rk1.conf` authored in meta-lamadist (no upstream rk1
   machine exists -- PLAN's earlier note corrected)
 - [x] Emulated aarch64 target `qemuarm64-lamadist` and the boot smoke
@@ -780,6 +817,9 @@ working constraints are lifted.
 - No BSP bypasses the LamaDist image or distro configuration
 - The nvbootctrl-vs-SWUpdate tripwire (review decision 2) is
   either untriggered or resolved with Lucas before Orin work
+- ADR 0013 kill-switch checks 1 and 2 (U-Boot `.config` and loader2
+  fit) pass on both board builds; the on-board checks stay gated on
+  hardware
 
 ### M6: Release Engineering
 
