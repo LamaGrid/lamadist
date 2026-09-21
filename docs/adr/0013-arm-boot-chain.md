@@ -7,38 +7,42 @@ Proposed (2026-09-20)
 ## Context
 
 ADR 0012 left the ARM boards' real boot chain as a separate decision
-and named the candidate: U-Boot as the UEFI provider, with the Secure
-Boot variables preseeded into the U-Boot image, so the boards run the
-same `sdboot-uki` backend as x86_64 and the emulated gate.  The M5
-abstraction review's design of record (docs/PLAN.md, review decisions
-2, 3, and 6) says otherwise: U-Boot extlinux/FIT, a U-Boot-env boot
-counter, RAUC's native `uboot` backend, and no verified boot on the
-first port.  The two cannot both stand.  Three options were weighed:
-(a) U-Boot as the UEFI provider, (b) the design of record, and (c) a
-community EDK2 firmware where one exists.  The draft went through a
-security review and a completeness pass; their findings are folded in
-below, and every claim that only a build or a board can settle is a
-named kill-switch check rather than an assumption.
+and named the candidate: U-Boot as the Unified Extensible Firmware
+Interface (UEFI) provider, with the Secure Boot variables preseeded
+into the U-Boot image, so the boards run the same `sdboot-uki` backend
+as x86_64 and the emulated gate.  The M5 abstraction review's design of
+record (docs/PLAN.md, review decisions 2, 3, and 6) says otherwise:
+U-Boot extlinux/Flattened Image Tree (FIT), a U-Boot-env boot counter,
+RAUC's native `uboot` backend, and no verified boot on the first port.
+The two cannot both stand.  Three options were weighed: (a) U-Boot as
+the UEFI provider, (b) the design of record, and (c) a community EDK2
+firmware where one exists.  The draft went through a security review and
+a completeness pass; their findings are folded in below, and every claim
+that only a build or a board can settle is a named kill-switch check
+rather than an assumption.
 
 What was verified before deciding (U-Boot at the pinned tag v2026.01,
-systemd 259.5, RAUC 1.15.1 and the unpacked sources under `build/`,
+systemd 259.5, RAUC 1.15.1, and the unpacked sources under `build/`,
 meta-rockchip at the checked-out scarthgap commit 9690180, upstream
-OP-TEE and the two EDK2 projects at master on 2026-09-20):
+Open Portable Trusted Execution Environment (OP-TEE), and the two EDK2
+projects at master on 2026-09-20):
 
 - The tree has one boot backend implemented end to end, `sdboot-uki`,
   and every ARM sibling the seam names (`lamadist-boot-uboot.inc`,
-  `soquartz.conf`, `rk1.conf`, a Rockchip WKS) is speced and absent.
-  The aarch64 UKI path already boots under AAVMF with the project
-  PK/KEK/db enrolled and `SecureBoot=1` asserted in-guest
+  `soquartz.conf`, `rk1.conf`, a Rockchip Wic kickstart (WKS)) is
+  speced and absent.  The aarch64 Unified Kernel Image (UKI) path
+  already boots under ARM Architecture Virtual Machine Firmware (AAVMF)
+  with the project Platform Key (PK)/Key Exchange Key (KEK)/signature
+  database (db) enrolled and `SecureBoot=1` asserted in-guest
   (`.github/workflows/ci.yml`, the qemuarm64 job's enroll and
   `test --secureboot` steps), so the backend logic the boards would
   inherit is proven on aarch64, not only on x86_64.
-- Nothing in the OTA path touches an EFI variable.  The five-verb
-  backend, the health gate's pending probe, the bundle hook, and
-  `ota_test.py` are ESP-file and `/proc/cmdline` operations.  The
-  in-repo efivarfs consumers are the installer's trust gate, its
-  `LoaderDevicePartUUID` read, and the device validator's
-  `SecureBoot` assertion.
+- Nothing in the over-the-air (OTA) path touches an EFI variable.
+  The five-verb backend, the health gate's pending probe, the bundle
+  hook, and `ota_test.py` are EFI System Partition (ESP) file and
+  `/proc/cmdline` operations.  The in-repo efivarfs consumers are
+  the installer's trust gate, its `LoaderDevicePartUUID` read, and the
+  device validator's `SecureBoot` assertion.
 - systemd-boot's boot counter is a file rename done by the loader
   itself before `ExitBootServices`.  U-Boot 2026.01 implements that
   rename: `efi_file_setinfo` (`lib/efi_loader/efi_file.c`, starting
@@ -51,36 +55,37 @@ OP-TEE and the two EDK2 projects at master on 2026-09-20):
   methods default on for ARMv8, but `turing-rk1-rk3588` and the
   `soquartz-*-rk3566` defconfigs name no `CONFIG_EFI_*`, no
   `FAT_WRITE`, no `DM_RTC`, no `VIDEO`, no `TEE`/`OPTEE`, and no
-  `TPM`; RK1 disables SPI flash.  Both set `SPL_FIT_SIGNATURE` and
-  `SPL_ATF`.  U-Boot's UEFI targets EBBR, not full UEFI.
+  `TPM`; RK1 disables Serial Peripheral Interface (SPI) flash.  Both
+  set `SPL_FIT_SIGNATURE` and `SPL_ATF`.  U-Boot's UEFI targets Embedded
+  Base Boot Requirements (EBBR), not full UEFI.
 - The same defaults leave every non-EFI boot path on: `BOOTSTD` and
-  the extlinux, script, and PXE boot methods (`BOOTMETH_EXTLINUX` is
-  `default y`), `booti`/`bootm`/`go`/`mw` commands, an interruptible
-  two-second autoboot, and a `boot_targets` scan of mmc, nvme, scsi,
-  usb, pxe, and dhcp (`include/configs/rockchip-common.h`).  EFI
-  Secure Boot verifies only images that pass through the EFI loader
-  (`efi_image_authenticate`), so with these defaults an
-  `extlinux.conf` plus an unsigned kernel on any medium boots with no
-  key involved.  Any Secure Boot claim depends on compiling those
-  paths out.
+  the extlinux, script, and Preboot Execution Environment (PXE)
+  boot methods (`BOOTMETH_EXTLINUX` is `default y`),
+  `booti`/`bootm`/`go`/`mw` commands, an interruptible two-second
+  autoboot, and a `boot_targets` scan of mmc, nvme, scsi, usb, pxe,
+  and dhcp (`include/configs/rockchip-common.h`).  EFI Secure Boot
+  verifies only images that pass through the EFI loader
+  (`efi_image_authenticate`), so with these defaults an `extlinux.conf`
+  plus an unsigned kernel on any medium boots with no key involved.  Any
+  Secure Boot claim depends on compiling those paths out.
 - `EFI_SECURE_BOOT` verifies Authenticode signatures against db, as
   on x86, and must be enabled deliberately.  The non-volatile store
   is a `choice` defaulting to `EFI_VARIABLE_FILE_STORE`
   (`/ubootefi.var` on the ESP, depends on `FAT_WRITE`), else
-  `EFI_MM_COMM_TEE` (StandaloneMM in OP-TEE, RPMB), else
-  `EFI_VARIABLE_NO_STORE`; with `FAT_WRITE` off the choice lands on
-  `NO_STORE` silently.
+  `EFI_MM_COMM_TEE` (StandaloneMM in OP-TEE, Replay Protected Memory
+  Block (RPMB)), else `EFI_VARIABLE_NO_STORE`; with `FAT_WRITE` off the
+  choice lands on `NO_STORE` silently.
 - The file store cannot install trust anchors from Linux:
   `efi_var_restore` (`efi_var_file.c`) skips every authenticated,
-  shim-lock, and volatile variable on restore, so PK/KEK/db/dbx do
-  not survive a reboot through the file store at all.  They persist
-  only through `EFI_VARIABLES_PRESEED` (compiled into U-Boot, then
-  write-protected including dbx, and exclusive with
-  `EFI_MM_COMM_TEE`) or through StandaloneMM on RPMB.  With the
-  preseed, `SecureBoot=1` follows from PK presence alone.
-  Non-authenticated variables (`Boot####`, `BootOrder`) do restore
-  from the file, and U-Boot reads that file from the first ESP it
-  finds, before any signature check.
+  shim-lock, and volatile variable on restore, so
+  PK/KEK/db/forbidden-signatures database (dbx) do not survive a
+  reboot through the file store at all.  They persist only through
+  `EFI_VARIABLES_PRESEED` (compiled into U-Boot, then write-protected
+  including dbx, and exclusive with `EFI_MM_COMM_TEE`) or through
+  StandaloneMM on RPMB.  With the preseed, `SecureBoot=1` follows from
+  PK presence alone.  Non-authenticated variables (`Boot####`,
+  `BootOrder`) do restore from the file, and U-Boot reads that file
+  from the first ESP it finds, before any signature check.
 - Runtime `SetVariable` returns `EFI_UNSUPPORTED` after
   `ExitBootServices` unless `EFI_RT_VOLATILE_STORE` is on, which
   refuses authenticated variables, does not persist, and says in its
@@ -89,31 +94,32 @@ OP-TEE and the two EDK2 projects at master on 2026-09-20):
   to a notice, so the health gate is unaffected.
 - U-Boot's EFI boot method loads a device tree from the boot medium
   (`/dtb/<fdtfile>` and siblings, `boot/bootmeth_efi.c`) and hands it
-  to the EFI application; it falls back to its built-in FDT only when
-  none is found.  `lamadist-uki.bbclass` embeds no device tree in the
-  UKI today.
+  to the EFI application; it falls back to its built-in flattened device
+  tree (FDT) only when none is found.  `lamadist-uki.bbclass` embeds no
+  device tree in the UKI today.
 - Below U-Boot there is one anchor, the BootROM checking a signed
-  loader against a key hash in OTP, and neither board reaches it with
-  open tooling: mainline `mkimage` writes SHA-256 hashes into the
-  Rockchip header and never a signature (`tools/rkcommon.c`), the
-  signing tool ships only as a prebuilt binary in the proprietary
-  rkbin tree, upstream OP-TEE carries a fusing path for rk3588 only
-  (`CFG_RK_SECURE_BOOT`, simulation on by default, documented as able
-  to brick the device, optee_os >= 4.5.0), and rk3566/rk3568 have no
-  upstream OP-TEE platform port.  A burned key hash by itself
-  verifies only the first loader; extending trust to U-Boot, BL31,
-  and BL32 also needs SPL FIT signature enforcement with a key in
-  SPL's control device tree, which the defconfigs do not carry.
-  meta-rockchip pins the DDR TPL, BL31, and BL32 to rkbin, whose
-  licence forbids reverse engineering.
-- The fTPM (meta-arm `optee-ftpm`, ms-tpm-20-ref) is real but gated
-  to QEMU machines, needs a from-source OP-TEE in place of the rkbin
-  BL32, and stores its state in RPMB or through `tee-supplicant`, so
-  `/dev/tpm0` appears only after userspace starts.  The upstream
-  rk3588 OP-TEE port writes the hardware unique key into OTP at first
-  use.  U-Boot can drive an fTPM (`TPM2_FTPM_TEE`), but nothing
-  measures the TPL, BL31, BL32, or U-Boot itself: the first measured
-  object is what U-Boot loads.
+  loader against a key hash in one-time programmable (OTP) memory, and
+  neither board reaches it with open tooling: mainline `mkimage` writes
+  SHA-256 hashes into the Rockchip header and never a signature
+  (`tools/rkcommon.c`), the signing tool ships only as a prebuilt binary
+  in the proprietary rkbin tree, upstream OP-TEE carries a fusing path
+  for rk3588 only (`CFG_RK_SECURE_BOOT`, simulation on by default,
+  documented as able to brick the device, optee_os >= 4.5.0), and
+  rk3566/rk3568 have no upstream OP-TEE platform port.  A burned key
+  hash by itself verifies only the first loader; extending trust to
+  U-Boot, BL31, and BL32 also needs Secondary Program Loader (SPL) FIT
+  signature enforcement with a key in SPL's control device tree, which
+  the defconfigs do not carry.  meta-rockchip pins the DDR Tertiary
+  Program Loader (TPL), BL31, and BL32 to rkbin, whose licence forbids
+  reverse engineering.
+- The firmware Trusted Platform Module (fTPM) (meta-arm `optee-ftpm`,
+  ms-tpm-20-ref) is real but gated to QEMU machines, needs a
+  from-source OP-TEE in place of the rkbin BL32, and stores its state in
+  RPMB or through `tee-supplicant`, so `/dev/tpm0` appears only after
+  userspace starts.  The upstream rk3588 OP-TEE port writes the
+  hardware unique key into OTP at first use.  U-Boot can drive an fTPM
+  (`TPM2_FTPM_TEE`), but nothing measures the TPL, BL31, BL32, or U-Boot
+  itself: the first measured object is what U-Boot loads.
 - RAUC's native `uboot` backend uses only `BOOT_ORDER` and
   `BOOT_<slot>_LEFT`, runs `fw_printenv`/`fw_setenv`, needs a
   persistent env partition that docs/PARTITIONING.md's Rockchip
@@ -122,13 +128,15 @@ OP-TEE and the two EDK2 projects at master on 2026-09-20):
   deferred `rauc status` pending detection either.
 - No EDK2 port exists for the Turing RK1 (edk2-rk3588 has no Turing
   platform); one exists for SOQuartz (quartz64_uefi v2.3), without
-  Secure Boot.  Neither has capsule update, ESRT, a TPM stack, or a
-  Yocto recipe; edk2-rk3588's last tag is v1.1 (2025-04).
-- meta-rockchip's SoC includes (`rk3566.inc`, `rk3588s.inc`) set
-  `KERNEL_CLASSES = "kernel-fitimage"`, `KERNEL_IMAGETYPE ?=
+  Secure Boot.  Neither has capsule update, EFI System Resource Table
+  (ESRT), a Trusted Platform Module (TPM) stack, or a Yocto recipe;
+  edk2-rk3588's last tag is v1.1 (2025-04).
+- meta-rockchip's system on chip (SoC) includes (`rk3566.inc`,
+  `rk3588s.inc`) set `KERNEL_CLASSES = "kernel-fitimage"`,
+  `KERNEL_IMAGETYPE ?=
   "fitImage"`, `PREFERRED_PROVIDER_optee-os = "rockchip-rkbin"`, and
   require `rockchip-wic.inc`, which requires `rockchip-extlinux.inc`
-  (`UBOOT_EXTLINUX ?= "1"`, `u-boot-extlinux` and `kernel-image`
+  (`UBOOT_EXTLINUX ?= "1"`, `u-boot-extlinux`, and `kernel-image`
   added to `MACHINE_ESSENTIAL_EXTRA_RDEPENDS`), the feature-gated
   `rk-u-boot-env` wiring, and the RAUC demo overrides.  The
   scarthgap checkout defines no soquartz or rk1 machine;
@@ -181,7 +189,7 @@ OP-TEE and the two EDK2 projects at master on 2026-09-20):
      `FAT_RENAME`, `EFI_SECURE_BOOT`, `EFI_VARIABLES_PRESEED` with a
      generated seed, `ENV_IS_NOWHERE`;
    - off: `BOOTMETH_EXTLINUX`, `BOOTMETH_SCRIPT`,
-     `BOOTMETH_EXTLINUX_PXE`, `BOOTMETH_PXE`, `BOOTMETH_VBE` and
+     `BOOTMETH_EXTLINUX_PXE`, `BOOTMETH_PXE`, `BOOTMETH_VBE`, and
      `BOOTMETH_VBE_SIMPLE`, `BOOTMETH_ANDROID`, `CMD_BOOTI`,
      `CMD_BOOTM`, `CMD_BOOTZ`, `CMD_BOOTELF`, `CMD_GO`, `CMD_MEMORY`
      (or `CMDLINE=n` outright), every `ENV_IS_IN_*` and
@@ -268,25 +276,25 @@ OP-TEE and the two EDK2 projects at master on 2026-09-20):
    only.  On an unfused board an fTPM cannot restore `/var`
    confidentiality against a device holder, because whoever can load
    their own U-Boot can extend the expected values into the real
-   fTPM and unseal; its PCR policy is re-chosen for a chain whose
-   first measured object is what U-Boot loads, and PCR 7 is not
-   reused.  An RK3566 fTPM would be a new upstream OP-TEE port and is
-   not planned.
-7. `/var` on the boards is LUKS2 unlocked without a TPM, the state
-   `vm --no-tpm` models, and the build gains the seam that state
-   lacks today: the crypttab line becomes machine-conditional
-   (`tpm2-device=auto` only on machines with the `tpm2` feature),
-   `lamadist-luks-var` drops `tpm2` from its required features or
-   splits the enrollment half out, and `lamadist-var-tpm2-enroll.service`
-   and every other TPM-dependent unit are conditioned on TPM presence
-   so a missing TPM never trips the health gate's degraded check.
-   x86_64's TPM-only line is unchanged.  The fallback secret's shape
-   is an owner decision (a per-device key generated at first boot
-   into a plain partition; a recovery passphrase only; or the
-   existing shipped development keyfile), and SECURITY.md states the
-   honest consequence of the choice: with a shipped key, `/var` is
-   not confidential against anyone who can read the storage or the
-   image, not merely against a device holder.  The fallback is
+   fTPM and unseal; its Platform Configuration Register (PCR) policy is
+   re-chosen for a chain whose first measured object is what U-Boot
+   loads, and PCR 7 is not reused.  An RK3566 fTPM would be a new
+   upstream OP-TEE port and is not planned.
+7. `/var` on the boards is Linux Unified Key Setup, version 2 (LUKS2)
+   unlocked without a TPM, the state `vm --no-tpm` models, and the build
+   gains the seam that state lacks today: the crypttab line becomes
+   machine-conditional (`tpm2-device=auto` only on machines with the
+   `tpm2` feature), `lamadist-luks-var` drops `tpm2` from its required
+   features or splits the enrollment half out, and
+   `lamadist-var-tpm2-enroll.service` and every other TPM-dependent unit
+   are conditioned on TPM presence so a missing TPM never trips the
+   health gate's degraded check.  x86_64's TPM-only line is unchanged.
+   The fallback secret's shape is an owner decision (a per-device key
+   generated at first boot into a plain partition; a recovery passphrase
+   only; or the existing shipped development keyfile), and SECURITY.md
+   states the honest consequence of the choice: with a shipped key,
+   `/var` is not confidential against anyone who can read the storage or
+   the image, not merely against a device holder.  The fallback is
    designed and tested against `vm --no-tpm` before the first board
    image.
 8. Port order stays SOQuartz first, RK1 second.  The boot chain is
@@ -325,10 +333,12 @@ OP-TEE and the two EDK2 projects at master on 2026-09-20):
     x86_64 WKS builds, with `--ondisk` re-targeted to the boot
     medium); `SERIAL_CONSOLES` and `LAMADIST_CONSOLES` set so that
     U-Boot's EFI console, systemd-boot's menu, the kernel command
-    line, and the getty name one UART and baud; and a kernel
-    configuration audit that the `remove-non-rockchip-arch-arm64.scc`
-    feature and `alldefconfig` mode leave efivarfs, IMA, SELinux, and
-    the other meta-lamadist fragments in the built `.config`.  The
+    line, and the getty name one universal asynchronous
+    receiver-transmitter (UART) and baud; and a kernel configuration
+    audit that the `remove-non-rockchip-arch-arm64.scc` feature and
+    `alldefconfig` mode leave efivarfs, Integrity Measurement
+    Architecture (IMA), SELinux, and the other meta-lamadist fragments
+    in the built `.config`.  The
     `virtual/bootloader` seam is an open decision: either the shared
     include weakens its provider assignment to `?=` and the leaf
     names `u-boot`, or U-Boot enters the image purely through the WKS
@@ -434,13 +444,14 @@ OP-TEE and the two EDK2 projects at master on 2026-09-20):
 - What the boards lose relative to x86_64: runtime `SetVariable`
   (`bootctl set-default`, `set-oneshot`, a persistent
   `LoaderSystemToken`), an in-place dbx and any field revocation, a
-  firmware-held trust anchor, `GetTime` without an RTC driver (an RK8xx
-  PMIC RTC driver is an open item for EBBR conformance), any display
-  before Linux (no GOP; systemd-boot is serial-only), PCR 7, and the
-  TPM-sealed `/var`.  The installer's enrollment stage does not port:
-  ADR 0007's efivarfs `.auth` writes are unsupported and unnecessary,
-  since the keys ship inside U-Boot.  The stick's own boot path on
-  Rockchip is undesigned; docs/PLAN.md's "enrollment is the only
+  firmware-held trust anchor, `GetTime` without a real-time clock (RTC)
+  driver (an RK8xx power-management integrated circuit (PMIC) RTC driver
+  is an open item for EBBR conformance), any display before Linux (no
+  Graphics Output Protocol (GOP); systemd-boot is serial-only), PCR 7,
+  and the TPM-sealed `/var`.  The installer's enrollment stage does not
+  port: ADR 0007's efivarfs `.auth` writes are unsupported and
+  unnecessary, since the keys ship inside U-Boot.  The stick's own boot
+  path on Rockchip is undesigned; docs/PLAN.md's "enrollment is the only
   x86-specific piece" is corrected and the installer port is deferred
   past M5.
 - Proprietary surface and fuses: the first port runs the rkbin DDR
@@ -451,8 +462,9 @@ OP-TEE and the two EDK2 projects at master on 2026-09-20):
   and is itself OTP-writing (decision 6).
 - Threat-model items this ADR records but does not close:
   pre-verification parsing of attacker-controlled input (FAT metadata
-  and PE headers remain after the fragment removes the rest); node
-  serial consoles reachable through a cluster carrier's management
+  and Portable Executable (PE) headers remain after the fragment
+  removes the rest); node serial consoles reachable through a cluster
+  carrier's management
   controller, which makes an interruptible autoboot a
   network-reachable attack, hence the non-interruptible requirement;
   the USB maskrom path, which rewrites all storage on an unfused
