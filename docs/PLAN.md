@@ -40,8 +40,10 @@ if a status is wrong, fixing it is part of the current milestone.
 
 Until lifted, CI build and test operations are limited to Podman,
 QEMU, static analysis, and unit tests.  No physical hardware testing
-in CI (the live test device is a local target only; see the Post-M4
-Checkpoint), and no k3s in CI or test infrastructure (k3s as an
+in CI (the live test device is a local target; the one exception,
+since 2026-09-08, is the read-only validation collector described in
+the Post-M4 Checkpoint, which installs and reboots nothing), and no
+k3s in CI or test infrastructure (k3s as an
 optional image feature is in scope; see M7).  Milestones are
 sequenced so that everything through M4 is verifiable entirely in
 QEMU.
@@ -482,9 +484,10 @@ what a compliance framework provides.
   emulated target and on the live device (2026-09-06: 22 passed on
   each, after a hardware OTA to the 2026-09-05 QA image)
 - [x] Wire `mise run validate` into the test chain, and into CI
-  (2026-09-08, PRs #33-#35): the emulated target on every run, and the
-  live device in a read-only collector on an isolated runner that holds
-  a shared lease, both with credentials masked
+  (2026-09-08, PRs #33-#35): the emulated target on every local
+  `mise run test` (CI builds do not boot x86_64), and the live device
+  in a read-only collector on an isolated runner that holds a shared
+  lease, both with credentials masked
 - [x] Extend to the remaining security properties: the ssh-audit
   posture check (P16), the post-OTA snapshot diff (P17), and the
   wrong-CA bundle refusal (P18), green on both targets
