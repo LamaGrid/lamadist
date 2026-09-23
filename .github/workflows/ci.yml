@@ -28,6 +28,18 @@ on:
         required: false
         default: false
         type: boolean
+      icecc:
+        description: 'x86_64: distribute compiles through icecc'
+        required: false
+        default: true
+        type: boolean
+      cold:
+        description: >-
+          x86_64: cold build (fresh run-scoped sstate and buildstats,
+          no public sstate mirror) with timing and memory reported
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -180,13 +192,49 @@ jobs:
       # xz -9e, no test key) is dispatch-only: its SPDX chain never
       # restores across commits, so on every merge it cost hours for
       # an artifact nothing consumed.
+      # A cold run gets its own sstate and buildstats directories on
+      # the job's ephemeral work volume and drops the public sstate
+      # mirror, so nothing is restored and its stats are its own.
+      - name: Prepare cold build
+        if: inputs.cold
+        run: |
+          cold="${RUNNER_TEMP}/cold"
+          mkdir -p "${cold}/sstate" "${cold}/buildstats"
+          {
+            echo "SSTATE_DIR=${cold}/sstate"
+            echo "LAMADIST_HOST_SSTATE_DIR=${cold}/sstate"
+            echo "BUILDSTATS_BASE=${cold}/buildstats"
+            echo "LAMADIST_HOST_BUILDSTATS_BASE=${cold}/buildstats"
+          } >> "${GITHUB_ENV}"
+          sed -i "/^ *SSTATE_MIRRORS = /d" kas/main.kas.yml
+          if grep -n 'SSTATE_MIRRORS' kas/main.kas.yml; then
+            echo "::error::the public sstate mirror is still configured"
+            exit 1
+          fi
+          rm -rf "${GITHUB_WORKSPACE}/build/tmp"
+          df -h "${RUNNER_TEMP}" "${GITHUB_WORKSPACE}" /__w/_downloads
+          free_gib=$(df --output=avail -BG "${RUNNER_TEMP}" | tail -1 | tr -dc 0-9)
+          echo "free on the work volume: ${free_gib} GiB"
+          if [ "${free_gib}" -lt 150 ]; then
+            echo "::error::a cold build needs >= 150 GiB free for tmp and sstate"
+            exit 1
+          fi
+          echo "g++: $(command -v g++ || echo MISSING)"
+          echo "icecc: $(icecc --version 2>&1 | head -1)"
+
       - name: Build
         run: |
-          if [ "${{ inputs.release }}" = "true" ]; then
-            mise run build --bsp x86_64 --ci --release --icecc
-          else
-            mise run build --bsp x86_64 --ci --qa --include-scans --icecc
-          fi
+          flags="--qa --include-scans"
+          [ "${{ inputs.release }}" = "true" ] && flags="--release"
+          [ "${{ inputs.icecc }}" != "false" ] && flags="${flags} --icecc"
+          echo "build flags: ${flags}"
+          echo "SSTATE_DIR=${SSTATE_DIR} BUILDSTATS_BASE=${BUILDSTATS_BASE}"
+          start=$(date +%s)
+          rc=0
+          # shellcheck disable=SC2086
+          mise run build --bsp x86_64 --ci ${flags} || rc=$?
+          echo "BUILD_WALL_SECONDS=$(( $(date +%s) - start ))" | tee -a "${GITHUB_ENV}"
+          exit "${rc}"
         env:
           GITVERSION_INFO_VERSION: ${{ needs.version.outputs.informationalVersion }}
           GITVERSION_FULL_SEM_VER: ${{ needs.version.outputs.fullSemVer }}
@@ -209,6 +257,60 @@ jobs:
           # runs a local preprocessor, and the overlay's -j40
           # default OOM-killed the job cgroup (run 33470552892).
           LAMADIST_ICECC_JOBS: "12"
+
+      - name: Report cold build measurements
+        if: ${{ always() && inputs.cold }}
+        run: |
+          echo "icecc requested: ${{ inputs.icecc }}"
+          echo "build wall: ${BUILD_WALL_SECONDS:-unknown} s"
+          for f in memory.peak memory.max memory.swap.peak; do
+            printf '%s: ' "${f}"; cat "/sys/fs/cgroup/${f}" 2>/dev/null || echo n/a
+          done
+          python3 - "${BUILDSTATS_BASE}" <<'PY'
+          import os, re, sys
+          from datetime import datetime
+          base = sys.argv[1]
+          runs = sorted(d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d)))
+          if not runs:
+              sys.exit("no buildstats run directory")
+          run = os.path.join(base, runs[-1])
+          def fields(path):
+              out = {}
+              for line in open(path, errors="replace"):
+                  k, _, v = line.partition(":")
+                  out[k.strip()] = v.strip()
+              return out
+          rows = []  # (task, recipe, start, end)
+          for recipe in os.listdir(run):
+              rdir = os.path.join(run, recipe)
+              if not os.path.isdir(rdir):
+                  continue
+              for task in os.listdir(rdir):
+                  f = fields(os.path.join(rdir, task))
+                  try:
+                      rows.append((task, recipe, float(f["Started"]), float(f["Ended"])))
+                  except (KeyError, ValueError):
+                      continue
+          print(f"buildstats run: {runs[-1]}; tasks: {len(rows)}")
+          print(f"bitbake task span: {max(r[3] for r in rows) - min(r[2] for r in rows):.0f} s")
+          def union(spans):
+              total, cur = 0.0, None
+              for s, e in sorted(spans):
+                  if cur and s <= cur[1]:
+                      cur[1] = max(cur[1], e)
+                  else:
+                      total += (cur[1] - cur[0]) if cur else 0
+                      cur = [s, e]
+              return total + ((cur[1] - cur[0]) if cur else 0)
+          for name in ("do_compile", "do_configure", "do_install", "do_package"):
+              spans = [(s, e) for t, _, s, e in rows if t == name]
+              if spans:
+                  print(f"{name}: {len(spans)} tasks, summed {sum(e - s for s, e in spans):.0f} s, "
+                        f"wall with >=1 running {union(spans):.0f} s")
+          top = sorted(((e - s, r) for t, r, s, e in rows if t == "do_compile"), reverse=True)[:10]
+          for d, r in top:
+              print(f"  do_compile {d:7.0f} s  {r}")
+          PY
 
       # TODO: Upload build artifacts when ready
       # - name: Upload artifacts
