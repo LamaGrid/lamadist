@@ -725,7 +725,7 @@ suite green on both targets).
      port = U-Boot extlinux/FIT + U-Boot-env bootcount (NO
      verified boot initially -- state the regression in
      SECURITY.md and the RK machine include) -- SUPERSEDED for
-     Rockchip by ADR 0013 (proposed 2026-09-20): U-Boot is the UEFI
+     Rockchip by ADR 0013 (accepted 2026-09-23): U-Boot is the UEFI
      provider and the boards run `sdboot-uki`; extlinux survives
      only as a non-shipping bring-up rung, and this text returns
      only if ADR 0013 kill-switch check 4 (the loader-entry rename)
