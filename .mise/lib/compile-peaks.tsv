@@ -1,0 +1,57 @@
+# Per-recipe build memory: peak RSS of the largest single process
+# (MiB), max over 63 buildstats runs, regenerated 2026-09-23 by
+# .mise/lib/compile_peaks.py.  serial=1: the peak is one process, so
+# -j is left alone; heavy rows still run one at a time.
+# recipe	task	peak_mib	serial
+linux-yocto	do_compile	3723	1
+cargo-native	do_compile	3233	1
+llvm-native	do_compile	2336	0
+clang-native	do_compile	2004	0
+curl	do_compile_ptest_base	1871	0
+rust-native	do_install	1810	0
+gcc	do_compile	1456	0
+gcc-cross-${TARGET_ARCH}	do_compile	1455	0
+elfutils	do_compile_ptest_base	1416	1
+spirv-llvm-translator-native	do_compile	1402	0
+mesa-tools-native	do_compile	1396	0
+libstd-rs	do_compile	1201	1
+rpm-sequoia	do_compile	1030	1
+rpm-sequoia-native	do_compile	982	1
+gnutls-native	do_compile	859	0
+spirv-tools-native	do_compile	838	0
+setools	do_compile	775	0
+mesa-native	do_compile	715	0
+cmake-native	do_compile	695	0
+llvm-tblgen-native	do_compile	615	0
+bluez5	do_compile_ptest_base	555	0
+icu-native	do_compile	546	0
+qemu-native	do_compile	541	0
+qemu-system-native	do_compile	538	0
+gnutls	do_compile	536	0
+gcc-runtime	do_compile	496	0
+python3-cython-native	do_compile	496	0
+sqlite3	do_compile	463	0
+binutils	do_compile	448	0
+libdnf-native	do_compile	446	0
+icu	do_compile_ptest_base	435	0
+libclc-native	do_compile	415	0
+binutils-cross-${TARGET_ARCH}	do_compile	394	0
+libpcre2-native	do_compile	382	0
+sqlite3-native	do_compile	370	0
+p11-kit-native	do_compile	353	0
+gettext-native	do_compile	330	0
+libtasn1	do_compile	320	0
+patchelf-native	do_compile	310	0
+python3	do_compile	306	0
+perl	do_compile	299	0
+elfutils	do_compile	294	0
+python3-native	do_compile	292	0
+libtasn1-native	do_compile	288	0
+libepoxy-native	do_compile	287	0
+pixman	do_compile	280	0
+binutils-native	do_compile	268	0
+icu	do_compile	258	0
+perl-native	do_compile	249	0
+elfutils-native	do_compile	247	0
+vala	do_compile	246	0
+ninja-native	do_compile	232	0
