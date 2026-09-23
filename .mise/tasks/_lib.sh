@@ -88,7 +88,9 @@ ensure_wrong_ca_bundle() {
 # Effective CPU count for the build.  Inside a cgroup-namespaced
 # container (CI pod, capped podman) cpu.max is the truth; nproc
 # sees every node core because pod CPU limits are CFS quota, not
-# an affinity mask.
+# an affinity mask.  On the host, before a local build starts, the
+# PODMAN_RUN_CPUS cap the container will run under wins over nproc,
+# the same way PODMAN_RUN_MEMORY does for memory.
 _detect_cpus() {
 	local _quota _period
 	if [[ -r /sys/fs/cgroup/cpu.max ]]; then
@@ -97,6 +99,12 @@ _detect_cpus() {
 			echo $(((_quota + _period - 1) / _period))
 			return
 		fi
+	fi
+	if [[ "${PODMAN_RUN_CPUS:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+		local _whole="${PODMAN_RUN_CPUS%%.*}"
+		[[ "${PODMAN_RUN_CPUS}" == *.* ]] && _whole=$((_whole + 1))
+		echo "${_whole}"
+		return
 	fi
 	nproc
 }
@@ -123,15 +131,6 @@ _detect_mem_gb() {
 	awk '/^MemTotal:/ {printf "%d", $2 / 1048576}' /proc/meminfo
 }
 
-# Per-recipe make-job cuts for the measured heavy compilers, only
-# when the memory envelope is tight (< 24 GiB).  Child ru_maxrss
-# per compile process (buildstats 2026-09-01): cargo-native 3.0G,
-# linux-yocto 2.5G, llvm-native 2.3G, clang-native 2.0G, rust
-# ~1.5G, gcc 1.4G, spirv-llvm-translator-native 1.4G.  At -j6 one
-# such recipe holds 6-12 GB alone and OOMs an 11 GiB cgroup even
-# with BB_NUMBER_THREADS already reduced (observed: clang-native
-# cc1plus kill in the 11 GiB validation build).  PARALLEL_MAKE is
-# hash-ignored, so these change no task signatures.
 # do_create_spdx concurrency cap, or empty for "schedule freely".
 # LAMADIST_SPDX_THREADS forces a value; LAMADIST_SPDX_HEAVY (set
 # by the build task for release builds, where full source
@@ -152,16 +151,144 @@ _spdx_thread_cap() {
 	fi
 }
 
-_emit_heavy_recipe_caps() {
-	local _overlay="$1" _cpus="$2" _mem_gb="$3"
-	((_mem_gb < 24)) || return 0
-	local _j=$((_mem_gb / 3)) _r
-	((_j >= 2)) || _j=2
-	((_j <= _cpus)) || _j=$_cpus
-	for _r in clang-native llvm-native spirv-llvm-translator-native \
-		gcc linux-yocto cargo-native rust-native; do
+# Memory plan for a tight envelope (< 24 GiB): bound the worst case
+# of concurrent compiler processes by memory, not by CPUs.  BitBake
+# has no global process cap and no shared make jobserver, so the
+# number of compilers alive at once is the sum of -j over running
+# build tasks.  The controls:
+#
+#   do_compile[number_threads]  at most SLOTS compiles at once,
+#                               counted across all recipes;
+#   PARALLEL_MAKE -j JOBS       per compile, JOBS <= CPUs + 2 and
+#                               small enough that the tail takes at
+#                               most a quarter of the envelope while
+#                               a heavy task runs;
+#   per-recipe -j caps          from .mise/lib/compile-peaks.tsv (the
+#                               largest single process per recipe and
+#                               build task, measured from buildstats):
+#                               a recipe over the tail budget gets the
+#                               -j that keeps it inside one slot;
+#   heavy tasks                 rows of 1 GiB or more, plus any row
+#                               that builds outside do_compile (rust
+#                               in do_install, ptest), run one at a
+#                               time: the lamadist-memory scheduler
+#                               (meta-lamadist/lib/lamadist/sched.py)
+#                               does not start a second one, and a
+#                               shared lockfile backs it up.  Each is
+#                               sized to the memory left beside the
+#                               tail compiles it can run with.
+#
+# Invariant: RESERVE + tail compiles + HEAVY + HEADROOM <= memory.
+# TAIL is the p90 per-job peak of the long tail (230 MiB).  RESERVE
+# covers the BitBake server and its workers plus ~128 MiB per extra
+# non-compile task; HEADROOM covers measured non-compile peaks that
+# are not budgeted per task (do_unpack of gcc-source 1.4 GiB,
+# do_configure of cmake-native 0.6 GiB).  The 2026-09-23 cold CI
+# build that took a node down was sized from 12 CPUs: 12 tasks at
+# make -j 14 in a 12 GiB pod, with 44 cc1plus alive at once.
+# ICECC_PARALLEL_MAKE gets the same caps: the icecc class replaces
+# PARALLEL_MAKE with it for every icecc recipe, including when icecc
+# then falls back to compiling locally.  -l is left out: in a pod the
+# load average is the node's.  All of these are hash-ignored.
+_emit_memory_plan() {
+	local _overlay="$1" _threads="$2" _mem_gb="$3"
+	local _tail_mib=230 _slot_mib=4096 _heavy_min_mib=1024 _headroom_mib=1024
+	local _table="${MISE_CONFIG_ROOT}/.mise/lib/compile-peaks.tsv"
+	if [[ ! -r "${_table}" ]]; then
+		echo "ERROR: ${_table} missing; cannot size build memory" >&2
+		return 1
+	fi
+	# Slots come from the envelope alone, so more CPUs never mean fewer
+	# compile slots; the per-thread reserve only shrinks the budgets.
+	local _base_usable=$((_mem_gb * 1024 - 2048))
+	local _slots=$((_base_usable / _slot_mib))
+	((_slots >= 1)) || _slots=1
+	((_slots <= _threads)) || _slots=$_threads
+	local _extra_threads=$((_threads > 6 ? _threads - 6 : 0))
+	local _usable=$((_base_usable - _extra_threads * 128))
+	local _jobs=$((_threads + 2))
+	local _tail_slots=$((_slots > 1 ? _slots - 1 : 1))
+	local _jobs_cap=$((_usable / (4 * _tail_slots * _tail_mib)))
+	((_jobs <= _jobs_cap)) || _jobs=$_jobs_cap
+	((_jobs >= 2)) || _jobs=2
+	# A heavy do_compile holds one compile slot, so it shares memory
+	# with SLOTS - 1 tail compiles; a heavy task outside do_compile
+	# (rust-native do_install, a ptest build) can run beside SLOTS.
+	local _heavy_compile_mib=$((_usable - (_slots - 1) * _jobs * _tail_mib - _headroom_mib))
+	local _heavy_other_mib=$((_usable - _slots * _jobs * _tail_mib - _headroom_mib))
+	local _slot_budget=$((_jobs * _tail_mib))
+	local _icecc_jobs="${LAMADIST_ICECC_JOBS:-${_jobs}}"
+	((_icecc_jobs <= _jobs)) || _icecc_jobs=$_jobs
+	echo "==> Memory plan: ${_mem_gb} GiB, ${_threads} threads: ${_slots}" \
+		"compile slot(s) at -j ${_jobs}; heavy budget ${_heavy_compile_mib} MiB" \
+		"in do_compile, ${_heavy_other_mib} MiB outside it" >&2
+
+	# Recipe names can carry a literal ${TARGET_ARCH}; bash before 5.2
+	# expands an associative subscript again inside arithmetic, so the
+	# cap table is only ever read into a plain variable first.
+	local -A _cap=()
+	local _heavy_tasks=() _tasks=() _fields=()
+	local _line _pn _task _peak _serial _j _budget _prev _rows=0
+	while IFS= read -r _line || [[ -n "${_line}" ]]; do
+		_line="${_line%$'\r'}"
+		[[ "${_line}" =~ ^[[:space:]]*(#|$) ]] && continue
+		IFS=$'\t' read -r -a _fields <<< "${_line}"
+		_pn="${_fields[0]:-}" _task="${_fields[1]:-}"
+		_peak="${_fields[2]:-}" _serial="${_fields[3]:-0}"
+		if [[ -z "${_pn}" || -z "${_task}" || ! "${_peak}" =~ ^[0-9]+$ ]] || ((_peak == 0)); then
+			echo "ERROR: ${_table}: bad row '${_line}'" >&2
+			return 1
+		fi
+		_rows=$((_rows + 1))
+		if ((_peak >= _heavy_min_mib)) || [[ "${_task}" != do_compile ]]; then
+			_heavy_tasks+=("${_pn}:${_task}")
+			[[ " ${_tasks[*]} " == *" ${_task} "* ]] || _tasks+=("${_task}")
+			cat >> "$_overlay" <<- OVERLAY
+				    LAMADIST_HEAVY_LOCK_${_task}:pn-${_pn} = '\${TMPDIR}/lamadist-heavy.lock'
+			OVERLAY
+			_budget=$_heavy_compile_mib
+			[[ "${_task}" == do_compile ]] || _budget=$_heavy_other_mib
+		else
+			_budget=$_slot_budget
+		fi
+		# A serial peak is one process: -j does not lower it.
+		[[ "${_serial}" == 1 ]] && continue
+		_j=$((_budget / _peak))
+		((_j >= 1)) || _j=1
+		# PARALLEL_MAKE is per recipe, so the tightest row wins.
+		_prev="${_cap[${_pn}]:-}"
+		if [[ -z "${_prev}" ]] || ((_j < _prev)); then
+			_cap[${_pn}]=$_j
+		fi
+	done < "${_table}"
+	if ((_rows == 0)); then
+		echo "ERROR: ${_table} has no rows; cannot size build memory" >&2
+		return 1
+	fi
+
+	cat >> "$_overlay" <<- OVERLAY
+		    PARALLEL_MAKE = '-j ${_jobs}'
+		    ICECC_PARALLEL_MAKE = '-j ${_icecc_jobs}'
+		    do_compile[number_threads] = '${_slots}'
+		    # Brake on new task starts only, read from the node's PSI
+		    # (neighbour pods count too); not part of the invariant.
+		    BB_PRESSURE_MAX_MEMORY ?= '20000'
+		    LAMADIST_HEAVY_TASKS = '${_heavy_tasks[*]}'
+		    BB_SCHEDULERS = 'lamadist.sched.RunQueueSchedulerMemory'
+		    BB_SCHEDULER = 'lamadist-memory'
+	OVERLAY
+	for _task in "${_tasks[@]}"; do
 		cat >> "$_overlay" <<- OVERLAY
-			    PARALLEL_MAKE:pn-${_r} = '-j ${_j}'
+			    LAMADIST_HEAVY_LOCK_${_task} ?= ''
+			    ${_task}[lockfiles] += '\${LAMADIST_HEAVY_LOCK_${_task}}'
+		OVERLAY
+	done
+	for _pn in "${!_cap[@]}"; do
+		_j="${_cap[${_pn}]}"
+		((_j < _jobs)) || continue
+		cat >> "$_overlay" <<- OVERLAY
+			    PARALLEL_MAKE:pn-${_pn} = '-j ${_j}'
+			    ICECC_PARALLEL_MAKE:pn-${_pn} = '-j ${_j}'
 		OVERLAY
 	done
 }
@@ -216,23 +343,28 @@ write_dynamic_overlay() {
 		OVERLAY
 	fi
 	# Parallelism.  LAMADIST_MAX_LOCAL_JOBS (e.g. .mise.local.toml)
-	# is an explicit cap and wins outright.  Otherwise auto-size
-	# from the detected envelope: N tasks, make jobs N+2 with a
-	# load-average brake at N+4 (-l guards CPU thrash only; memory
-	# is governed by the class caps below).  Under --icecc the same
-	# cap bounds iceccd's local slots while ICECC_PARALLEL_MAKE
-	# raises per-recipe make jobs for the remote pool.
-	local _cpus _mem_gb
+	# is an explicit task cap and wins over the detected CPUs.  Tasks
+	# and parser processes follow it (BitBake's parser default is the
+	# host's full CPU count, which in a pod is the node's).  In a
+	# tight envelope (< 24 GiB) the memory plan sizes compile
+	# concurrency; on a roomy host make jobs are N+2 with a
+	# load-average brake at N+4 (-l guards CPU thrash only).
+	local _cpus _mem_gb _threads
 	_cpus=$(_detect_cpus)
 	_mem_gb=$(_detect_mem_gb)
-	if [[ -n "${LAMADIST_MAX_LOCAL_JOBS:-}" ]]; then
+	_threads="${LAMADIST_MAX_LOCAL_JOBS:-${_cpus}}"
+	cat >> "${_dynamic_overlay}" <<- OVERLAY
+		    BB_NUMBER_THREADS = '${_threads}'
+		    BB_NUMBER_PARSE_THREADS = '${_threads}'
+	OVERLAY
+	if ((_mem_gb < 24)); then
+		_emit_memory_plan "${_dynamic_overlay}" "${_threads}" "${_mem_gb}"
+	elif [[ -n "${LAMADIST_MAX_LOCAL_JOBS:-}" ]]; then
 		cat >> "${_dynamic_overlay}" <<- OVERLAY
-			    BB_NUMBER_THREADS = '${LAMADIST_MAX_LOCAL_JOBS}'
 			    PARALLEL_MAKE = '-j ${LAMADIST_MAX_LOCAL_JOBS}'
 		OVERLAY
 	else
 		cat >> "${_dynamic_overlay}" <<- OVERLAY
-			    BB_NUMBER_THREADS = '${_cpus}'
 			    PARALLEL_MAKE = '-j $((_cpus + 2)) -l $((_cpus + 4))'
 		OVERLAY
 	fi
@@ -268,13 +400,12 @@ write_dynamic_overlay() {
 		    XZ_THREADS = '${_zstd_threads}'
 		    ZSTD_THREADS = '${_zstd_threads}'
 	OVERLAY
-	_emit_heavy_recipe_caps "${_dynamic_overlay}" "${_cpus}" "${_mem_gb}"
 	# Host-local icecc fan-out cap (LAMADIST_ICECC_JOBS): overrides
-	# the icecc overlay's weak -j40 default.  Every icecc job costs
-	# a local preprocessor pass (ICECC_REMOTE_CPP=0), so
-	# memory-tight hosts (9 GiB CI pods) must bound it or the
-	# build OOMs its own cgroup.  Hash-ignored; no sstate impact.
-	if [[ -n "${LAMADIST_ICECC_JOBS:-}" ]]; then
+	# the icecc overlay's weak -j40 default on roomy hosts.  Every
+	# icecc job costs a local preprocessor pass (ICECC_REMOTE_CPP=0).
+	# In a tight envelope the memory plan above already set it, no
+	# higher than the local -j.  Hash-ignored; no sstate impact.
+	if ((_mem_gb >= 24)) && [[ -n "${LAMADIST_ICECC_JOBS:-}" ]]; then
 		cat >> "${_dynamic_overlay}" <<- OVERLAY
 			    ICECC_PARALLEL_MAKE = '-j ${LAMADIST_ICECC_JOBS}'
 		OVERLAY
@@ -451,6 +582,11 @@ run_in_container() {
 	fi
 	if [[ -n "$_mem" && -n "$_swap" ]]; then
 		_memory_args=(--memory "$_mem" --memory-swap "$_swap")
+	fi
+	# Optional CPU cap (PODMAN_RUN_CPUS, e.g. 6 to reproduce a CI
+	# pod's limit locally); _detect_cpus sizes the build to it.
+	if [[ -n "${PODMAN_RUN_CPUS:-}" ]]; then
+		_memory_args+=(--cpus "${PODMAN_RUN_CPUS}")
 	fi
 
 	# Optional local env file

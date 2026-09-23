@@ -159,7 +159,8 @@ jobs:
     # SPDX chain at the 11 GiB pod ceiling: measured ~6.4 h for
     # SPDX alone (run 33823958778), so the default 480 leaves no
     # margin.  Push and PR builds run the QA profile and never pay
-    # it: ~12 min warm, ~4 h cold.
+    # it: ~12 min warm.  Cold, the memory plan runs heavy tasks one
+    # at a time: ~9.5 h measured at 6 CPU / 10 GiB without icecc.
     timeout-minutes: 720
     steps:
       - name: Checkout
