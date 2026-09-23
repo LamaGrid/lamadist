@@ -504,7 +504,7 @@ Related, not gated on the checkpoint: the USB installer, pulled
 forward into an active pass 2026-07-23 (see the Installer Pass
 section below).
 
-### WiFi Backend (iwd, active 2026-09-20)
+### WiFi Backend (iwd, rolled out 2026-09-22)
 
 The live device is WiFi-only.  Its station came up on wpa_supplicant
 through an `ExecStart` rewrite that pointed the daemon at a
@@ -526,12 +526,20 @@ committed and the device stranded.  That guard comes first.
   `main.conf`; proven enforcing in QEMU against two virtual radios
   with zero new denials (ADR 0014, PR #48)
 - [x] Validate feature: association, lease, daemon domain, and an AVC
-  baseline on both targets (`@hwsim` steps deselected on the device);
-  lands after the device rollout, since its daemon and label checks
-  assert the iwd image
-- [ ] Device rollout: profile provisioned from the running slot
-  first, install through the CI device path, the guard commits, the
-  old configuration retired only after an unrelated reboot
+  baseline on both targets (`@hwsim` steps deselected on the device)
+  (PR #50)
+- [x] Device rollout (2026-09-22, before PR #48 merged): the iwd
+  profile provisioned on `/var` from the running wpa_supplicant slot,
+  the bundle installed over the air, the guard committed the slot
+  with no manual `mark-good`, an unrelated reboot came back on iwd,
+  and the device suite passed against a pre-update baseline (58
+  passed, 1 deselected).  Installed by hand from the head session:
+  the CI device install path this item named does not exist yet, and
+  the image, like every QA image since 2026-09-15, carries no CI
+  collector, so CI device validation cannot reach it until one does
+- [ ] Retire the wpa_supplicant configuration on `/var` once the next
+  OTA overwrites the fallback slot, which still runs wpa_supplicant
+  and reads it
 
 ### Installer Pass (active, pulled forward 2026-07-23)
 
