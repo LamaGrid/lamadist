@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed (2026-09-20)
+Accepted (2026-09-23).  Proposed 2026-09-20.  The open decisions at
+the end remain the owner's to take.
 
 ## Context
 

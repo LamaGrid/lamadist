@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed (2026-09-20)
+Accepted (2026-09-23).  Proposed 2026-09-20; rolled out to the live
+device 2026-09-22 per decision 7.
 
 ## Context
 
@@ -122,7 +123,8 @@ SELinux) as the model and the refpolicy sources as the evidence:
 - iwd installs `80-iwd.link` (`NamePolicy=keep kernel` for wireless
   links), which shadows the image's `99-default.link` for `wlan0`;
   the hardware address is the card's own either way, and the first
-  device boot confirms it.
+  device boot confirmed it (2026-09-22: the hardware address and the
+  leased IPv4 address were unchanged across the swap).
 - `iwd.service` is `Type=dbus`, so the system bus is on the WiFi
   critical path; dbus is already enabled on the image.  The shipped
   D-Bus policy lets members of `wheel` talk to the daemon; on this
