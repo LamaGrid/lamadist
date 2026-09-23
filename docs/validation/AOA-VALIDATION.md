@@ -643,6 +643,13 @@ CI and must not be made reachable.  This matches the working
 constraint in `docs/PLAN.md` that CI and test infrastructure use
 Podman, QEMU, static analysis, and unit tests only.
 
+**Update 2026-09-08:** decision 4 was revisited once the device was
+isolated for cluster reach.  CI now also reaches the live device,
+through a read-only forced-command collector on the `device-validate`
+runner under a shared lease (PRs #33-#35).  It collects facts only:
+the write-path checks stay in the supervised local flow, and CI
+installs nothing on the device and never reboots it.
+
 Secrets are masked at the source: the development password is a
 masked CI secret even though it is baked into the image, so that no
 future change to that image quietly starts printing a real
@@ -740,7 +747,8 @@ item.  They are kept here so that each acceptance is explicit.
    local QEMU first, CI on the emulated target, the live device run
    by hand; isolating the device so the cluster can reach it is a
    separate infrastructure task, after which this decision is
-   revisited.
+   revisited.  **Revisited 2026-09-08:** CI reaches the device
+   read-only through the collector (7.9).
 5. **Confirm the credential shape** (section 2, open question 3).
    **Taken 2026-09-05: the test SSH key on both targets; password
    authentication over the network is forbidden; the `sudo`

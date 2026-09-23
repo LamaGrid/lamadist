@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Accepted.  Amended 2026-09-08 (PRs #33-#35): CI also reaches the
+live device, through a read-only forced-command collector on the one
+isolated runner allowed to reach it, under a shared lease.  CI
+installs nothing on the device and never reboots it.
 
 ## Context
 
@@ -59,7 +62,8 @@ counted as failures, no matcher passing on empty output, a
 negative-control twin scenario per property, `id -u` inside the root
 helper, no check passing on a score, and no host or device
 identifier in any report artifact.  CI runs the emulated target
-only; the live device stays a local target, never reachable from CI.
+only; the live device stays a local target, never reachable from CI
+(amended 2026-09-08; see Status).
 
 ## Alternatives considered
 

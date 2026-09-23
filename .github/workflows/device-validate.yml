@@ -14,24 +14,18 @@
 # serializes runs at GitHub; the cluster Lease serializes against the
 # lamadist head's deploys.  Both are needed.
 #
-# Dispatch-only for now.  A push trigger merged ahead of its runner
-# would queue a job that never starts, and a queued job never times
-# out (timeout-minutes counts from job start).  The push-to-main
-# trigger lands in the same change as the runner, the device secret,
-# and the device-side entrypoint.
+# Dispatch-only: one device serves every run, and its image changes
+# only through an OTA the lamadist head drives, so a run happens when
+# someone asks for one, usually right after an OTA (pin the deployed
+# root hash with the roothash input).
 #
-# Dispatched runs stay inert until the device side lands: the device
-# does not yet authorize a CI key, so the suite's per-check SSH has
-# nowhere to land, and the single device-side validate entrypoint the
-# forced-command runs does not exist.  The validate task itself is
-# ready for CI -- it accepts the LAMADIST_VALIDATE_* variables from the
-# environment, honors the mounted known-hosts pin, and needs no sudo
-# password (privileged checks run device-side under the forced-command
-# wrapper).  One CI-side change lands with that entrypoint: the
-# Validate step below still runs the suite's per-check SSH sessions,
-# which a forced command answers with the entrypoint every time, so
-# it becomes a single SSH call to the entrypoint (or the wrapper
-# grows a verb allowlist; that choice is open).
+# The suite runs in collector mode (LAMADIST_VALIDATE_COLLECTOR=1): a
+# single SSH call under the CI key's forced command runs the
+# device-side collector, which returns every check fact as JSON, and
+# the write-path checks are deselected.  Only an image built with
+# kas/extras/ci-validate.kas.yml carries that collector and authorizes
+# the CI key; against any other image a dispatch fails at SSH
+# authentication.
 name: Device validation
 
 on:
