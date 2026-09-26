@@ -34,7 +34,20 @@ fi
 # silent degrade flips the whole build into the other sstate
 # signature universe and rebuilds ~1100+ tasks inside a green run
 # (runs 33688358723 vs 33717639647).
-if [ "${_icecc}" = "true" ] && [ -z "${LAMADIST_ICECC_SCHEDULER:-}" ]; then
+#
+# LAMADIST_ICECC_LOCAL_ONLY=1 keeps the icecc class, and so every task
+# signature and the warm sstate, but gives the build's own iceccd no
+# scheduler: nothing listens on 127.0.0.1, so the daemon runs each job
+# locally at once.  It turns remote compiles off when the pool cannot
+# be trusted to answer: a remote job that never returns holds its
+# compile for the icecc client's fixed 12-minute wait before the local
+# retry.
+_icecc_scheduler="${LAMADIST_ICECC_SCHEDULER:-}"
+if [ "${_icecc}" = "true" ] && [ -n "${LAMADIST_ICECC_LOCAL_ONLY:-}" ]; then
+	echo "==> icecc: local-only (no scheduler); every compile runs locally"
+	_icecc_scheduler='127.0.0.1'
+fi
+if [ "${_icecc}" = "true" ] && [ -z "${_icecc_scheduler}" ]; then
 	if [ "${_ci}" = "true" ]; then
 		echo "==> ERROR: --icecc requested but LAMADIST_ICECC_SCHEDULER is unset." >&2
 		echo "==> Refusing to silently flip the sstate signature universe;" >&2
@@ -124,7 +137,7 @@ if [ "${_ci}" = "true" ]; then
 		sudo -n mkdir -p /var/run/icecc 2> /dev/null || true
 		sudo -n /usr/sbin/iceccd -d --no-remote \
 			${LAMADIST_MAX_LOCAL_JOBS:+-m ${LAMADIST_MAX_LOCAL_JOBS}} \
-			-s "${LAMADIST_ICECC_SCHEDULER}" ||
+			-s "${_icecc_scheduler}" ||
 			echo "==> WARNING: iceccd failed to start; compiles stay local"
 	fi
 	mkdir -p "${SSTATE_DIR}"
@@ -163,7 +176,7 @@ else
 			sudo -n mkdir -p /var/run/icecc
 			sudo -n /usr/sbin/iceccd -d --no-remote \
 				${LAMADIST_MAX_LOCAL_JOBS:+-m ${LAMADIST_MAX_LOCAL_JOBS}} \
-				-s '${LAMADIST_ICECC_SCHEDULER}' \
+				-s '${_icecc_scheduler}' \
 				-b /tmp/iceccd -l /tmp/iceccd/iceccd.log
 			exec kas build '${_kas_config}'
 		"
