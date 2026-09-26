@@ -20,8 +20,17 @@ TAIL_MIB = 230
 HEADROOM_MIB = 1024
 
 
-def _plan(cpus: int, mem_gb: int, compat: str | None = None, root: Path = ROOT) -> str:
+def _plan(
+    cpus: int,
+    mem_gb: int,
+    compat: str | None = None,
+    root: Path = ROOT,
+    rm_work: bool = False,
+) -> str:
     env = {**os.environ, "MISE_CONFIG_ROOT": str(root)}
+    env.pop("LAMADIST_RM_WORK", None)
+    if rm_work:
+        env["LAMADIST_RM_WORK"] = "1"
     if compat:
         env["BASH_COMPAT"] = compat
     script = (
@@ -60,6 +69,18 @@ def test_slots_never_fall_as_cpus_rise(mem_gb: int) -> None:
         for cpus in (4, 6, 8, 12, 16)
     ]
     assert slots == sorted(slots)
+
+
+def test_without_rm_work_the_plan_keeps_the_speed_order() -> None:
+    assert _value(_plan(6, 10), "BB_SCHEDULER") == "lamadist-memory"
+
+
+def test_with_rm_work_the_plan_finishes_recipes_first() -> None:
+    overlay = _plan(6, 10, rm_work=True)
+    assert _value(overlay, "BB_SCHEDULER") == "lamadist-memory-completion"
+    assert "lamadist.sched.RunQueueSchedulerMemoryCompletion" in _value(
+        overlay, "BB_SCHEDULERS"
+    )
 
 
 def test_a_bad_table_fails_closed(tmp_path: Path) -> None:

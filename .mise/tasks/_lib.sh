@@ -266,6 +266,13 @@ _emit_memory_plan() {
 		return 1
 	fi
 
+	# With rm_work on (LAMADIST_RM_WORK, set by the build task in CI),
+	# finish each recipe before starting the next, so its work directory
+	# is deleted sooner.  rm_work's own completion default would lose to
+	# this plan's hard assignment.
+	local _scheduler='lamadist-memory'
+	[[ -z "${LAMADIST_RM_WORK:-}" ]] || _scheduler='lamadist-memory-completion'
+
 	cat >> "$_overlay" <<- OVERLAY
 		    PARALLEL_MAKE = '-j ${_jobs}'
 		    ICECC_PARALLEL_MAKE = '-j ${_icecc_jobs}'
@@ -274,8 +281,8 @@ _emit_memory_plan() {
 		    # (neighbour pods count too); not part of the invariant.
 		    BB_PRESSURE_MAX_MEMORY ?= '20000'
 		    LAMADIST_HEAVY_TASKS = '${_heavy_tasks[*]}'
-		    BB_SCHEDULERS = 'lamadist.sched.RunQueueSchedulerMemory'
-		    BB_SCHEDULER = 'lamadist-memory'
+		    BB_SCHEDULERS = 'lamadist.sched.RunQueueSchedulerMemory lamadist.sched.RunQueueSchedulerMemoryCompletion'
+		    BB_SCHEDULER = '${_scheduler}'
 	OVERLAY
 	for _task in "${_tasks[@]}"; do
 		cat >> "$_overlay" <<- OVERLAY

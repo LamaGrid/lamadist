@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+header:
+  version: 15
+
+local_conf_header:
+  40_rm_work: |
+    # CI only: delete each recipe's work directory once its outputs are
+    # in sstate and deploy, so a cold build fits the job's work claim.
+    # Task logs (temp/) are kept.  Nothing downstream reads another
+    # recipe's WORKDIR; images, tests, and validation read deploy.
+    INHERIT += 'rm_work'

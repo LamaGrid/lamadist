@@ -72,6 +72,15 @@ if [ "${_release}" = "true" ]; then
 	export LAMADIST_SPDX_HEAVY=1
 fi
 
+# CI builds delete each recipe's work directory once it is done
+# (rm-work overlay below), so a cold build fits the job's disk.
+# LAMADIST_RM_WORK makes the memory plan pick the recipe-completing
+# scheduler; like LAMADIST_SPDX_HEAVY it must be exported before the
+# overlay is written.
+if [ "${_ci}" = "true" ]; then
+	export LAMADIST_RM_WORK=1
+fi
+
 # Emit the dynamic KAS overlay (version + build-stats settings) from
 # the 'info' dependency task's gitversion env file (see _lib.sh).
 write_dynamic_overlay
@@ -97,6 +106,10 @@ if [ "${_qa}" = "true" ] && [ "${_release}" != "true" ]; then
 	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/qa.kas.yml"
 elif [ "${_ci}" != "true" ]; then
 	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/debug.kas.yml"
+fi
+
+if [ -n "${LAMADIST_RM_WORK:-}" ]; then
+	_kas_config="${_kas_config}:${KAS_WORK_DIR}/kas/extras/rm-work.kas.yml"
 fi
 
 # CVE manifest overlay
