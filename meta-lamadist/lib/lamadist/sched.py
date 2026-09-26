@@ -16,9 +16,13 @@ This scheduler keeps a second heavy task buildable-but-unstarted while
 one runs, so the slot goes to other work.  The lock stays as a backstop
 for any path that bypasses the scheduler.
 
-Selected by the memory plan with::
+Two orders carry the same rule.  ``lamadist-memory`` extends BitBake's
+speed scheduler.  ``lamadist-memory-completion`` extends its completion
+scheduler, which finishes a recipe before starting the next, so that
+``rm_work`` can delete each work directory sooner; the build task picks
+it when rm_work is on (CI).  The memory plan selects one with::
 
-    BB_SCHEDULERS = "lamadist.sched.RunQueueSchedulerMemory"
+    BB_SCHEDULERS = "lamadist.sched.RunQueueSchedulerMemory ..."
     BB_SCHEDULER = "lamadist-memory"
 """
 
@@ -52,10 +56,13 @@ def held_back(
     return frozenset((buildable & heavy) - covered - running)
 
 
-class RunQueueSchedulerMemory(bb.runqueue.RunQueueSchedulerSpeed):
-    """The speed scheduler, starting at most one heavy task at a time."""
+class HoldHeavyTasks(bb.runqueue.RunQueueSchedulerSpeed):
+    """Start at most one heavy task at a time, on any speed-derived order.
 
-    name = "lamadist-memory"
+    BitBake's completion scheduler subclasses the speed scheduler, so
+    listing this class before it in the bases puts the hold-back rule
+    over the completion order.
+    """
 
     def __init__(self, runqueue: object, rqdata: object) -> None:
         super().__init__(runqueue, rqdata)
@@ -92,3 +99,17 @@ class RunQueueSchedulerMemory(bb.runqueue.RunQueueSchedulerSpeed):
             return super().next_buildable_task()
         finally:
             self.buildable.update(held)
+
+
+class RunQueueSchedulerMemory(HoldHeavyTasks):
+    """The speed scheduler, starting at most one heavy task at a time."""
+
+    name = "lamadist-memory"
+
+
+class RunQueueSchedulerMemoryCompletion(
+    HoldHeavyTasks, bb.runqueue.RunQueueSchedulerCompletion
+):
+    """The completion scheduler, starting at most one heavy task at a time."""
+
+    name = "lamadist-memory-completion"
