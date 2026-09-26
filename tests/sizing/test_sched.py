@@ -42,6 +42,23 @@ def test_the_scheduler_is_selectable_by_name() -> None:
     assert sched.RunQueueSchedulerMemory.name == "lamadist-memory"
 
 
+def test_the_completion_variant_is_selectable_by_name() -> None:
+    assert sched.RunQueueSchedulerMemoryCompletion.name == "lamadist-memory-completion"
+
+
+def test_the_completion_variant_orders_like_bitbakes_completion_scheduler() -> None:
+    import bb.runqueue  # pyright: ignore[reportMissingImports]
+
+    assert issubclass(
+        sched.RunQueueSchedulerMemoryCompletion, bb.runqueue.RunQueueSchedulerCompletion
+    )
+
+
+def test_both_variants_hold_heavy_tasks_the_same_way() -> None:
+    for cls in (sched.RunQueueSchedulerMemory, sched.RunQueueSchedulerMemoryCompletion):
+        assert cls.next_buildable_task is sched.HoldHeavyTasks.next_buildable_task
+
+
 def test_a_failed_heavy_task_does_not_block_the_rest() -> None:
     assert sched.held_back({CLANG}, {LLVM}, HEAVY, failed={LLVM}) == frozenset()
 
