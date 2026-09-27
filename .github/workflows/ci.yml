@@ -226,6 +226,12 @@ jobs:
           # default OOM-killed the job cgroup (run 33470552892).
           LAMADIST_ICECC_JOBS: "12"
 
+      # BitBake cuts each task off the network with an unprivileged
+      # user namespace, and silently skips that when the kernel or
+      # the pod's security profile refuses one.  Fail loudly instead.
+      - name: Check task network isolation
+        run: python3 .mise/lib/check-task-isolation.py ext/bitbake/lib
+
       # TODO: Upload build artifacts when ready
       # - name: Upload artifacts
       #   uses: actions/upload-artifact@v4
