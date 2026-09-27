@@ -36,7 +36,9 @@ def _sockdir(tmp_path: Path) -> Path:
     return sockdir
 
 
-def _run(tmp_path: Path, sockdir: Path, fake: Path, **env: str) -> subprocess.CompletedProcess[str]:
+def _run(
+    tmp_path: Path, sockdir: Path, fake: Path, **env: str
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(SCRIPT), "sched.example", str(tmp_path / "log")],
         env={
@@ -51,7 +53,9 @@ def _run(tmp_path: Path, sockdir: Path, fake: Path, **env: str) -> subprocess.Co
     )
 
 
-def test_the_daemon_runs_as_the_caller_with_home_at_the_socket_dir(tmp_path: Path) -> None:
+def test_the_daemon_runs_as_the_caller_with_home_at_the_socket_dir(
+    tmp_path: Path,
+) -> None:
     sockdir, fake = _sockdir(tmp_path), _fake_iceccd(tmp_path)
     done = _run(tmp_path, sockdir, fake)
     assert done.returncode == 0, done.stderr
@@ -70,7 +74,9 @@ def test_the_local_slot_cap_is_passed_through(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("breakage", ["missing", "no-link"])
-def test_an_unusable_socket_dir_leaves_compiles_local(tmp_path: Path, breakage: str) -> None:
+def test_an_unusable_socket_dir_leaves_compiles_local(
+    tmp_path: Path, breakage: str
+) -> None:
     fake = _fake_iceccd(tmp_path)
     sockdir = tmp_path / "icecc"
     if breakage == "no-link":
