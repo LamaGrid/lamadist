@@ -48,7 +48,6 @@ openssh-client
 # Extra packages for interactive work
 curl
 less
-sudo
 tmux
 
 # Extra packages for non-cof images
