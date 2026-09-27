@@ -141,17 +141,11 @@ if [ "${_ci}" = "true" ]; then
 	# CI mode: run kas directly (already inside builder container)
 	if [ "${_icecc}" = "true" ]; then
 		# CI job pods reach the icecc scheduler and the helper
-		# daemons directly.
-		# Same root-socket rule as the local path: bitbake gives
-		# tasks a throwaway HOME, so only the root daemon's
-		# /var/run/icecc socket is findable.  Daemon failure is
-		# non-fatal -- compiles fall back to local at the icecc
-		# parallelism, contained by the pod's cgroup caps.
-		sudo -n mkdir -p /var/run/icecc 2> /dev/null || true
-		sudo -n /usr/sbin/iceccd -d --no-remote \
-			${LAMADIST_MAX_LOCAL_JOBS:+-m ${LAMADIST_MAX_LOCAL_JOBS}} \
-			-s "${_icecc_scheduler}" ||
-			echo "==> WARNING: iceccd failed to start; compiles stay local"
+		# daemons directly.  The daemon runs as the builder (see
+		# start-iceccd.sh for how bitbake tasks find its socket).
+		# Daemon failure is non-fatal -- compiles fall back to local
+		# at the icecc parallelism, contained by the pod's cgroup caps.
+		"${MISE_CONFIG_ROOT}/.mise/lib/start-iceccd.sh" "${_icecc_scheduler}"
 	fi
 	mkdir -p "${SSTATE_DIR}"
 	kas build --force-checkout --update "${_kas_config}"
@@ -175,22 +169,14 @@ else
 		# --no-remote because behind the rootless-podman NAT it cannot
 		# accept jobs from other machines, -s because UDP scheduler
 		# discovery does not cross the container network namespace.
-		# The daemon MUST run as root: a non-root iceccd binds its
-		# unix socket at HOME/.iceccd.socket, but bitbake gives
-		# every task a private throwaway HOME, so clients never find
-		# it and silently compile locally.  Root binds
-		# /var/run/icecc/iceccd.socket, the first path every client
-		# checks.  LAMADIST_MAX_LOCAL_JOBS (optional; set it in
-		# .mise.local.toml) caps the daemon's local compile slots,
-		# matching the cap the dynamic overlay puts on plain
-		# builds; unset means all container cores.
+		# The daemon runs as the builder (see start-iceccd.sh for how
+		# bitbake tasks find its socket).  LAMADIST_MAX_LOCAL_JOBS
+		# (optional; set it in .mise.local.toml) caps the daemon's
+		# local compile slots, matching the cap the dynamic overlay
+		# puts on plain builds; unset means all container cores.
 		run_in_container --entrypoint '["/bin/dumb-init", "-r", "2:15"]' -- /bin/bash -c "
-			mkdir -p /tmp/iceccd
-			sudo -n mkdir -p /var/run/icecc
-			sudo -n /usr/sbin/iceccd -d --no-remote \
-				${LAMADIST_MAX_LOCAL_JOBS:+-m ${LAMADIST_MAX_LOCAL_JOBS}} \
-				-s '${_icecc_scheduler}' \
-				-b /tmp/iceccd -l /tmp/iceccd/iceccd.log
+			LAMADIST_MAX_LOCAL_JOBS='${LAMADIST_MAX_LOCAL_JOBS:-}' \
+				'${KAS_WORK_DIR}/.mise/lib/start-iceccd.sh' '${_icecc_scheduler}'
 			exec kas build '${_kas_config}'
 		"
 	else

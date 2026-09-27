@@ -66,9 +66,14 @@ RUN --mount=type=cache,target=/var/lib/apt \
 # Create a non-root user that will perform the actual build.
 # BUILDER_UID should match the host UID to avoid permission issues.
 ARG BUILDER_UID=1000
+# No sudo in the image.  The build task runs the local iceccd as
+# the builder: a non-root iceccd binds $HOME/.iceccd.socket, so the
+# task starts it with HOME=/var/run/icecc, and the iceccd.socket link
+# is the first path every icecc client tries (bitbake tasks get a
+# throwaway HOME, so the plain $HOME socket would never be found).
 RUN id builder 2>/dev/null || useradd --uid ${BUILDER_UID} --shell /bin/bash --create-home builder && \
-  echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers.d/builder && \
-  chmod 0660 /etc/sudoers.d/builder
+  install -d -o builder -g builder -m 0755 /var/run/icecc && \
+  ln -s .iceccd.socket /var/run/icecc/iceccd.socket
 
 # We need these for consistent sorting, formating, etc., but they cannnot
 # be set until after the locales are generated.  Yocto also requires them.
