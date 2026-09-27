@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# Passes the trigger lint: allowed triggers only, and the publishing
+# environment is chosen by an expression that is empty unless the
+# event is a push.
+---
+name: good
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: >-
+      ${{ github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && 'yocto-publish' || '' }}
+    steps:
+      - run: echo build

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# Must fail the trigger lint: workflow_run runs with secrets, even
+# when the triggering run came from a fork.
+---
+name: bad-workflow-run
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+jobs:
+  follow-up:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo follow-up
