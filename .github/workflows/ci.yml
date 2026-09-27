@@ -153,8 +153,20 @@ jobs:
     runs-on: yocto-runner-set
     container:
       image: registry.local/lamagrid/lamadist-builder:latest
+    # Mirror publish credentials live only in the yocto-publish
+    # environment, whose branch policy admits main.  Only a main push
+    # with publishing switched on (repo variable LAMADIST_PUBLISH=1)
+    # asks for it; every other run, pull requests included, gets no
+    # environment and no credentials (.mise/lib/workflow_lint.py
+    # enforces this shape).
+    environment: >-
+      ${{ github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && vars.LAMADIST_PUBLISH == '1' && 'yocto-publish' || '' }}
     env:
       KAS_WORK_DIR: ${{ github.workspace }}
+      LAMADIST_PUBLISH_ON: >-
+        ${{ github.event_name == 'push' && github.ref == 'refs/heads/main'
+        && vars.LAMADIST_PUBLISH == '1' }}
     # A release build (dispatch with release=true) serializes the
     # SPDX chain at the 11 GiB pod ceiling: measured ~6.4 h for
     # SPDX alone (run 33823958778), so the default 480 leaves no
@@ -174,6 +186,12 @@ jobs:
         run: |
           rm -rf "${GITHUB_WORKSPACE}/build/tmp"
           echo "Cleaned build/tmp directory"
+
+      # Record the caches before the build, so the publish step after
+      # it uploads only what this build produced.
+      - name: Publish snapshot
+        if: env.LAMADIST_PUBLISH_ON == 'true'
+        run: python3 .mise/lib/publish.py snapshot --state "${RUNNER_TEMP}/publish-state.json"
 
       # A push to main runs the same build its PR ran: same sstate
       # universe, so the merge re-verifies what the PR proved in
@@ -210,6 +228,26 @@ jobs:
           # runs a local preprocessor, and the overlay's -j40
           # default OOM-killed the job cgroup (run 33470552892).
           LAMADIST_ICECC_JOBS: "12"
+          # A publishing build compiles locally: any job pod, a pull
+          # request's included, can reach the icecc daemons, so
+          # remotely compiled objects never enter the mirrors.
+          # Local-only keeps the icecc signature universe, so the
+          # build still restores the sstate its pull request made.
+          LAMADIST_ICECC_LOCAL_ONLY: ${{ env.LAMADIST_PUBLISH_ON == 'true' && '1' || '' }}
+
+      # Upload this build's new sstate, downloads, and buildstats to
+      # the mirrors, on success and on failure.  Its status is its
+      # own: a failed publish marks this step, never the build, and
+      # the next build re-produces anything it missed.
+      - name: Publish to mirrors
+        if: always() && env.LAMADIST_PUBLISH_ON == 'true'
+        continue-on-error: true
+        timeout-minutes: 35
+        run: mise exec -- python3 .mise/lib/publish.py publish --state "${RUNNER_TEMP}/publish-state.json"
+        env:
+          LAMADIST_PUBLISH_MIRRORS: ${{ secrets.LAMADIST_PUBLISH_MIRRORS }}
+          LAMADIST_PUBLISH_USER: ${{ secrets.LAMADIST_PUBLISH_USER }}
+          LAMADIST_PUBLISH_PASSWORD: ${{ secrets.LAMADIST_PUBLISH_PASSWORD }}
 
       # TODO: Upload build artifacts when ready
       # - name: Upload artifacts
@@ -236,8 +274,15 @@ jobs:
     runs-on: yocto-runner-set
     container:
       image: registry.local/lamagrid/lamadist-builder:latest
+    # Same publish gate as the x86_64 job.
+    environment: >-
+      ${{ github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && vars.LAMADIST_PUBLISH == '1' && 'yocto-publish' || '' }}
     env:
       KAS_WORK_DIR: ${{ github.workspace }}
+      LAMADIST_PUBLISH_ON: >-
+        ${{ github.event_name == 'push' && github.ref == 'refs/heads/main'
+        && vars.LAMADIST_PUBLISH == '1' }}
     # A cold aarch64 image is a multi-hour build; the QA profile
     # (zstd, no scans) keeps the gate as light as it can be.
     timeout-minutes: 600
@@ -253,6 +298,10 @@ jobs:
         run: |
           rm -rf "${GITHUB_WORKSPACE}/build/tmp"
           echo "Cleaned build/tmp directory"
+
+      - name: Publish snapshot
+        if: env.LAMADIST_PUBLISH_ON == 'true'
+        run: python3 .mise/lib/publish.py snapshot --state "${RUNNER_TEMP}/publish-state.json"
 
       - name: Build
         run: mise run build --bsp qemuarm64 --ci --qa
@@ -270,6 +319,16 @@ jobs:
           # deterministic local compiler and drops the farm dependency,
           # matching the hardware jobs.  hashserv still dedups sstate.
           LAMADIST_HASHSERVE: ${{ secrets.LAMADIST_HASHSERVE }}
+
+      - name: Publish to mirrors
+        if: always() && env.LAMADIST_PUBLISH_ON == 'true'
+        continue-on-error: true
+        timeout-minutes: 35
+        run: mise exec -- python3 .mise/lib/publish.py publish --state "${RUNNER_TEMP}/publish-state.json"
+        env:
+          LAMADIST_PUBLISH_MIRRORS: ${{ secrets.LAMADIST_PUBLISH_MIRRORS }}
+          LAMADIST_PUBLISH_USER: ${{ secrets.LAMADIST_PUBLISH_USER }}
+          LAMADIST_PUBLISH_PASSWORD: ${{ secrets.LAMADIST_PUBLISH_PASSWORD }}
 
       # Secure Boot on the aarch64 gate.  Enroll the project PK/KEK/db
       # into the container's AAVMF varstore (virt-fw-vars runs directly

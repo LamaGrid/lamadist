@@ -9,3 +9,7 @@ pythonVersion = "3.14"
 
 [tool.ruff]
 target-version = "py314"
+
+# Runs inside the builder image (Ubuntu 22.04, Python 3.10) in CI.
+[tool.ruff.per-file-target-version]
+".mise/lib/publish.py" = "py310"
