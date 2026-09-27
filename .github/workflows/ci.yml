@@ -28,6 +28,14 @@ on:
         required: false
         default: false
         type: boolean
+      cold:
+        description: >-
+          Measure a cold x86_64 build: start from an empty sstate
+          directory on the job's own work claim instead of the shared
+          cache
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -155,6 +163,11 @@ jobs:
       image: registry.local/lamagrid/lamadist-builder:latest
     env:
       KAS_WORK_DIR: ${{ github.workspace }}
+      # A cold measurement (dispatch with cold=true) builds every task:
+      # its sstate starts empty on the ephemeral work claim, so the
+      # claim's disk peak and the build's wall time are the cold ones.
+      SSTATE_DIR: ${{ inputs.cold && format('{0}/cold-sstate', github.workspace) || '/__w/_sstate' }}
+      LAMADIST_HOST_SSTATE_DIR: ${{ inputs.cold && format('{0}/cold-sstate', github.workspace) || '/__w/_sstate' }}
     # A release build (dispatch with release=true) serializes the
     # SPDX chain at the 11 GiB pod ceiling: measured ~6.4 h for
     # SPDX alone (run 33823958778), so the default 480 leaves no
