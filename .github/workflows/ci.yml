@@ -197,6 +197,10 @@ jobs:
           # receive secrets -- means the build task disables icecc
           # and compiles locally.
           LAMADIST_ICECC_SCHEDULER: ${{ secrets.LAMADIST_ICECC_SCHEDULER }}
+          # Builds outside pull requests compile every object locally.
+          # Local-only keeps the icecc class, so task signatures and
+          # the sstate they restore are unchanged.
+          LAMADIST_ICECC_LOCAL_ONLY: ${{ github.event_name != 'pull_request' && '1' || '' }}
           # Private hash-equivalence server (see kas/main.kas.yml
           # 10_cache).  Also a masked secret: infrastructure names
           # stay out of public run logs.  Unset falls back to
