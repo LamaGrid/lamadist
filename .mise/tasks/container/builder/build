@@ -7,7 +7,6 @@ set -o nounset
 set -o pipefail
 
 _ci="${usage_ci:-false}"
-_container_registry="${CONTAINER_REGISTRY:-}"
 
 if [ "${_ci}" = "true" ]; then
 	_version_tag="$(date -u +"%Y-%m-%dT%H%M%SZ")"
@@ -18,12 +17,26 @@ if [ "${_ci}" = "true" ]; then
 		--build-arg BUILDER_UID="${_build_uid}" \
 		-t "${_local_image}" "${MISE_CONFIG_ROOT}/container/"
 
-	if [ -n "${_container_registry}" ]; then
-		_registry_image="${_container_registry}/lamagrid/lamadist-builder"
+	# Pushing needs the site's registry and its push credential
+	# (LAMADIST_REGISTRY, LAMADIST_REGISTRY_USER, and
+	# LAMADIST_REGISTRY_PASSWORD).  A run without them builds the image
+	# to prove it builds, and does not push it.
+	_registry="${LAMADIST_REGISTRY:-}"
+	_tls_verify="${LAMADIST_REGISTRY_TLS_VERIFY:-true}"
+	if [ -z "${_registry}" ] || [ -z "${LAMADIST_REGISTRY_PASSWORD:-}" ]; then
+		echo "==> No registry credential in this run: built, not pushed"
+	elif [ -z "${LAMADIST_REGISTRY_USER:-}" ]; then
+		echo "==> ERROR: LAMADIST_REGISTRY_USER is unset; not pushing." >&2
+		exit 1
+	else
+		printf '%s' "${LAMADIST_REGISTRY_PASSWORD}" \
+			| podman login --tls-verify="${_tls_verify}" --password-stdin \
+				-u "${LAMADIST_REGISTRY_USER}" "${_registry}"
+		_registry_image="${_registry}/lamagrid/lamadist-builder"
 		podman tag "${_local_image}" "${_registry_image}:${_version_tag}"
 		podman tag "${_local_image}" "${_registry_image}:latest"
-		podman push --tls-verify=false "${_registry_image}:${_version_tag}"
-		podman push --tls-verify=false "${_registry_image}:latest"
+		podman push --tls-verify="${_tls_verify}" "${_registry_image}:${_version_tag}"
+		podman push --tls-verify="${_tls_verify}" "${_registry_image}:latest"
 		echo "Pushed ${_registry_image}:${_version_tag}"
 		echo "Pushed ${_registry_image}:latest"
 	fi
