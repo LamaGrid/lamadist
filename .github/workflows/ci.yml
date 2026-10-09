@@ -54,7 +54,6 @@ env:
   LAMADIST_HOST_BUILDSTATS_BASE: /__w/_buildstats
   LAMADIST_HOST_SSTATE_DIR: /__w/_sstate
   LAMADIST_CONTAINER_IMAGE: lamadist-builder:latest
-  CONTAINER_REGISTRY: registry.local:5000
   BUILDER_UID: '1001'
   # Use overlay storage driver — pods have kernel overlay permissions
   STORAGE_DRIVER: overlay
@@ -125,6 +124,13 @@ jobs:
     runs-on: container-build-set
     container:
       image: quay.io/podman/stable
+    # The registry and its push credential are yocto-publish
+    # environment secrets (main only).  Pull request runs get no
+    # environment: they build the image to prove it builds, and do not
+    # push it.
+    environment: >-
+      ${{ github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && 'yocto-publish' || '' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -145,6 +151,11 @@ jobs:
 
       - name: Build and push container image
         run: mise run container:builder:build --ci
+        env:
+          LAMADIST_REGISTRY: ${{ secrets.LAMADIST_REGISTRY }}
+          LAMADIST_REGISTRY_USER: ${{ secrets.LAMADIST_REGISTRY_USER }}
+          LAMADIST_REGISTRY_PASSWORD: ${{ secrets.LAMADIST_REGISTRY_PASSWORD }}
+          LAMADIST_REGISTRY_TLS_VERIFY: ${{ vars.LAMADIST_REGISTRY_TLS_VERIFY }}
 
   build-x86-64:
     name: Build x86_64
