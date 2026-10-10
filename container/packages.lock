@@ -1,9 +1,9 @@
-# Auto-generated lockfile. Do not edit.  Generated 2026-09-20.
+# Auto-generated lockfile. Do not edit.  Generated 2026-09-27.
 bind9-dnsutils=1:9.18.39-0ubuntu0.22.04.6
 build-essential=12.9ubuntu3
 chrpath=0.16-2
 cpio=2.13+dfsg-7ubuntu0.2
-curl=7.81.0-1ubuntu1.27
+curl=7.81.0-1ubuntu1.29
 debianutils=5.5-1ubuntu2
 diffstat=1.64-1build2
 dosfstools=4.2-1build3
@@ -39,7 +39,6 @@ python3-subunit=1.4.0-3
 qemu-efi-aarch64=2022.02-3ubuntu0.22.04.6
 qemu-system-arm=1:6.2+dfsg-2ubuntu6.31
 socat=1.7.4.1-3ubuntu4
-sudo=1.9.9-1ubuntu2.6
 swtpm=0.6.3-0ubuntu3.3
 syslinux=3:6.04~git20190206.bf6db5b4+dfsg1-3ubuntu1
 texinfo=6.8-4build1
