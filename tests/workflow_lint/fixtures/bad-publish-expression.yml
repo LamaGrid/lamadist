@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# Must fail the trigger lint: the environment is an expression, but
+# nothing in it keeps a pull_request run out of the publishing
+# environment.
+---
+name: bad-publish-expression
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'yocto-publish' || '' }}
+    steps:
+      - run: echo build

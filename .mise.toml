@@ -13,6 +13,8 @@ gitversion = "6.6.0"
 hadolint = "latest"
 hk = "latest"
 pkl = "latest"
+# Mirror publish step (.mise/lib/publish.py): webdav staging + MOVE.
+rclone = "1.75.1"
 shellcheck = "latest"
 uv = "latest"
 yamllint = "latest"

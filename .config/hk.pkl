@@ -26,6 +26,12 @@ local linters = new Mapping<String, Step> {
     )
   }
   ["actionlint"] = Builtins.actionlint
+  // Keeps secrets away from contributor-controlled code: allowed
+  // triggers only, and no publishing environment on pull_request.
+  ["workflow-lint"] {
+    glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml")
+    check = "uv run --quiet --no-project --with pyyaml==6.0.3 python .mise/lib/workflow_lint.py {{ files }}"
+  }
   ["hadolint"] = Builtins.hadolint
   ["kas-schema"] {
     glob = List("kas/**/*.yml", "kas/**/*.yaml")

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# Must fail the trigger lint: push runs on a branch other than main.
+---
+name: bad-push-branch
+on:
+  push:
+    branches: [main, 'release/**']
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo build
