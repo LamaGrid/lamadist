@@ -163,24 +163,37 @@ IMAGE_FEATURES += "read-only-rootfs"
 # fallback -- it is DEV BEHAVIOR ONLY, pending security-owner
 # sign-off on killing/gating it for non-dev builds (same README).
 #
-# A device with no TPM2 (or one whose PCR7 changed, e.g. Secure Boot
-# state/keys changed since enrollment) has NO automatic fallback
-# from this crypttab line: systemd-cryptsetup tries tpm2-device=auto,
-# and with no interactive console (the QEMU CI/headless paths, and
-# any unattended target boot) a failure here fails the 'var' mount,
-# not a keyfile prompt.  This is intentional, not an oversight: every
-# supported boot path currently has a TPM2 -- .mise/tasks/vm starts
-# swtpm unconditionally (both plain and --secureboot runs, CI,
-# headless, and interactive), and the only MACHINE this distro
-# builds (intel.conf) requires DISTRO_FEATURES 'tpm2' via
-# lamadist-tpm2.inc.  A future dev machine that legitimately lacks a
-# TPM would need a crypttab drop-in (or a build-time toggle back to
-# the keyfile field) rather than relying on this entry's absent
-# fallback.
+# A tpm2 machine (x86_64) has NO automatic fallback from this
+# crypttab line: systemd-cryptsetup tries tpm2-device=auto, and with
+# no interactive console (the QEMU CI/headless paths, and any
+# unattended target boot) a failure here fails the 'var' mount, not a
+# keyfile prompt.  That is intentional: x86_64 stays TPM-only.
+#
+# A machine WITHOUT the tpm2 DISTRO_FEATURE (the Rockchip boards,
+# ADR 0013 decision 7) gets the same line minus tpm2-device=auto, so
+# nothing in the unlock path asks for a TPM.
+#
+# FALLBACK SECRET HOOK (ADR 0013 decision 7: a per-device key generated
+# at first boot into a plain partition; the generating unit is NOT
+# written yet).  LAMADIST_VAR_NOTPM_KEYFILE is the crypttab key field
+# of the no-TPM line and nothing else: tpm2 machines always use
+# 'none'.  It stays 'none' (a passphrase prompt) until the unit
+# exists; that unit sets it to the absolute path of the key file, on a
+# plain, already-mounted partition (never under /etc or /var: /etc is
+# an overlay on the LUKS /var).  The unit must also run before
+# lamadist-var-encrypt.service and cryptsetup-pre.target, and make the
+# key a LUKS keyslot of /var.  Put no key material in this layer.
+LAMADIST_VAR_NOTPM_KEYFILE ?= "none"
+
 lamadist_crypttab_var() {
-    echo 'var  PARTLABEL=var  none  luks,discard,tpm2-device=auto' >> ${IMAGE_ROOTFS}${sysconfdir}/crypttab
+    echo 'var  PARTLABEL=var  ${@'none' if bb.utils.contains('DISTRO_FEATURES', 'tpm2', True, False, d) else d.getVar('LAMADIST_VAR_NOTPM_KEYFILE')}  luks,discard${@bb.utils.contains('DISTRO_FEATURES', 'tpm2', ',tpm2-device=auto', '', d)}' >> ${IMAGE_ROOTFS}${sysconfdir}/crypttab
 }
-ROOTFS_POSTPROCESS_COMMAND += "lamadist_crypttab_var; "
+# Registered with no ";" after the name.  oe-core's image.bbclass sets
+# ROOTFS_POSTPROCESS_COMMAND[vardeps] to the expanded value, and a
+# "name;" token names no variable, so the function body would stay out
+# of the do_rootfs signature: an edit to it would not re-run do_rootfs
+# in an existing build tree.  oe-core runs both forms the same way.
+ROOTFS_POSTPROCESS_COMMAND += "lamadist_crypttab_var"
 
 # fstab mounts the mapper device the crypttab entry above creates,
 # not the raw PARTLABEL partition -- systemd's fstab-generator infers
@@ -211,6 +224,34 @@ lamadist_mask_ldconfig_service() {
         ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/ldconfig.service
 }
 ROOTFS_POSTPROCESS_COMMAND += "lamadist_mask_ldconfig_service; "
+
+# Mask the TPM2 enrollment unit (lamadist-luks-var) in images without
+# the tpm2 DISTRO_FEATURE.  The gate is build time, like the crypttab
+# line above, not a runtime ConditionSecurity=tpm2: systemd evaluates
+# that from firmware PCR-bank reporting as well as the kernel device,
+# so on a tpm2 machine whose firmware reports no active banks it would
+# skip enrollment silently and leave the TPM-only crypttab line unable
+# to unlock /var.  tpm2 images do not run this function at all, so
+# they keep the unit exactly as before.  Same pattern as
+# lamadist_mask_ldconfig_service.
+#
+# The mask alone fails do_rootfs: oe-core's systemd_handle_machine_id
+# (also a ROOTFS_POSTPROCESS_COMMAND) runs `systemctl preset-all`, and
+# the recipe's 98-lamadist-luks-var.preset says `enable` for the unit,
+# so preset-all reports "Failed to preset all unit: ... is masked" and
+# log_check turns that into an error.  The 00- preset below says
+# `disable` first (first matching preset line wins), so preset-all no
+# longer asks for the masked unit, whatever order the two commands run.
+lamadist_mask_tpm2_enroll_service() {
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
+    ln -sf /dev/null \
+        ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/lamadist-var-tpm2-enroll.service
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system-preset
+    echo 'disable lamadist-var-tpm2-enroll.service' > \
+        ${IMAGE_ROOTFS}${sysconfdir}/systemd/system-preset/00-lamadist-notpm.preset
+}
+# No ";" after the name, as for lamadist_crypttab_var above.
+ROOTFS_POSTPROCESS_COMMAND += "${@bb.utils.contains('DISTRO_FEATURES', 'tpm2', '', 'lamadist_mask_tpm2_enroll_service', d)}"
 
 # /etc is a writable overlayfs upper layer once /var (mounted above)
 # is available (M4 plan D5).  oe-core's overlayfs-etc.bbclass cannot
