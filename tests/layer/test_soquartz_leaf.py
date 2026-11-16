@@ -28,6 +28,12 @@ SDBOOT_INC = MACHINE_DIR / "include" / "lamadist-boot-sdboot-uki.inc"
 UBOOT_DIR = LAYER / "recipes-bsp" / "u-boot"
 BBAPPEND = UBOOT_DIR / "u-boot_%.bbappend"
 FRAGMENT = UBOOT_DIR / "files" / "lamadist-soquartz-efi.cfg"
+SEED_CLASS = LAYER / "classes" / "lamadist-efi-var-seed.bbclass"
+ESP_CLASS = LAYER / "classes" / "lamadist-esp-slot-a.bbclass"
+ADR13 = ROOT / "docs" / "adr" / "0013-arm-boot-chain.md"
+ADR16 = ROOT / "docs" / "adr" / "0016-uboot-efi-var-seed-generator.md"
+SEEDGEN = LAYER / "lib" / "lamadist" / "efivarseed.py"
+PLAN = ROOT / "docs" / "PLAN.md"
 ENV_TEXT = UBOOT_DIR / "files" / "lamadist-soquartz.env"
 WKS = LAYER / "files" / "wic" / "lamadist-rockchip-bootdisk.wks.in"
 X86_WKS = LAYER / "files" / "wic" / "lamadist-dmverity-bootdisk.wks.in"
@@ -174,10 +180,8 @@ def test_kas_selects_the_leaf_and_drops_the_priority_bump() -> None:
 
 ON = [
     "EFI_LOADER",
-    "CMD_BOOTEFI",
-    "EFI_BOOTMGR",
-    "BOOTMETH_EFI_BOOTMGR",
-    "BOOTMETH_EFILOADER",  # ADR 0013 writes BOOTMETH_EFI; the Kconfig symbol is this
+    "BOOTMETH_EFILOADER",  # the v2026.01 Kconfig symbol (ADR 0013 decision 3)
+    "BOOTSTD_PROG",  # boots without a command line, panics on failure
     "FS_FAT",
     "FAT_WRITE",
     "FAT_RENAME",
@@ -208,6 +212,29 @@ OFF = [
     "CMD_PXE",
     "CMD_SOURCE",
     "BOOTSTD_DEFAULTS",  # selects BOOTMETH_DISTRO and BOOT_DEFAULTS
+    # No prompt: with CMDLINE off every command is gone and
+    # BOOTSTD_PROG (depends on !CMDLINE) boots, then panics.
+    "CMDLINE",
+    # The boot manager would scan auto-generated options over every block
+    # device, SD card first.  BOOTMETH_EFILOADER alone finds
+    # the pinned medium's removable path.
+    "EFI_BOOTMGR",
+    "BOOTMETH_EFI_BOOTMGR",
+    "CMD_BOOTEFI_BOOTMGR",
+    # Off only by today's defaults until the fragment names them.
+    "USE_PREBOOT",
+    "USB_GADGET",
+    "CMD_NVEDIT_EFI",
+    "CMD_EFIDEBUG",
+    "CMD_BOOTEFI_SELFTEST",
+    "EFI_CAPSULE_ON_DISK",
+    "EFI_HTTP_BOOT",
+    "BOOTMETH_CROS",
+    "BOOTMETH_RAUC",
+    "CMD_SYSBOOT",
+    "CMD_BOOTMENU",
+    "OF_BOARD",
+    "BUTTON",
     "BOOTMETH_DISTRO",
     "BOOT_DEFAULTS",
     "EFI_RT_VOLATILE_STORE",
@@ -255,14 +282,15 @@ def test_fragment_turns_every_other_boot_path_off(sym: str) -> None:
     assert _cfg_state().get(sym) == "n", f"# CONFIG_{sym} is not set missing"
 
 
-def test_fragment_pins_autoboot_and_env_through_a_text_file() -> None:
+def test_fragment_pins_the_env_through_a_text_file() -> None:
     state = _cfg_state()
-    assert state.get("BOOTDELAY") == "-2"
+    # AUTOBOOT needs CMDLINE: a BOOTDELAY line would be dead.
+    assert "BOOTDELAY" not in state
     assert "ENV_DEFAULT_ENV_TEXT_FILE" in state
     env = {
         k: v for k, v in (line.split("=", 1) for line in _code(ENV_TEXT) if "=" in line)
     }
-    assert env["bootdelay"] == "-2"
+    assert "bootdelay" not in env
     assert env["fdtfile"] == ""
     assert env["boot_targets"] and " " not in env["boot_targets"], (
         "boot_targets must name the shipping medium only"
@@ -272,9 +300,67 @@ def test_fragment_pins_autoboot_and_env_through_a_text_file() -> None:
     assert env["fdt_addr_r"] == "0x12000000"
 
 
-def test_preseed_seed_path_is_a_marked_hook() -> None:
-    text = FRAGMENT.read_text()
-    assert "LAMADIST-SEED-HOOK" in text
+def test_env_text_file_is_one_source_relative_name() -> None:
+    """u-boot-configure.inc merges the layer's copy of the fragment
+    (find_cfgs), so a sed on ${UNPACKDIR} never reaches .config.  Name the
+    env file source-relative, as the seed is, and copy it into ${S}; the
+    out-of-tree make finds it through VPATH."""
+    assert _cfg_state().get("ENV_DEFAULT_ENV_TEXT_FILE") == '"lamadist-soquartz.env"'
+    assert "@" not in FRAGMENT.read_text()
+    code = _code(BBAPPEND)
+    assert not _has(code, r"sed\b.*LAMADIST_UBOOT_ENV")
+    assert _has(
+        code,
+        r'install\b.*\$\{UNPACKDIR\}/lamadist-soquartz\.env"? +"?\$\{S\}/lamadist-soquartz\.env',
+    )
+
+
+def test_env_text_file_has_its_build_tool() -> None:
+    """U-Boot turns the env text file into a header with xxd, which is not
+    a HOSTTOOL; oe-core's vim-native provides xxd-native."""
+    assert _has(_code(BBAPPEND), r'^DEPENDS:append:soquartz-lamadist = " xxd-native"$')
+
+
+def test_env_has_no_bootcmd() -> None:
+    """With CMDLINE off U-Boot boots through BOOTSTD_PROG; bootcmd is dead."""
+    assert not _has(_code(ENV_TEXT), r"^bootcmd=")
+
+
+def test_preseed_seed_path_is_one_source_relative_name() -> None:
+    """The class writes ${S}/<name>; the fragment names the same file."""
+    assert _cfg_state().get("EFI_VAR_SEED_FILE") == '"lamadist-efivars.seed"'
+    assert re.search(
+        r'^LAMADIST_EFI_VAR_SEED_FILE \?= "lamadist-efivars\.seed"$',
+        SEED_CLASS.read_text(),
+        re.MULTILINE,
+    )
+    for path in (FRAGMENT, BBAPPEND, ENV_TEXT):
+        assert "LAMADIST_UBOOT_EFI_SEED" not in path.read_text(), path.name
+    assert not _has(_code(BBAPPEND), r"EFI_VAR_SEED_FILE.*>>")
+
+
+def test_bbappend_inherits_the_seed_class_for_the_leaf_only() -> None:
+    code = _code(BBAPPEND)
+    assert not _has(code, r"^inherit\s+lamadist-efi-var-seed")
+    assert _has(
+        code, r'^LAMADIST_UBOOT_SEED_CLASS:soquartz-lamadist = "lamadist-efi-var-seed"$'
+    )
+    assert _has(code, r"^inherit_defer \$\{LAMADIST_UBOOT_SEED_CLASS\}$")
+
+
+def test_bbappend_fails_closed_without_the_seed() -> None:
+    text = BBAPPEND.read_text()
+    assert "${LAMADIST_EFI_VAR_SEED_FILE}" in text
+    assert "bbfatal" in text
+
+
+def test_leaf_shows_no_boot_menu() -> None:
+    """No 5 s systemd-boot menu on the UART (the class exposes the knob)."""
+    assert _has(_code(LEAF), r'^LAMADIST_BOOT_ENTRY_TIMEOUT \?= "0"$')
+    assert "LAMADIST_BOOT_ENTRY_TIMEOUT" in ESP_CLASS.read_text()
+
+
+def test_no_seed_or_var_file_is_tracked_under_the_bbappend() -> None:
     # No seed binary or checked-in .var file anywhere under the bbappend.
     assert not list(UBOOT_DIR.rglob("*.var"))
     assert not list(UBOOT_DIR.rglob("*.esl"))
@@ -289,6 +375,55 @@ def test_bbappend_is_machine_scoped() -> None:
     assert not _has(code, r"^SRC_URI\s*(\+=|=|\?=)")
     assert not _has(code, r"^SRC_URI:append\s*=")
     assert _has(code, r"^do_configure:prepend:soquartz-lamadist\b")
+
+
+LINK_PATCH = (
+    UBOOT_DIR / "files" / "0001-efi_loader-link-bootm-for-ExitBootServices.patch"
+)
+
+
+def test_link_patch_is_wired_for_the_leaf_only() -> None:
+    """With CMDLINE off nothing builds boot/bootm.o, yet
+    efi_exit_boot_services() calls bootm_disable_interrupts() and
+    board_quiesce_devices() (lib/efi_loader/efi_boottime.c:2240,2243), so
+    the final link fails.  The patch links bootm.o through LIB_BOOTM, and
+    only on the SOQuartz leaf."""
+    code = _code(BBAPPEND)
+    block = []
+    for i, line in enumerate(code):
+        if line.startswith("SRC_URI:append:soquartz-lamadist"):
+            for later in code[i + 1 :]:
+                block.append(later)
+                if later == '"':
+                    break
+    assert f"file://{LINK_PATCH.name}" in " ".join(block)
+    assert not any(LINK_PATCH.name in line for line in code if line not in block)
+
+
+def test_link_patch_carries_upstream_status_and_stays_small() -> None:
+    text = LINK_PATCH.read_text()
+    assert re.search(r"^Upstream-Status: \S", text, re.MULTILINE)
+    assert re.search(r"^Signed-off-by: ", text, re.MULTILINE)
+    touched = re.findall(r"^diff --git a/(\S+) b/", text, re.MULTILINE)
+    assert touched == ["boot/Makefile", "lib/efi_loader/Kconfig"]
+    assert re.search(
+        r"^\+obj-\$\(CONFIG_LIB_BOOTM\) \+= bootm\.o bootm_os\.o$", text, re.MULTILINE
+    )
+    assert re.search(r"^\+\s*select LIB_BOOTM if ARM$", text, re.MULTILINE)
+    # The patch adds no command, boot method, or CMDLINE select.
+    added = [
+        ln
+        for ln in text.splitlines()
+        if ln.startswith("+") and not ln.startswith("+++")
+    ]
+    assert not any(re.search(r"CMD_|BOOTMETH_|CMDLINE", ln) for ln in added)
+
+
+@pytest.mark.parametrize("sym", ["CMDLINE", "CMD_BOOTM", "CMD_BOOTI", "CMD_BOOTZ"])
+def test_link_patch_keeps_the_prompt_and_boot_commands_off(sym: str) -> None:
+    """The link fix must never be paid for with the command line."""
+    assert _cfg_state().get(sym) == "n"
+    assert f"CONFIG_{sym}=y" not in FRAGMENT.read_text()
 
 
 @pytest.mark.skipif(not UPSTREAM_UBOOT.is_dir(), reason="no U-Boot v2026.01 checkout")
@@ -379,3 +514,98 @@ def test_partitioning_doc_shows_the_shipped_prelude() -> None:
     for name in PRELUDE:
         assert name in text, f"docs/PARTITIONING.md lacks {name}"
     assert "lamadist-rockchip-bootdisk.wks.in" in text
+
+
+# --- doc and text claims (ADR 0013 corrections, PLAN) ---------------------
+
+
+def _flat(path: Path) -> str:
+    """The file's prose with comment markers and wrapping collapsed."""
+    text = re.sub(r"^\s*(#|\*)\s?", "", path.read_text(), flags=re.MULTILINE)
+    return re.sub(r"\s+", " ", text)
+
+
+DBX_TEXTS = [ADR13, ADR16, SEEDGEN, FRAGMENT, BBAPPEND]
+
+
+@pytest.mark.parametrize("path", DBX_TEXTS, ids=lambda p: p.name)
+def test_no_text_claims_dbx_is_write_protected(path: Path) -> None:
+    """U-Boot protects only authenticated variables that exist (the
+    seed holds PK, KEK, and db; there is no dbx entry)."""
+    flat = _flat(path)
+    assert not re.search(r"dbx is (immutable|write-protected)", flat)
+    assert not re.search(r"dbx[^.]{0,40}(write-protect|immutable)", flat), path.name
+    assert not re.search(
+        r"(refus|block|protect)[^.]{0,60}PK, KEK, db, and dbx", flat
+    ), path.name
+    assert not re.search(r"write-protected including dbx", flat)
+    assert not re.search(r"PK, KEK, db, and dbx come from a build-time seed", flat)
+
+
+@pytest.mark.parametrize("path", [ADR13, ADR16], ids=lambda p: p.name)
+def test_adrs_state_what_protects_dbx(path: Path) -> None:
+    flat = _flat(path)
+    assert re.search(r"PK, KEK, and db are write-protected", flat), path.name
+    assert re.search(r"dbx is absent", flat), path.name
+
+
+def _decision_3() -> str:
+    flat = _flat(ADR13)
+    start = flat.index("3. The U-Boot configuration is an explicit fragment")
+    return flat[start : flat.index("4. The trust statement", start)]
+
+
+def test_adr13_decision_3_uses_the_v2026_01_symbol_names() -> None:
+    d3 = _decision_3()
+    for sym in (
+        "BOOTMETH_EFILOADER",
+        "CMD_ELF",
+        "EFI_VARIABLES_PRESEED",
+        "BOOTSTD_DEFAULTS",
+        "BOOTMETH_DISTRO",
+        "BOOT_DEFAULTS",
+        "CMDLINE",
+        "BOOTSTD_PROG",
+    ):
+        assert sym in d3, sym
+    assert not re.search(r"\bBOOTMETH_PXE\b", d3)
+    assert "CMD_BOOTELF" not in d3
+    assert not re.search(r"\bBOOTMETH_EFI\b", d3)
+
+
+def test_adr13_decision_3_turns_the_efi_boot_manager_off() -> None:
+    d3 = _decision_3()
+    on = d3[d3.index("- on:") : d3.index("- off:")]
+    off = d3[d3.index("- off:") :]
+    assert "EFI_BOOTMGR" not in on
+    assert "BOOTMETH_EFI_BOOTMGR" in off
+    assert re.search(r"only the pinned medium", d3)
+
+
+def test_adr13_names_the_shipped_leaf() -> None:
+    flat = _flat(ADR13)
+    assert "soquartz-lamadist.conf" in flat
+    assert "`soquartz.conf`" not in flat
+
+
+def _plan_item(start: str) -> str:
+    text = PLAN.read_text()
+    i = text.index(start)
+    j = text.index("\n- [", i + 1)
+    return text[i:j]
+
+
+@pytest.mark.parametrize(
+    "start",
+    [
+        "- [x] `soquartz-lamadist.conf`",
+        "- [x] Preseed generator",
+        "- [x] Device tree inside the UKI",
+    ],
+)
+def test_plan_ticks_the_static_m5_items(start: str) -> None:
+    assert "static; build pending" in _flat_text(_plan_item(start))
+
+
+def _flat_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text)

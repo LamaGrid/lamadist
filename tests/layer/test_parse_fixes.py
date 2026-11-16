@@ -6,7 +6,8 @@ bbappend as text, as the sibling tests do.  What only a parse settles is
 left to a bitbake -e check.  The Rockchip kas files name the layers
 their repos really have, and the SOQuartz file pins the release branch.
 The SOQuartz leaf drops virtual/bootloader from U-Boot's PROVIDES, so
-oe-core base.bbclass does not skip U-Boot behind systemd-boot.
+oe-core base.bbclass does not skip U-Boot behind systemd-boot.  The
+U-Boot bbappend parses on every machine, not only on the leaf.
 """
 
 from __future__ import annotations
@@ -101,3 +102,39 @@ def test_provides_removal_is_scoped_to_the_leaf() -> None:
 def test_adr13_decision_10_records_the_provides_mechanism() -> None:
     text = re.sub(r"\s+", " ", ADR13.read_text())
     assert "PROVIDES:remove:soquartz-lamadist" in text
+
+
+# --- The inherit line must expand to nothing off the leaf -----------------
+
+
+def _inherit_line_expansion() -> str:
+    """Expand the bbappend's inherit_defer argument with no leaf override."""
+    code = _code(BBAPPEND)
+    default = None
+    for line in code:
+        m = re.match(r'^LAMADIST_UBOOT_SEED_CLASS\s*(\?\?=|\?=|=|:=)\s*"(.*)"$', line)
+        if m:
+            default = m.group(2)
+    inherit = [ln for ln in code if ln.startswith("inherit_defer")]
+    assert len(inherit) == 1
+    arg = inherit[0].split(None, 1)[1].strip()
+    if arg == "${LAMADIST_UBOOT_SEED_CLASS}":
+        assert default is not None, (
+            "variable has no default, so the line expands to a bare ${...}"
+        )
+        return default
+    return arg
+
+
+def test_inherit_expands_to_nothing_without_the_leaf_override() -> None:
+    assert _inherit_line_expansion() == ""
+
+
+def test_leaf_override_still_names_the_seed_class() -> None:
+    assert any(
+        re.match(
+            r'^LAMADIST_UBOOT_SEED_CLASS:soquartz-lamadist = "lamadist-efi-var-seed"$',
+            ln,
+        )
+        for ln in _code(BBAPPEND)
+    )

@@ -795,7 +795,7 @@ Gated on the Post-M4 validation gate (implementation):
   no present benefit and lock in a pending-detection design before its
   motivating backend exists.  Do it with the first real second backend,
   behind an x86_64 `test-ota` cycle and a Fable review.
-- [ ] `soquartz.conf` (thin leaf per pattern: meta-rockchip SoC
+- [x] `soquartz-lamadist.conf` (static; build pending) (thin leaf per pattern: meta-rockchip SoC
   include + `lamadist-dmverity.inc` + `lamadist-boot-sdboot-uki.inc`,
   no `lamadist-tpm2.inc`, plus the ADR 0013 decision 10
   neutralisations) + a machine-scoped `u-boot` bbappend carrying the
@@ -815,11 +815,11 @@ Gated on the Post-M4 validation gate (implementation):
   ignored, FAT soak).  Check 11 is done (2026-11-15,
   GO-WITH-AMENDMENTS, meta-rockchip wrynose 9d02575; ADR 0013
   amended the same day); the remaining steps stay open
-- [ ] Preseed generator: build-time `ubootefi.var` seed from the
+- [x] Preseed generator (static; build pending): build-time `ubootefi.var` seed from the
   `files/sb-dev/` PK/KEK/db (the same material the x86_64
   `ovmf-vars` task enrolls; never committed), mechanism per
   ADR 0013 decision 3
-- [ ] Device tree inside the UKI (`ukify --devicetree`) in
+- [x] Device tree inside the UKI (static; build pending) (`ukify --devicetree`) in
   `lamadist-uki.bbclass`, with `KERNEL_DEVICETREE` per board
 - [ ] No-TPM `/var` seam: machine-conditional crypttab,
   `lamadist-luks-var` without the hard `tpm2` requirement,

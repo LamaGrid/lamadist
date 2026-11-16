@@ -89,3 +89,56 @@ def test_committed_esl_carries_the_committed_cert(name: str) -> None:
     assert list_size == len(esl)
     assert esl[28 + hdr_size + 16 : list_size] == der
     assert sig_size == 16 + len(der)
+
+
+# --- anchors from this layer, stable task signature -----------------------
+
+LAYER_CONF = LAYER / "conf" / "layer.conf"
+ANCHOR_VARS = (
+    "LAMADIST_EFI_VAR_SEED_PK",
+    "LAMADIST_EFI_VAR_SEED_KEK",
+    "LAMADIST_EFI_VAR_SEED_DB",
+    "LAMADIST_EFI_VAR_SEED_GEN",
+)
+
+
+def test_layer_conf_exports_its_own_directory() -> None:
+    """An immediate (:=) copy of LAYERDIR, valid after layer.conf parses."""
+    text = LAYER_CONF.read_text()
+    assert re.search(r'^LAMADIST_LAYERDIR := "\$\{LAYERDIR\}"$', text, re.MULTILINE)
+
+
+def test_the_trust_anchors_resolve_against_this_layer_not_bbpath() -> None:
+    text = CLASS.read_text()
+    code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+    assert "BBPATH" not in code, "a stray file earlier on BBPATH would replace the PK"
+    for var, name in (
+        ("PK", "files/sb-dev/pk.esl"),
+        ("KEK", "files/sb-dev/kek.esl"),
+        ("DB", "files/sb-dev/db.esl"),
+        ("GEN", "lib/lamadist/efivarseed.py"),
+    ):
+        assert re.search(
+            rf'^LAMADIST_EFI_VAR_SEED_{var}\s+\?= "\$\{{LAMADIST_LAYERDIR\}}/{name}"$',
+            text,
+            re.MULTILINE,
+        ), var
+
+
+def test_the_build_log_names_each_anchor_and_its_hash() -> None:
+    text = CLASS.read_text()
+    assert "hashlib.sha256" in text
+    assert "bb.note" in text
+
+
+def test_the_task_signature_does_not_carry_checkout_paths() -> None:
+    """The file-checksums flag covers content; the absolute paths must not."""
+    text = CLASS.read_text()
+    m = re.search(r'do_lamadist_efi_var_seed\[vardepsexclude\] \+?= "([^"]*)"', text)
+    assert m, "vardepsexclude missing"
+    assert set(ANCHOR_VARS) <= set(m.group(1).split())
+
+
+def test_the_seed_task_has_no_redundant_self_dependency() -> None:
+    """The task is ordered before do_configure; do_deploy follows it."""
+    assert "do_deploy[depends]" not in CLASS.read_text()

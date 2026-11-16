@@ -10,9 +10,16 @@ in the Consequences.
 
 ADR 0013 decision 3 has the U-Boot boards enforce Secure Boot from a
 preseed: `CONFIG_EFI_VARIABLES_PRESEED` embeds a variable store in the
-U-Boot binary, and once it holds a PK, U-Boot refuses every runtime
-write to PK, KEK, db, and dbx (`lib/efi_loader/efi_variable.c`,
-`efi_set_variable_int()`, v2026.01).  The seed must come from the same
+U-Boot binary, and U-Boot then refuses every runtime write to a
+variable that the seed created and that is authenticated
+(`lib/efi_loader/efi_variable.c`, `efi_set_variable_int()`, v2026.01:
+the check sits inside `if (var)`).  PK, KEK, and db are write-protected
+this way.  dbx is absent from the seed, so it is not: it takes the
+normal authenticated path, and a KEK-signed write to it succeeds (in
+RAM only under `EFI_VARIABLE_NO_STORE`).  That direction is revocation,
+not bypass, and db cannot be extended.  A zero-length dbx cannot be
+seeded (`efi_var_file.c` skips zero-length entries); freezing dbx would
+need one inert hash entry, an owner call.  The seed must come from the same
 PK/KEK/db the x86_64 gate enrolls, and it is never a checked-in
 binary.  The ADR named two generators: U-Boot's in-tree
 `tools/efivar.py` (GPL-2.0-only build tooling, so the copyleft policy
@@ -47,7 +54,14 @@ library only), driven by `classes/lamadist-efi-var-seed.bbclass`.  The
 class writes `${S}/lamadist-efivars.seed` between `do_patch` and
 `do_configure` from `files/sb-dev/{pk,kek,db}.esl` and deploys a copy
 beside the bootloader image.  The u-boot bbappend of a machine leaf
-inherits the class; it is the only place that names the seed.
+inherits the class for that machine only (`inherit_defer` of a
+machine-scoped variable) and sets nothing else; the fragment names the
+seed source-relative, `lamadist-efivars.seed`, and the bbappend stops
+the build if that name and the class's `LAMADIST_EFI_VAR_SEED_FILE`
+differ or the seed is missing.  The class finds the three `.esl` files
+through `LAMADIST_LAYERDIR` (this layer's own directory, set in
+`conf/layer.conf`), not a `BBPATH` search, and logs each resolved path
+with its SHA-256.
 
 ## Alternatives considered
 
@@ -100,4 +114,5 @@ that walks the output the way `efi_var_restore()` does.
      not, the bbappend also copies the seed into `${B}`.
   3. Boot a QEMU U-Boot with the seed: `SecureBoot` is 1,
      `SetupMode` is 0, a db-signed UKI boots, and an unsigned one is
-     refused.
+     refused.  A write to PK, KEK, or db returns write-protected;
+     record what a write to dbx does.

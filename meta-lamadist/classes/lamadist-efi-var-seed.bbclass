@@ -22,22 +22,34 @@
 # (.mise/tasks/ovmf-vars).
 
 LAMADIST_EFI_VAR_SEED_FILE ?= "lamadist-efivars.seed"
-LAMADIST_EFI_VAR_SEED_PK  ?= "${@bb.utils.which(d.getVar('BBPATH'), 'files/sb-dev/pk.esl')}"
-LAMADIST_EFI_VAR_SEED_KEK ?= "${@bb.utils.which(d.getVar('BBPATH'), 'files/sb-dev/kek.esl')}"
-LAMADIST_EFI_VAR_SEED_DB  ?= "${@bb.utils.which(d.getVar('BBPATH'), 'files/sb-dev/db.esl')}"
-LAMADIST_EFI_VAR_SEED_GEN ?= "${@bb.utils.which(d.getVar('BBPATH'), 'lib/lamadist/efivarseed.py')}"
+# The anchors come from this layer's own directory (conf/layer.conf),
+# never from a BBPATH search: BBPATH also holds the build directory and
+# every other layer, and a stray files/sb-dev/pk.esl there would replace
+# the PK silently.  The task logs each resolved path and its SHA-256.
+LAMADIST_EFI_VAR_SEED_PK  ?= "${LAMADIST_LAYERDIR}/files/sb-dev/pk.esl"
+LAMADIST_EFI_VAR_SEED_KEK ?= "${LAMADIST_LAYERDIR}/files/sb-dev/kek.esl"
+LAMADIST_EFI_VAR_SEED_DB  ?= "${LAMADIST_LAYERDIR}/files/sb-dev/db.esl"
+LAMADIST_EFI_VAR_SEED_GEN ?= "${LAMADIST_LAYERDIR}/lib/lamadist/efivarseed.py"
 
 python do_lamadist_efi_var_seed () {
+    import hashlib
     from pathlib import Path
 
     from lamadist import efivarseed
 
+    anchors = {
+        name: Path(d.getVar('LAMADIST_EFI_VAR_SEED_' + name.upper()))
+        for name in ('pk', 'kek', 'db')
+    }
+    for name, path in anchors.items():
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError as err:
+            bb.fatal('lamadist-efi-var-seed: cannot read %s: %s' % (path, err.strerror))
+        bb.note('trust anchor %s: %s sha256=%s' % (name, path, digest))
+
     try:
-        seed = efivarseed.build_seed(
-            Path(d.getVar('LAMADIST_EFI_VAR_SEED_PK')),
-            Path(d.getVar('LAMADIST_EFI_VAR_SEED_KEK')),
-            Path(d.getVar('LAMADIST_EFI_VAR_SEED_DB')),
-        )
+        seed = efivarseed.build_seed(anchors['pk'], anchors['kek'], anchors['db'])
     except efivarseed.SeedError as err:
         bb.fatal('lamadist-efi-var-seed: %s' % err)
     out = Path(d.getVar('S')) / d.getVar('LAMADIST_EFI_VAR_SEED_FILE')
@@ -50,9 +62,15 @@ do_lamadist_efi_var_seed[file-checksums] = "\
     ${LAMADIST_EFI_VAR_SEED_DB}:True \
     ${LAMADIST_EFI_VAR_SEED_GEN}:True"
 do_lamadist_efi_var_seed[vardeps] += "LAMADIST_EFI_VAR_SEED_FILE"
+# file-checksums already carries the content of each input; the absolute
+# paths must not make the task signature checkout-dependent.
+do_lamadist_efi_var_seed[vardepsexclude] += "\
+    LAMADIST_EFI_VAR_SEED_PK \
+    LAMADIST_EFI_VAR_SEED_KEK \
+    LAMADIST_EFI_VAR_SEED_DB \
+    LAMADIST_EFI_VAR_SEED_GEN"
 addtask lamadist_efi_var_seed after do_patch before do_configure
 
 do_deploy:append () {
     install -m 0644 ${S}/${LAMADIST_EFI_VAR_SEED_FILE} ${DEPLOYDIR}/${LAMADIST_EFI_VAR_SEED_FILE}
 }
-do_deploy[depends] += "${PN}:do_lamadist_efi_var_seed"
