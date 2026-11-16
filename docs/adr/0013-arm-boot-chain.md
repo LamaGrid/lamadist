@@ -363,7 +363,11 @@ meta-rockchip claims below):
     systemd-boot with the shared include fail-closed (owner decision,
     2026-11-15); the alternative, weakening the shared include's
     provider assignment to `?=` and naming `u-boot` in the leaf, was
-    not taken.  The leaf header carries the decision 4 trust
+    not taken.  The leaf-scoped U-Boot bbappend sets
+    `PROVIDES:remove:soquartz-lamadist = "virtual/bootloader"`, so
+    oe-core `base.bbclass` (the `PREFERRED_PROVIDER` skip in its
+    `RecipeParsed` handler) does not skip U-Boot behind systemd-boot.
+    The leaf header carries the decision 4 trust
     statement in one sentence.
 11. The ESP is the one un-redundant element on these boards: both
     slots' entries, the keyless `boot.conf`, and the loader itself

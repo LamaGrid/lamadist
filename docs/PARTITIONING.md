@@ -79,32 +79,48 @@ The external NVMe drive is dedicated entirely to the OS, resulting in a clean la
 └── [ p6: Var / Data (LUKS2) ] ────────── UUID: 4d21b016-b534-45c2-a9fb-5c16e091fd2d
 ```
 
-### C. Rockchip (RK3399/RK3588)
+### C. Rockchip (RK3566 SOQuartz first, RK3588 RK1 second)
 
 **Platform:** ARM64
-**Storage:** eMMC / SD Card
-**Boot Firmware:** `idbloader` and `u-boot` stored at raw sector offsets on the boot media.
+**Storage:** eMMC / SD Card.  The image never names the disk: every runtime
+path finds a partition by its partition or filesystem label, PARTUUID, or
+type GUID, and the WKS's `--ondisk mmcblk0` only names wic's output disk.
+U-Boot calls the eMMC `mmc0` and the SD slot `mmc1`; under Linux, with the
+board device tree, the eMMC is `mmcblk1` and an SD card is `mmcblk0`.
+**Boot Firmware:** `idbloader.img` (DDR TPL and SPL) and `u-boot.itb` (U-Boot, BL31, and the device tree) at fixed raw sectors, with U-Boot acting as the UEFI provider (ADR 0013).
 
-Rockchip requires the SPL and U-Boot to reside at specific sectors (64 and 16384) before the first standard partition.
+The BootROM and SPL expect the loaders at fixed sectors, so the WKS
+(`meta-lamadist/files/wic/lamadist-rockchip-bootdisk.wks.in`) reproduces
+meta-rockchip's `files/wic/rockchip.wks` prelude (lines 21-28) at its
+offsets, leaves the vendor-storage and reserved regions untouched, and
+then builds the same ESP, A/B raw verity slots, and LUKS2 `var` as the
+x86_64 template.  Offsets are 512-byte sectors.
 
 ```
 [ GPT Partition Table ]
-├── [ p1: loader1 (SPL) ] ─────────────── (Sector 64, Raw, No UUID logic)
-├── [ p2: loader2 (U-Boot) ] ──────────── (Sector 16384, Raw, No UUID logic)
+├── [ p1:  loader1 ] ──────── sector 64     3552K  idbloader.img (DDR TPL + SPL), raw
+├── [ p2:  v_storage ] ────── sector 7168   256K   vendor storage (untouched)
+├── [ p3:  reserved ] ─────── sector 7680   192K   (untouched)
+├── [ p4:  reserved1 ] ────── sector 8064   32K    (untouched)
+├── [ p5:  uboot_env ] ────── sector 8128   32K    empty; U-Boot keeps no environment
+├── [ p6:  reserved2 ] ────── sector 8192   4096K  (untouched)
+├── [ p7:  loader2 ] ──────── sector 16384  4096K  u-boot.itb (U-Boot + BL31 + device tree), raw
+├── [ p8:  atf ] ──────────── sector 24576  4096K  (untouched)
 │
-├── [ p3: EFI System Partition (ESP) ] ── UUID: c12a7328-f81f-11d2-ba4b-00a0c93ec93b
-│   └── /EFI/BOOT/BOOTAA64.EFI           (U-Boot often looks here)
+├── [ p9:  EFI System Partition (ESP) ] ── UUID: c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+│   └── /EFI/BOOT/BOOTAA64.EFI           (systemd-boot; U-Boot's EFI loader starts it)
 │
-├── [ p4: Rootfs A (LUKS2) ] ──────────── UUID: 69dad710-2ce4-4e3c-b16c-21a1d49abed3
+├── [ p10: rootfs_a (EROFS + dm-verity) ]  UUID: b921b045-1df0-41c3-af44-4c6f280d3fae
+├── [ p11: hash_a ] ────────────────────── UUID: df3300ce-d69f-4c92-978c-9bfb0f38d820
+├── [ p12: rootfs_b ] ──────────────────── UUID: b921b045-1df0-41c3-af44-4c6f280d3fae
+├── [ p13: hash_b ] ────────────────────── UUID: df3300ce-d69f-4c92-978c-9bfb0f38d820
 │
-├── [ p5: Verity Hash A ] ─────────────── UUID: df3300ce-69f5-4c93-a803-5a56c9202305
-│
-├── [ p6: Rootfs B (LUKS2) ] ──────────── UUID: 69dad710-2ce4-4e3c-b16c-21a1d49abed3
-│
-├── [ p7: Verity Hash B ] ─────────────── UUID: df3300ce-69f5-4c93-a803-5a56c9202305
-│
-└── [ p8: Var / Data (LUKS2) ] ────────── UUID: 4d21b016-b534-45c2-a9fb-5c16e091fd2d
+└── [ p14: var (LUKS2) ] ──────────────── UUID: 4d21b016-b534-45c2-a9fb-5c16e091fd2d
 ```
+
+The loaders sit in the same block device as the OS with no write
+protection, so an attacker with OS root who can open the whole-disk
+node can replace U-Boot; see ADR 0013 decision 4.
 
 ## Architectural Notes & Device Nodes
 
@@ -180,7 +196,11 @@ To protect IP and data, this architecture uses LUKS2 on all OS and Data partitio
 
 **C. Rockchip**
 
-* **Nodes:** `/dev/mmcblk0p4` (Physical Root A), `/dev/mapper/rootfs_a` (Decrypted Root A)
+* **Nodes:** PARTLABEL `rootfs_a` (Physical Root A, dm-verity, partition 10)
+  and PARTLABEL `var` (LUKS2, partition 14).  On the eMMC under Linux these
+  are `/dev/mmcblk1p10` and `/dev/mmcblk1p14` (U-Boot: `mmc0`); on an SD
+  card they are `/dev/mmcblk0p10` and `/dev/mmcblk0p14` (U-Boot: `mmc1`,
+  which the pinned `boot_targets` never scans).
 
 ## Templates
 
@@ -299,34 +319,26 @@ overlay            /greengrass     overlay  lowerdir=/greengrass,upperdir=/var/o
 
 ### C. Rockchip
 
-*Note: Includes Raw Loaders.*
+*Note: Includes raw loaders.*
 
 #### WKS Template
 
+The shipped template is
+`meta-lamadist/files/wic/lamadist-rockchip-bootdisk.wks.in`.  Its
+prelude is the part of meta-rockchip's `rockchip.wks` that the BootROM
+dictates; everything after it is identical to the x86_64 template
+except `--ondisk`.
+
 ```
-bootloader --ptable gpt --timeout=3 --append="rootwait"
-
-# 1. Rockchip Bootloader (Raw offsets)
-part --source rawcopy --sourceparams="file=idbloader.img" --ondisk mmcblk0 --align 32 --no-table
-part --source rawcopy --sourceparams="file=u-boot.itb" --ondisk mmcblk0 --align 8192 --no-table
-
-# 2. ESP
-part /boot/efi --source bootimg-efi --sourceparams="loader=u-boot" --ondisk mmcblk0 --label efi --active --align 1024 --fixed-size 512M --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b
-
-# 3. Rootfs A (ARM64 UUID) - LUKS Container
-part / --source rootfs --ondisk mmcblk0 --fstype=erofs --label rootfs_a --align 1024 --fixed-size 1G --part-type 69dad710-2ce4-4e3c-b16c-21a1d49abed3
-
-# 4. Verity A (ARM64 Verity UUID)
-part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk mmcblk0 --label hash_a --align 1024 --fixed-size 64M --part-type df3300ce-69f5-4c93-a803-5a56c9202305
-
-# 5. Rootfs B (ARM64 UUID) - LUKS Container
-part --source rootfs --ondisk mmcblk0 --fstype=erofs --label rootfs_b --align 1024 --fixed-size 1G --part-type 69dad710-2ce4-4e3c-b16c-21a1d49abed3
-
-# 6. Verity B (ARM64 Verity UUID)
-part --source rawcopy --sourceparams="file=rootfs.img.verity" --ondisk mmcblk0 --label hash_b --align 1024 --fixed-size 64M --part-type df3300ce-69f5-4c93-a803-5a56c9202305
-
-# 7. Data (LUKS Container)
-part /var --ondisk mmcblk0 --fstype=ext4 --label var --align 1024 --fixed-size 512M --part-type 4d21b016-b534-45c2-a9fb-5c16e091fd2d
+part loader1   --ondisk mmcblk0 --offset 64s    --fixed-size 3552K --fstype=none --part-name loader1   --source rawcopy --sourceparams="file=${SPL_BINARY}"
+part v_storage --ondisk mmcblk0 --offset 7168s  --fixed-size 256K  --fstype=none --part-name v_storage
+part reserved  --ondisk mmcblk0 --offset 7680s  --fixed-size 192K  --fstype=none --part-name reserved
+part reserved1 --ondisk mmcblk0 --offset 8064s  --fixed-size 32K   --fstype=none --part-name reserved1
+part uboot_env --ondisk mmcblk0 --offset 8128s  --fixed-size 32K   --fstype=none --part-name uboot_env
+part reserved2 --ondisk mmcblk0 --offset 8192s  --fixed-size 4096K --fstype=none --part-name reserved2
+part loader2   --ondisk mmcblk0 --offset 16384s --fixed-size 4096K --fstype=none --part-name loader2   --source rawcopy --sourceparams="file=u-boot.${UBOOT_SUFFIX}"
+part atf       --ondisk mmcblk0 --offset 24576s --fixed-size 4096K --fstype=none --part-name atf
+# ESP, rootfs_a/hash_a, rootfs_b/hash_b, and var follow, as in the x86_64 WKS.
 ```
 
 #### Configuration
@@ -334,7 +346,7 @@ part /var --ondisk mmcblk0 --fstype=ext4 --label var --align 1024 --fixed-size 5
 **Kernel Command Line:**
 
 ```
-console=ttyFIQ0,1500000 rootwait roothash=
+console=tty0 console=ttyS2,1500000  (provisional console; see soquartz-lamadist.conf)
 ```
 
 **/etc/fstab:**
