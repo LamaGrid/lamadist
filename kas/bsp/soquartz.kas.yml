@@ -15,10 +15,24 @@ repos:
   meta-arm:
     url: 'https://git.yoctoproject.org/meta-arm'
     path: 'ext/meta-arm'
+    layers:
+      meta-arm:
+      meta-arm-toolchain:
+    branch: wrynose
 
   meta-rockchip:
     url: 'https://git.yoctoproject.org/meta-rockchip'
     path: 'ext/meta-rockchip'
+    branch: wrynose
+
+  # The encrypted-storage layer (LUKS /var) hard-depends on the
+  # meta-tpm2 layer even when the no-tpm overlay is on.  The layer adds
+  # no DISTRO_FEATURE; the machine include decides on tpm2.
+  meta-secure-core:
+    url: 'https://github.com/Wind-River/meta-secure-core.git'
+    path: 'ext/meta-secure-core'
+    layers:
+      meta-tpm2:
 
 local_conf_header:
   30_soquartz: |
