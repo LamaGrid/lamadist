@@ -85,9 +85,9 @@ def test_machine_without_tpm2_has_no_tpm_option_in_crypttab() -> None:
 def test_crypttab_fallback_hook_is_marked_and_carries_no_key_material() -> None:
     text = IMAGE_CLASS.read_text()
     assert "FALLBACK SECRET HOOK (ADR 0013 decision 7" in text
-    line = _crypttab_var_line({"systemd", "luks"})
+    line = _crypttab_var_line({"systemd", "luks"}, "/boot/lamadist-keys/var.key")
     fields = line.split()
-    assert fields[2] == "none"  # no keyfile path until the owner decides
+    assert fields[2] == "/boot/lamadist-keys/var.key"  # the per-device key
     assert "dev-var.key" not in line
 
 
@@ -135,6 +135,7 @@ def test_enroll_unit_is_masked_at_build_time_only_without_tpm2() -> None:
 # gate here: crypttab is fixed at build time, and the two can disagree.
 BUILD_TIME_GATED = {
     "lamadist-var-tpm2-enroll.service": "masked without tpm2 (lamadist-image)",
+    "lamadist-var-notpm-key.service": "installed only without tpm2",
 }
 
 
@@ -161,7 +162,11 @@ def test_no_unit_gates_on_tpm_at_runtime() -> None:
 # oe-core's image.bbclass sets ROOTFS_POSTPROCESS_COMMAND[vardeps] to the
 # expanded value, so only a bare function name puts the function body in
 # the do_rootfs signature; a "name;" token names no variable.
-SIGNED_POSTPROCESS = ["lamadist_crypttab_var", "lamadist_mask_tpm2_enroll_service"]
+SIGNED_POSTPROCESS = [
+    "lamadist_crypttab_var",
+    "lamadist_mask_tpm2_enroll_service",
+    "lamadist_fstab_boot",
+]
 
 
 @pytest.mark.parametrize("func", SIGNED_POSTPROCESS)
@@ -184,10 +189,19 @@ def test_notpm_key_field_is_the_hook_for_the_first_boot_key_unit() -> None:
         re.MULTILINE,
     )
     assert default
-    assert default.group(1) == "none"  # no key material in the layer
+    # A path, never key material: the key itself is made at first boot.
+    assert default.group(1).startswith("/")
     key = "/boot-keys/var.key"
     notpm = _crypttab_var_line({"systemd", "luks"}, key).split()
     assert notpm[2] == key
     assert not any("tpm2" in f for f in notpm)
     tpm = _crypttab_var_line({"systemd", "luks", "tpm2"}, key).split()
     assert tpm[2] == "none"  # the hook never reaches a tpm2 machine
+
+
+def test_notpm_crypttab_line_is_headless() -> None:
+    """A missing key fails the unlock at once, with no prompt."""
+    notpm = _crypttab_var_line({"systemd", "luks"}, "/k").split()[3].split(",")
+    assert "headless=true" in notpm
+    tpm = _crypttab_var_line({"systemd", "luks", "tpm2"}).split()[3].split(",")
+    assert "headless=true" not in tpm

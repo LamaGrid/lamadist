@@ -164,7 +164,7 @@ TPM2_POSTPROCESS = [
     "lamadist_mask_ldconfig_service; ",
     "",  # the no-tpm2 mask: empty with tpm2
     "lamadist_etc_overlay_unit; ",
-    "lamadist_fstab_boot; ",
+    "lamadist_fstab_boot",
 ]
 
 
@@ -190,7 +190,7 @@ def test_tpm2_image_postprocess_and_install_are_unchanged() -> None:
     ]
     assert got == TPM2_POSTPROCESS
     install = re.findall(r'^IMAGE_INSTALL:append = "(.*)"$', CLASS_TEXT, re.MULTILINE)
-    assert [_expand_tpm2(i) for i in install] == []
+    assert [_expand_tpm2(i) for i in install] == [""]
 
 
 def test_tpm2_package_preset_inputs_are_unchanged() -> None:

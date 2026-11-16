@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The no-TPM counterpart of lamadist-var-tpm2-enroll.service, in the
+# same shape and for the same reasons (see that unit's comment): a
+# DefaultDependencies=no oneshot WantedBy=sysinit.target that pulls
+# in the passive cryptsetup-pre.target itself and runs before it.
+#
+# Requires=+After=lamadist-var-encrypt.service: the keyslot needs a
+# LUKS2 header to go into.  Before=systemd-cryptsetup@var.service:
+# on a machine without tpm2, /etc/crypttab's 'var' entry names the
+# key this unit writes, so the key and its slot must exist before
+# that unit opens the volume (the generator orders it after
+# cryptsetup-pre.target already; the explicit Before= says so here).
+#
+# RequiresMountsFor= the key directory on the ESP: /boot is an
+# x-systemd.automount in fstab, and this pulls in boot.mount itself,
+# the same dependency systemd-cryptsetup-generator adds to
+# systemd-cryptsetup@var for an absolute keyfile path.
+#
+# Only shipped on machines without the tpm2 DISTRO_FEATURE
+# (lamadist-var-notpm-key.bb), and gated there only.  No runtime TPM
+# condition: crypttab names this unit's key at build time, so the
+# unit must run whenever that crypttab line ships, even on hardware
+# whose firmware happens to report a TPM.
+[Unit]
+Description=LamaDist first-boot per-device /var key (no TPM)
+DefaultDependencies=no
+Conflicts=shutdown.target
+Wants=cryptsetup-pre.target
+Requires=lamadist-var-encrypt.service
+After=systemd-udevd.service lamadist-var-encrypt.service
+Before=cryptsetup-pre.target systemd-cryptsetup@var.service shutdown.target
+RequiresMountsFor=/boot/lamadist-keys
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/lamadist/lamadist-var-notpm-key
+
+[Install]
+WantedBy=sysinit.target

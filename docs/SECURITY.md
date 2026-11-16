@@ -149,6 +149,40 @@ overlay upper) lives on a LUKS2 volume unlocked at boot:
   QEMU first-boot inside the gate budget.  If a release ever adds
   a human-passphrase keyslot, this weak-KDF path MUST be revisited
   (argon2id).
+- Machines without a TPM (no tpm2 DISTRO_FEATURE; ADR 0013
+  decision 7): `lamadist-var-notpm-key` generates a per-device key
+  at first boot, stores it on the ESP (`/boot/lamadist-keys/var.key`),
+  and puts it in one fixed /var keyslot; crypttab unlocks with it, so
+  a headless board needs no TPM and no prompt.  Without a TPM, this
+  key gives no protection against physical access, and the exposure
+  is wider than physical access: anyone who can read the storage or
+  any copy of it (a disk image, a backup, a returned or discarded
+  module) can read /var, because the key sits in the clear on the
+  same disk as the volume it unlocks.  The ESP is mounted
+  `umask=0077` on these machines; that is hygiene, not a control: it
+  keeps unprivileged local users from reading the key and does
+  nothing against anyone with the storage.  The key has no integrity
+  and no revocation: nothing authenticates the ESP copy, so whoever
+  can write the ESP can replace it (the unit then puts a fresh key in
+  the slot rather than enrolling what it finds), and nothing rotates
+  it, so a copied key stays valid until the ESP copy is lost or
+  replaced.  The dev keyfile slot above still exists on these
+  machines as well (the per-device key is added alongside it), so
+  the public keyfile also unlocks /var, and the /var partition alone
+  is enough: the ESP key is not even needed.  While the public
+  development keyfile slot remains, a no-TPM /var opens with a
+  public key, so the per-device key adds no protection at rest; that
+  lasts until the pending owner decision to kill or gate the dev
+  keyfile slot (meta-lamadist/recipes-core/luks/files/README.md).
+  Known limit: fstab mounts the ESP at /boot by its filesystem label,
+  `LABEL=msdos`, which is not unique to the boot disk.  A second FAT
+  volume with that label (a USB stick or an SD card attached at boot)
+  can take the label link.  The key unit then finds no working key
+  there, replaces the fixed keyslot, and writes the new key to that
+  removable medium, and the slot state that the RAUC backend writes
+  to /boot goes there too.  The fix, mounting the ESP by a fixed
+  PARTUUID from the WKS, is planned after M5 (docs/PLAN.md, Future
+  Work).
 
 ## Runtime confinement: SELinux enforcing
 
@@ -305,6 +339,15 @@ an attack surface with its own trust model:
 - Dev-keyfile slot nullifies TPM2/PCR 7 confidentiality on dev
   images (see the /var section); real at-rest protection begins
   when M6 drops the slot.
+- No-TPM machines: /var at rest is unprotected against anyone who
+  can read the storage or a copy of it, by design (the per-device
+  key is in the clear on the ESP; see the /var section).  The dev
+  keyfile slot is live there too, so the public key alone opens
+  /var.  The per-device key has no integrity and no revocation
+  without a TPM, and recovering a lost key depends on the dev slot.
+  The ESP is mounted by the label `msdos`, which is not unique, so a
+  removable FAT volume with that label can receive the key (see the
+  /var section); a fixed PARTUUID is planned after M5.
 - IMA is log-only (by design for now; see above).
 - /var has NO integrity protection (LUKS2 aes-xts, no AEAD): the
   /etc overlay upper is confidential but malleable, and late-boot
