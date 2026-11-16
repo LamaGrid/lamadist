@@ -84,7 +84,9 @@ The CI workflow (`.github/workflows/ci.yml`) runs on ARC scaling sets:
 - **`yocto-runner-set`**: Runs the Yocto build inside the builder container
   as the workspace image.
 
-The container is only rebuilt when files in `container/` change.
+The container is only rebuilt when files in `container/`,
+`.mise/lib/builder-ci.sh`, `.mise/tasks/container/builder/build`, or
+`.github/workflows/ci.yml` change.
 
 ## Repository Structure
 
