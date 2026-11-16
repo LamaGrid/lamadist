@@ -78,3 +78,6 @@ efitools
 qemu-system-arm
 qemu-efi-aarch64
 swtpm
+
+# Pinned so a tar update fails the build until the lock is refreshed
+tar
