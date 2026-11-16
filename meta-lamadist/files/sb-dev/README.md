@@ -70,3 +70,9 @@ db), not by certificate signing relationships, so there is no
 `openssl verify` chain to check across the three -- only that each
 cert is internally self-consistent (self-signed, and its embedded
 public key matches its own private key).
+
+**U-Boot preseed.**  The three `*.esl` files also feed the U-Boot
+EFI variable seed that `classes/lamadist-efi-var-seed.bbclass`
+generates at build time (ADR 0013 decision 3, ADR 0016), so the
+x86_64 gate and the U-Boot boards share this one hierarchy.  The seed
+is never committed.
