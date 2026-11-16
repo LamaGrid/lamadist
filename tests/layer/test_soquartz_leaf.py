@@ -609,3 +609,33 @@ def test_plan_ticks_the_static_m5_items(start: str) -> None:
 
 def _flat_text(text: str) -> str:
     return re.sub(r"\s+", " ", text)
+
+
+def test_bbappend_guards_the_built_default_env() -> None:
+    """The built u-boot-initial-env must equal the layer's env text, or the
+    build dies (a wrong default environment must not ship silently)."""
+    text = BBAPPEND.read_text()
+    m = re.search(
+        r"^do_compile:append:soquartz-lamadist \(\) \{\n(.*?)^\}",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert m, "no soquartz-lamadist-scoped do_compile:append guard"
+    body = m.group(1)
+    assert "bbfatal" in body
+    assert "u-boot-initial-env" in body
+    assert "lamadist-soquartz.env" in body
+    assert "sort" in body
+
+
+def test_adr_names_the_bootm_nm_kill_switch() -> None:
+    text = (ROOT / "docs" / "adr" / "0013-arm-boot-chain.md").read_text()
+    for sym in (
+        "bootm_run_states",
+        "bootm_boot_start",
+        "boot_selected_os",
+        "do_bootm_linux",
+    ):
+        assert sym in text, sym
+    assert re.search(r"`nm` on the built u-boot ELF", text)
+    assert "(checked at v2026.07)" in text

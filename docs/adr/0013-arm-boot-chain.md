@@ -252,8 +252,8 @@ meta-rockchip claims below):
    - With `CMDLINE` off nothing builds U-Boot's `boot/bootm.o`, yet the
      EFI loader's `ExitBootServices` calls two functions in it, so the
      leaf applies `0001-efi_loader-link-bootm-for-ExitBootServices.patch`
-     (U-Boot v2026.01 and master gate `bootm.o` alike), which builds it
-     through `LIB_BOOTM` without a command, a boot method, or any
+     (U-Boot v2026.01 and master gate `bootm.o` alike (checked at v2026.07)), which
+     builds it through `LIB_BOOTM` without a command, a boot method, or any
      reachable code beyond those two functions.
    - The seed is a build artifact generated from the same PK/KEK/db
      the x86_64 gate enrolls (`files/sb-dev/` today, whose `.esl`
@@ -604,6 +604,10 @@ meta-rockchip claims below):
       `/proc/device-tree` after boot.
   15. N reboot cycles leave the ESP unclean under `fsck.vfat`, or a
       power cut during a trial boot's rename leaves it unmountable.
+  16. `nm` on the built u-boot ELF shows any of `bootm_run_states`,
+      `bootm_boot_start`, `boot_selected_os`, `do_bootm_linux`, or
+      `images`, or any command linker-list symbol (the decision 3
+      patch must not pull in boot code beyond its two functions).
 - docs/PLAN.md M5 review decisions 2 and 3 are annotated as
   superseded for Rockchip by this ADR; the `lamadist-boot-uboot.inc`
   and uboot_env checkboxes are rewritten; the Storage Immutability

@@ -68,3 +68,22 @@ do_configure:prepend:soquartz-lamadist () {
 		bbfatal "no EFI variable seed at ${S}/${LAMADIST_EFI_VAR_SEED_FILE}: is lamadist-efi-var-seed inherited? (ADR 0013 decision 3)"
 	fi
 }
+
+# Fail closed on the default environment.  u-boot.inc's uboot_compile
+# runs "make u-boot-initial-env" (no UBOOT_CONFIG on this machine), which
+# leaves ${B}/u-boot-initial-env: the environment U-Boot really carries.
+# It must equal the layer's env text, comments stripped, sorted, or a
+# wrong environment (a stray bootcmd, a lost boot_targets pin) would
+# ship silently.  An empty or missing file fails too.
+do_compile:append:soquartz-lamadist () {
+	built="${B}/u-boot-initial-env"
+	if [ ! -s "$built" ]; then
+		bbfatal "no built default environment at $built (ADR 0013 decision 3)"
+	fi
+	grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "${UNPACKDIR}/lamadist-soquartz.env" | LC_ALL=C sort > "${B}/lamadist-env.want"
+	grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$built" | LC_ALL=C sort > "${B}/lamadist-env.got"
+	if [ ! -s "${B}/lamadist-env.want" ] || ! cmp -s "${B}/lamadist-env.want" "${B}/lamadist-env.got"; then
+		diff "${B}/lamadist-env.want" "${B}/lamadist-env.got" || true
+		bbfatal "built u-boot-initial-env differs from lamadist-soquartz.env (ADR 0013 decision 3)"
+	fi
+}
