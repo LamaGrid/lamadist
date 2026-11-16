@@ -621,7 +621,8 @@ Boot enforcing (evidence: `.local/state/agents/installer-test/`):
   signed UKI plus the named unsigned enrollment inputs
 - [ ] Stage 5 (flows): headless manifest install + the full
   fail-closed abort matrix (SPEC 3.3), consumed-stick refusal
-- [ ] ARM port of the installer (deferred past M5: under ADR 0013
+- [ ] ARM port of the installer (deferred past M5 by owner decision
+  8, 2026-11-15; under ADR 0013
   the enrollment stage is replaced by the U-Boot preseed and
   ADR 0007's efivarfs `.auth` writes are unsupported on U-Boot; the
   stick's own boot path on Rockchip is undesigned, so the first ARM
@@ -751,7 +752,8 @@ Safe to start now (no gate, mechanical per review):
 - [x] kas stub fixes (d56c06f): rk1.kas.yml adds meta-rockchip,
   both Rockchip targets -> `lamadist-image-base`, orin-nx gains
   `target:` + explicit pins, authored-machine gaps annotated,
-  BBFILE_PRIORITY bump marked TODO
+  BBFILE_PRIORITY bump marked TODO (ADR 0013 check 11, 2026-11-15:
+  the bump resolves no collision and is removed with the leaf)
 - [x] Move DPS/dm-verity GUIDs to per-arch overrides in
   `lamadist-dmverity.inc` (TRANSLATED_TARGET_ARCH overrides
   x86-64/aarch64); deleted from intel.conf + orin kas; x86-64
@@ -810,7 +812,9 @@ Gated on the Post-M4 validation gate (implementation):
   mechanism checks (BOOTAA64.EFI launch, `+3` -> `+2-1` rename,
   tampered UKI refused, preseed write-protected, `SecureBoot=1` via
   efivarfs, non-EFI boot paths absent, env inert, DTB from medium
-  ignored, FAT soak)
+  ignored, FAT soak).  Check 11 is done (2026-11-15,
+  GO-WITH-AMENDMENTS, meta-rockchip wrynose 9d02575; ADR 0013
+  amended the same day); the remaining steps stay open
 - [ ] Preseed generator: build-time `ubootefi.var` seed from the
   `files/sb-dev/` PK/KEK/db (the same material the x86_64
   `ovmf-vars` task enrolls; never committed), mechanism per
@@ -822,7 +826,7 @@ Gated on the Post-M4 validation gate (implementation):
   TPM-dependent units conditioned on TPM presence; the crypttab
   fallback designed and tested against `vm --no-tpm` before the
   first board image (ADR 0012 decision 5, ADR 0013 decision 7)
-- [ ] `kas/bsp/soquartz.kas.yml`: add the missing meta-rockchip
+- [x] `kas/bsp/soquartz.kas.yml`: add the missing meta-rockchip
   branch pin (review decision 4) before ADR 0013 check 11
 - [ ] `rk1.conf` authored in meta-lamadist (no upstream rk1
   machine exists -- PLAN's earlier note corrected)

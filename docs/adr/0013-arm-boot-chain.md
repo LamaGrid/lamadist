@@ -2,8 +2,13 @@
 
 ## Status
 
-Accepted (2026-09-23).  Proposed 2026-09-20.  The open decisions at
-the end remain the owner's to take.
+Accepted (2026-09-23).  Proposed 2026-09-20.  Amended 2026-11-15:
+kill-switch check 11 (the layer re-verification) ran against
+meta-rockchip wrynose `9d02575` with result GO-WITH-AMENDMENTS, which
+changes the SoC-include bullet, decision 10, and the machine-leaf
+text; and the owner answered open decisions 1, 2, 3, 6, and 8 (marked
+below with the date).  Decisions 4, 5, 7, and 9 remain open, with no
+due milestone; "Open decisions for the owner" lists them.
 
 ## Context
 
@@ -26,7 +31,11 @@ What was verified before deciding (U-Boot at the pinned tag v2026.01,
 systemd 259.5, RAUC 1.15.1, and the unpacked sources under `build/`,
 meta-rockchip at the checked-out scarthgap commit 9690180, upstream
 Open Portable Trusted Execution Environment (OP-TEE), and the two EDK2
-projects at master on 2026-09-20):
+projects at master on 2026-09-20; every meta-rockchip claim was
+re-verified on 2026-11-15 against wrynose commit `9d02575` with
+OpenEmbedded-Core (OE-core) wrynose, U-Boot v2026.01, and linux-yocto
+6.18.59, and that wrynose checkout is the baseline for the
+meta-rockchip claims below):
 
 - The tree has one boot backend implemented end to end, `sdboot-uki`,
   and every ARM sibling the seam names (`lamadist-boot-uboot.inc`,
@@ -132,17 +141,19 @@ projects at master on 2026-09-20):
   Secure Boot.  Neither has capsule update, EFI System Resource Table
   (ESRT), a Trusted Platform Module (TPM) stack, or a Yocto recipe;
   edk2-rk3588's last tag is v1.1 (2025-04).
-- meta-rockchip's system on chip (SoC) includes (`rk3566.inc`,
-  `rk3588s.inc`) set `KERNEL_CLASSES = "kernel-fitimage"`,
-  `KERNEL_IMAGETYPE ?=
-  "fitImage"`, `PREFERRED_PROVIDER_optee-os = "rockchip-rkbin"`, and
-  require `rockchip-wic.inc`, which requires `rockchip-extlinux.inc`
-  (`UBOOT_EXTLINUX ?= "1"`, `u-boot-extlinux`, and `kernel-image`
-  added to `MACHINE_ESSENTIAL_EXTRA_RDEPENDS`), the feature-gated
-  `rk-u-boot-env` wiring, and the RAUC demo overrides.  The
-  scarthgap checkout defines no soquartz or rk1 machine;
-  `kas/bsp/soquartz.kas.yml` pins no meta-rockchip branch while
-  `rk1.kas.yml` pins wrynose.
+- meta-rockchip's system on chip (SoC) includes on wrynose
+  (`rk3566.inc`, `rk3588s.inc`) do not set
+  `KERNEL_CLASSES = "kernel-fitimage"` or
+  `KERNEL_IMAGETYPE ?= "fitImage"`.  The `RK_KERNEL_FITIMAGE` gate
+  (`rockchip-defaults.inc:7,12`) pulls `rockchip-fitimage.inc`;
+  `PREFERRED_PROVIDER_optee-os` is `rockchip-rkbin-optee-os`.  The
+  includes require `rockchip-wic.inc`, which requires
+  `rockchip-extlinux.inc` (`UBOOT_EXTLINUX ?= "1"` and
+  `u-boot-extlinux`; it no longer adds `kernel-image`), the
+  feature-gated `rk-u-boot-env` wiring, and the RAUC demo overrides.
+  Wrynose ships `soquartz-model-a.conf` and `soquartz.inc` and no rk1
+  machine.  `kas/bsp/soquartz.kas.yml` and `rk1.kas.yml` both pin
+  wrynose.
 - `lamadist-boot-sdboot-uki.inc` hard-sets `EFI_PROVIDER` and
   `PREFERRED_PROVIDER_virtual/bootloader` to systemd-boot;
   `lamadist-luks-var.bb` requires the `tpm2` distro feature; the
@@ -173,7 +184,8 @@ projects at master on 2026-09-20):
    no change.
 2. The decision is conditional and ordered.  It stands only while
    the kill-switch checks in the Consequences pass, in this order:
-   the layer re-verification (check 11), the two machine leaves, the
+   the layer re-verification (check 11, done 2026-11-15), the two
+   machine leaves, the
    build-time checks (1 and 2), the QEMU-hosted mechanism checks (3
    to 7 and 12 to 15), then the board.  If a trial-boot entry does
    not rename from `+3` to `+2-1` under U-Boot's EFI loader (check
@@ -290,14 +302,14 @@ projects at master on 2026-09-20):
    `lamadist-var-tpm2-enroll.service` and every other TPM-dependent unit
    are conditioned on TPM presence so a missing TPM never trips the
    health gate's degraded check.  x86_64's TPM-only line is unchanged.
-   The fallback secret's shape is an owner decision (a per-device key
-   generated at first boot into a plain partition; a recovery passphrase
-   only; or the existing shipped development keyfile), and SECURITY.md
-   states the honest consequence of the choice: with a shipped key,
-   `/var` is not confidential against anyone who can read the storage or
-   the image, not merely against a device holder.  The fallback is
-   designed and tested against `vm --no-tpm` before the first board
-   image.
+   The no-TPM fallback secret is a per-device key generated at first
+   boot (owner decision, 2026-11-15), and SECURITY.md states that
+   without a TPM it gives no protection against physical access.  The
+   alternatives, a recovery passphrase only and the existing shipped
+   development keyfile, were weighed and not taken; with a shipped key,
+   `/var` would not be confidential against anyone who can read the
+   storage or the image.  The fallback is designed and tested against
+   `vm --no-tpm` before the first board image.
 8. Port order stays SOQuartz first, RK1 second.  The boot chain is
    the same fragment on both boards and depends on nothing RK1 has
    that RK3566 lacks; the fTPM spike, which does, is RK1-only and is
@@ -323,13 +335,19 @@ projects at master on 2026-09-20):
    path.
 10. The first machine leaf neutralises what meta-rockchip's SoC
     includes wire toward the competing boot path, explicitly rather
-    than by omission: `KERNEL_IMAGETYPE = "Image"` and
-    `KERNEL_CLASSES` without `kernel-fitimage` (a fitImage cannot be
-    a UKI payload); `UBOOT_EXTLINUX = "0"` and `u-boot-extlinux` and
-    `kernel-image` removed from `MACHINE_ESSENTIAL_EXTRA_RDEPENDS`;
-    no `rk-u-boot-env` machine feature; `RK_RAUC_DEMO` unset; a
-    LamaDist Rockchip WKS (fixed-sector prelude at the upstream
-    offsets, the vendor-storage region left untouched, then the same
+    than by omission: `RK_KERNEL_FITIMAGE = "False"` set before the
+    SoC include is required (a fitImage cannot be a UKI payload; this
+    drops `linux-yocto-fitimage` from
+    `MACHINE_ESSENTIAL_EXTRA_RDEPENDS_KERNEL` and
+    `KERNEL_DEPLOY_DEPEND`) and `KERNEL_IMAGETYPE = "Image"` set
+    explicitly, because with the gate false `rockchip-defaults.inc:13`
+    falls back to `zImage`, which an arm64 kernel cannot build;
+    `UBOOT_EXTLINUX = "0"` and `u-boot-extlinux` removed
+    (`rockchip-extlinux.inc:14,24`); no `rk-u-boot-env` machine
+    feature; `RK_RAUC_DEMO` unset; a LamaDist Rockchip WKS (the
+    meta-rockchip source is `files/wic/rockchip.wks`, moved in
+    `9d02575`; fixed-sector prelude at the upstream offsets, unchanged,
+    the vendor-storage region left untouched, then the same
     ESP labelled `msdos`, A/B raw verity slots, and LUKS2 `var` the
     x86_64 WKS builds, with `--ondisk` re-targeted to the boot
     medium); `SERIAL_CONSOLES` and `LAMADIST_CONSOLES` set so that
@@ -339,12 +357,13 @@ projects at master on 2026-09-20):
     audit that the `remove-non-rockchip-arch-arm64.scc` feature and
     `alldefconfig` mode leave efivarfs, Integrity Measurement
     Architecture (IMA), SELinux, and the other meta-lamadist fragments
-    in the built `.config`.  The
-    `virtual/bootloader` seam is an open decision: either the shared
-    include weakens its provider assignment to `?=` and the leaf
-    names `u-boot`, or U-Boot enters the image purely through the WKS
-    rawcopy dependencies with `virtual/bootloader` left as
-    systemd-boot.  The leaf header carries the decision 4 trust
+    in the built `.config` (the fragment location is
+    `linux-rockchip.inc:34,37-38`).  U-Boot enters the image through
+    the WKS rawcopy dependencies only, and `virtual/bootloader` stays
+    systemd-boot with the shared include fail-closed (owner decision,
+    2026-11-15); the alternative, weakening the shared include's
+    provider assignment to `?=` and naming `u-boot` in the leaf, was
+    not taken.  The leaf header carries the decision 4 trust
     statement in one sentence.
 11. The ESP is the one un-redundant element on these boards: both
     slots' entries, the keyless `boot.conf`, and the loader itself
@@ -432,14 +451,20 @@ projects at master on 2026-09-20):
   templating and pending-detection rewrite, whose trigger is now
   Tegra alone.  What is new: a machine-scoped `u-boot` bbappend with
   the EFI fragment, a preseed generator, the device-tree plumbing in
-  `lamadist-uki.bbclass`, two machine leaves that are thin only
-  relative to a board with an upstream machine (each supplies the
-  U-Boot defconfig name, `KERNEL_DEVICETREE`, `MACHINE_FEATURES`, the
-  SoC include, `IMAGE_FSTYPES`, and `WKS_FILE`, plus the decision 10
-  neutralisations), a Rockchip WKS, the no-TPM crypttab seam, and a
-  flashing procedure (the first ARM deliverable is a flashed image;
-  the board's existing loader and the USB maskrom recovery path are
-  documented with it).  docs/PARTITIONING.md is corrected in both its
+  `lamadist-uki.bbclass`, two machine leaves, a Rockchip WKS, the
+  no-TPM crypttab seam, and a flashing procedure (the first ARM
+  deliverable is a flashed image; the board's existing loader and the
+  USB maskrom recovery path are documented with it).  The RK1 leaf
+  stays fully authored: it supplies `turing-rk1-rk3588_defconfig`,
+  `rockchip/rk3588-turing-rk1.dtb`, `MACHINE_FEATURES`, the SoC
+  include `rk3588.inc`, `IMAGE_FSTYPES`, and `WKS_FILE`, plus the
+  decision 10 neutralisations.  The SOQuartz leaf is thinner, because
+  wrynose supplies the machine: it may require `soquartz-model-a.conf`
+  (or `include/soquartz.inc` plus its own two variables) and need not
+  author the U-Boot defconfig name or `KERNEL_DEVICETREE`, but it
+  carries the same neutralisations.  Its name changes from the kas
+  stub's `soquartz64`, which is no machine, to the leaf the later
+  package creates.  docs/PARTITIONING.md is corrected in both its
   Rockchip and x86_64 sections to the shipped layouts before it is
   cited again.
 - What the boards lose relative to x86_64: runtime `SetVariable`
@@ -488,9 +513,9 @@ projects at master on 2026-09-20):
   would instead have opened three subsystems (image classes, RAUC
   runtime, installer) and deleted the fourth's coverage.
 - Kill-switch checks, each of which voids or amends this ADR on the
-  observation named.  Order: 11, then the leaves, then 1 and 2, then
-  3 to 7 and 12 to 15 under the U-Boot QEMU payload, then 8 to 10 and
-  every check again on the first board.
+  observation named.  Order: 11 (done 2026-11-15), then the leaves,
+  then 1 and 2, then 3 to 7 and 12 to 15 under the U-Boot QEMU
+  payload, then 8 to 10 and every check again on the first board.
   1. The built U-Boot `.config` lacks `CONFIG_FAT_WRITE`,
      `CONFIG_FAT_RENAME`, `CONFIG_EFI_SECURE_BOOT`,
      `CONFIG_EFI_VARIABLES_PRESEED`, or `CONFIG_ENV_IS_NOWHERE`, shows
@@ -519,10 +544,12 @@ projects at master on 2026-09-20):
   10. `dumpimage -l u-boot.itb` shows a BL32 image the SPL FIT
       configuration requires: amends the blob-surface statement
       rather than voiding the decision.
-  11. The meta-rockchip branch the leaves pin (wrynose, to be added to
-      `soquartz.kas.yml`) ships a soquartz or rk1 machine, EFI wiring,
-      or a from-source OP-TEE for these SoCs; every meta-rockchip fact
-      above came from the scarthgap checkout and is re-verified first.
+  11. DONE 2026-11-15, GO-WITH-AMENDMENTS (meta-rockchip wrynose
+      `9d02575`).  Wrynose ships `soquartz-model-a` (which amends the
+      SoC-include bullet, decision 10, and the leaf text), ships no rk1
+      machine, no EFI wiring, and no from-source OP-TEE for RK3566 or
+      RK3588; the ADR stands.  The kas stub's `BBFILE_PRIORITY` bump
+      resolves no collision and is removed with the leaf.
   12. With the shipping U-Boot, an `extlinux.conf` plus unsigned
       kernel on the ESP or a USB stick boots, a `boot.scr` runs, or
       autoboot can be stopped from the serial console.
@@ -550,21 +577,28 @@ projects at master on 2026-09-20):
 ## Open decisions for the owner
 
 1. The variable store: `EFI_VARIABLE_NO_STORE` as decided, or the
-   file store with its OS-rewritable boot options.
+   file store with its OS-rewritable boot options.  Answered
+   2026-11-15: `EFI_VARIABLE_NO_STORE`, as decided.
 2. The `virtual/bootloader` seam on the Rockchip leaves (decision
    10): weaken the shared include, or pull U-Boot through the WKS
-   dependencies only.
+   dependencies only.  Answered 2026-11-15: through the WKS
+   dependencies only; the shared include stays fail-closed.
 3. The no-TPM `/var` fallback secret (decision 7): per-device key,
    recovery passphrase, or the shipped development keyfile, and the
-   SECURITY.md sentence that goes with it.
+   SECURITY.md sentence that goes with it.  Answered 2026-11-15:
+   a per-device key generated at first boot; SECURITY.md states that
+   without a TPM it gives no protection against physical access.
 4. Whether unfused boards with `SecureBoot=1` as enforcement only
    satisfy the M5 exit criteria, and whether a sacrificial RK3588
    board is budgeted for the fuse experiment.
 5. Revocation: accept "not available in the field" for the first
    port, or pull the U-Boot update path (decision 4) into M5.
-6. The `vm --firmware u-boot` QEMU payload: go or no-go.
+6. The `vm --firmware u-boot` QEMU payload: go or no-go.  Answered
+   2026-11-15: go; build the payload.
 7. SOQuartz permanently without an fTPM (decision 8).
 8. The first ARM deliverable as a flashed image only, with the
-   installer port deferred past M5.
+   installer port deferred past M5.  Answered 2026-11-15: yes; the
+   first ARM deliverable is a flashed image, and the installer port
+   moves past M5.
 9. Console UART and baud per board, and whether to enable the RK8xx
    PMIC RTC driver on SOQuartz.
