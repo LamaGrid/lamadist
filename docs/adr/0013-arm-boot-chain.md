@@ -223,10 +223,10 @@ meta-rockchip claims below):
      the x86_64 gate enrolls (`files/sb-dev/` today, whose `.esl`
      files the `regen-dev-sb-keys.sh` script already produces;
      production custody stays M6), so both platforms share one key
-     hierarchy; it is never a checked-in binary.  The generator
-     (U-Boot's in-tree `tools/efivar.py`, GPL-2.0-only build tooling
-     under the copyleft policy, or a dump from a U-Boot run) is the
-     kill-switch spike's first task.
+     hierarchy; it is never a checked-in binary.  The generator is the
+     project's own stdlib-only one, and ADR 0016 records why U-Boot's
+     in-tree `tools/efivar.py` and a dump from a U-Boot run are not
+     used.
 4. The trust statement for both boards is written with explicit
    actors, in its unfused form, for production keys, and nothing
    stronger is claimed:

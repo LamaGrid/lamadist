@@ -4,7 +4,7 @@
 # conftest.py, so the type checker needs the same path.
 
 [tool.pyright]
-extraPaths = [".mise/lib"]
+extraPaths = [".mise/lib", "meta-lamadist/lib"]
 pythonVersion = "3.14"
 
 [tool.ruff]
