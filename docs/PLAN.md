@@ -1255,6 +1255,13 @@ Deferred until the milestones above are complete:
   server-vs-hawkBit design choice could warrant a design pass, but
   the build itself is ordinary implementation, not necessarily
   Fable.
+- Mount the ESP by a fixed PARTUUID (after M5, its own change).
+  fstab mounts /boot by `LABEL=msdos`, which any FAT volume can carry.
+  On a machine without a TPM the ESP holds the per-device /var key, so
+  a removable medium with that label, attached at boot, can receive a
+  new key and the RAUC slot state (docs/SECURITY.md, the /var
+  section).  Give the ESP a fixed PARTUUID in each WKS and mount it by
+  that.
 
 ---
 

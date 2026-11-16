@@ -1,0 +1,115 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# ExecStart for lamadist-var-notpm-key.service.  ADR 0013 decision 7,
+# owner decision 3: on a machine WITHOUT a TPM, generate a per-device
+# key at first boot, keep it on the ESP, and add it as a LUKS2 keyslot
+# of the 'var' partition, so crypttab (lamadist-image.bbclass) unlocks
+# /var with it and a headless board never stops at a passphrase prompt.
+#
+# The key sits in the clear on the ESP next to the disk it unlocks:
+# it gives NO protection against anyone who can read the storage (see
+# docs/SECURITY.md).  It is ADDED alongside the DEVELOPMENT-ONLY
+# keyfile slot lamadist-var-encrypt wrote; it does not remove that
+# slot (see files/README.md), exactly as lamadist-var-tpm2-enroll
+# does on a TPM machine.  Every add and kill below is authorised with
+# that dev keyfile, so key-loss recovery works only while that slot
+# exists.
+#
+# One rule, so every power cut converges and no slot is ever orphaned:
+#   the ESP key unlocks the volume           -> no-op
+#   the unlock test fails for any reason but
+#   "no key matches" (exit 2)                 -> fail, change nothing
+#   otherwise                                -> generate a FRESH key,
+#       write and sync it, then replace the one fixed KEYSLOT with it
+#       (luksKillSlot, then luksAddKey --key-slot)
+# Whatever is on the ESP is never enrolled as found: a planted file or
+# FAT garbage that does not unlock is overwritten, not added.  A cut
+# before the add leaves a key that does not unlock, which the next
+# boot simply replaces; a cut between kill and add leaves the dev slot
+# and an empty KEYSLOT, which the next boot fills.  The slot count is
+# bounded at dev slot + KEYSLOT, and a lost key's slot is revoked by
+# the kill rather than left valid.
+#
+# Like lamadist-var-tpm2-enroll this works on the raw PARTLABEL=var
+# device and never opens a mapping (see lamadist-var-encrypt's
+# MAPPER_NAME comment for why a transient mapping is a trap here).
+
+set -eu
+
+DEV=/dev/disk/by-partlabel/var
+DEVKEY=/etc/lamadist/dev-var.key
+# On the ESP (vfat, mounted at /boot by lamadist-image.bbclass with
+# umask=0077 on machines without tpm2).  A LamaDist-owned directory
+# that neither the RAUC bundle hook (rewrites /boot/lamadist/<slot>
+# and loader/entries only) nor any other updater touches.  The same
+# path is LAMADIST_VAR_NOTPM_KEYFILE in lamadist-image.bbclass and
+# RequiresMountsFor= in the unit.
+KEYDIR=/boot/lamadist-keys
+KEYFILE="${KEYDIR}/var.key"
+KEYBYTES=32
+# The per-device key's one fixed LUKS2 keyslot.  luksFormat in
+# lamadist-var-encrypt puts the dev keyfile in slot 0, so slot 1 is
+# where the first add landed before this was fixed.
+KEYSLOT=1
+
+# DefaultDependencies=no (see the unit file): wait out udev for the
+# by-partlabel symlink, as the sibling scripts do.
+udevadm settle --timeout=30
+
+# A file that is not exactly KEYBYTES long was never written whole by
+# this script; it cannot be the key, so there is nothing to test.
+# Otherwise only exit 2 (EPERM, "No key available with this
+# passphrase") means "no key matches": any other non-zero exit
+# (missing device, no memory, busy, not LUKS) is a fault, and
+# re-keying on it would churn the slot for no reason.  stderr is not
+# discarded, so the journal names the fault.
+if [ -f "${KEYFILE}" ] && [ "$(stat -c %s "${KEYFILE}")" -eq "${KEYBYTES}" ]; then
+	rc=0
+	cryptsetup open --test-passphrase --key-file "${KEYFILE}" "${DEV}" || rc=$?
+	if [ "${rc}" -eq 0 ]; then
+		echo "lamadist-var-notpm-key: ${KEYFILE} already unlocks ${DEV}, skipping" >&2
+		exit 0
+	fi
+	if [ "${rc}" -ne 2 ]; then
+		echo "lamadist-var-notpm-key: unlock test on ${DEV} failed (exit ${rc}), leaving the keyslots alone" >&2
+		exit 1
+	fi
+fi
+
+echo "lamadist-var-notpm-key: generating a per-device key at ${KEYFILE}" >&2
+umask 077
+mkdir -p "${KEYDIR}"
+# Written in place, never renamed: a rename on vfat is not atomic,
+# and a cut inside one can leave two directory entries on one cluster
+# chain, after which deleting either name frees the other's data.
+# A torn in-place write only ever leaves a file that does not unlock,
+# which the rule above replaces.  Unlink first so the new key never
+# reuses the old key's clusters.
+rm -f "${KEYFILE}"
+# /dev/random, not /dev/urandom: it blocks until the kernel CRNG is
+# seeded (and never again after), so an early-boot key cannot come
+# from an unseeded pool.
+head -c "${KEYBYTES}" /dev/random > "${KEYFILE}"
+if [ "$(stat -c %s "${KEYFILE}")" -ne "${KEYBYTES}" ]; then
+	echo "lamadist-var-notpm-key: short read from /dev/random, aborting" >&2
+	exit 1
+fi
+# Key data, then the directory entry and both FAT copies (vfat has no
+# journal: sync the whole filesystem), all before the slot exists.
+sync "${KEYFILE}"
+sync -f "${KEYFILE}"
+
+echo "lamadist-var-notpm-key: replacing keyslot ${KEYSLOT} on ${DEV}" >&2
+# Revoke whatever KEYSLOT held (a lost, replaced, or never-synced
+# key).  It fails harmlessly when the slot is already empty (first
+# boot, or a cut between kill and add); if it fails for any other
+# reason the slot stays full and luksAddKey below fails loudly.
+cryptsetup luksKillSlot --batch-mode --key-file "${DEVKEY}" "${DEV}" "${KEYSLOT}" || true
+# pbkdf2 with a floor iteration count, as lamadist-var-encrypt
+# formats: the key is 256 random bits, so a memory-hard KDF adds no
+# brute-force margin and costs time on every boot's unlock.
+cryptsetup luksAddKey --batch-mode \
+	--pbkdf pbkdf2 --pbkdf-force-iterations 1000 \
+	--key-slot "${KEYSLOT}" \
+	--key-file "${DEVKEY}" "${DEV}" "${KEYFILE}"

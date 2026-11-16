@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+# Test overlay: build a tpm2 machine as if it had no TPM, to exercise
+# the no-TPM /var path (ADR 0013 decision 7) under QEMU before a real
+# TPM-less board exists.  Meant for the qemuarm64 BSP first (the
+# Rockchip boards are its real-world target); stack it after
+# kas/bsp/qemuarm64.kas.yml and boot the result with `vm --bsp
+# qemuarm64 --no-tpm`.  Test-only: a real board's machine conf simply
+# does not require lamadist-tpm2.inc.
+#
+# Undoes everything lamadist-tpm2.inc adds: the tpm2 feature (target
+# and native), the TPM userspace packagegroup (its tpm2-abrmd would
+# otherwise fail on a machine with no TPM device), and systemd's TPM2
+# build options.  A removed DISTRO_FEATURE changes almost every task
+# signature, so expect a mostly cold build next to the tpm2 one.
+#
+# A pass, on the first boot AND a second boot of the same disk:
+#   - /var is mounted from /dev/mapper/var, with no passphrase prompt
+#   - lamadist-var-notpm-key.service is active (exited)
+#   - lamadist-var-tpm2-enroll.service is masked (the image masks it
+#     at build time without tpm2)
+#   - `luksDump` shows the dev keyslot and keyslot 1 only, on every
+#     boot
+#   - `systemctl is-system-running` is not degraded
+#   - the second boot unlocks with the per-device key on the ESP
+#     (/boot/lamadist-keys/var.key), and the key unit logs that the key
+#     already unlocks /var and does nothing
+header:
+  version: 15
+local_conf_header:
+  90_no_tpm: |
+    DISTRO_FEATURES:remove                 = 'tpm2'
+    DISTRO_FEATURES_NATIVE:remove          = 'tpm2'
+    SECURE_CORE_IMAGE_EXTRA_INSTALL:remove = 'packagegroup-tpm2'
+    PACKAGECONFIG:remove:pn-systemd        = 'tpm2 cryptsetup-plugins'

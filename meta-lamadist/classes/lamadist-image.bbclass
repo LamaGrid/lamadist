@@ -171,22 +171,32 @@ IMAGE_FEATURES += "read-only-rootfs"
 #
 # A machine WITHOUT the tpm2 DISTRO_FEATURE (the Rockchip boards,
 # ADR 0013 decision 7) gets the same line minus tpm2-device=auto, so
-# nothing in the unlock path asks for a TPM.
+# nothing in the unlock path asks for a TPM, plus headless=true: if
+# the key unit failed and left no key, systemd-cryptsetup fails at
+# once and loudly instead of waiting out the device timeout on a
+# passphrase prompt nobody can answer.
 #
 # FALLBACK SECRET HOOK (ADR 0013 decision 7: a per-device key generated
-# at first boot into a plain partition; the generating unit is NOT
-# written yet).  LAMADIST_VAR_NOTPM_KEYFILE is the crypttab key field
-# of the no-TPM line and nothing else: tpm2 machines always use
-# 'none'.  It stays 'none' (a passphrase prompt) until the unit
-# exists; that unit sets it to the absolute path of the key file, on a
-# plain, already-mounted partition (never under /etc or /var: /etc is
-# an overlay on the LUKS /var).  The unit must also run before
-# lamadist-var-encrypt.service and cryptsetup-pre.target, and make the
-# key a LUKS keyslot of /var.  Put no key material in this layer.
-LAMADIST_VAR_NOTPM_KEYFILE ?= "none"
+# at first boot into a plain partition).  LAMADIST_VAR_NOTPM_KEYFILE is
+# the crypttab key field of the no-TPM line and nothing else: tpm2
+# machines always use 'none'.  It names the key that
+# lamadist-var-notpm-key.service (recipes-core/luks) generates on the
+# ESP at first boot and adds as a LUKS keyslot of /var, after
+# lamadist-var-encrypt.service and before this entry's
+# systemd-cryptsetup@var.service.  The ESP is plain and mounted at
+# /boot (lamadist_fstab_boot below, root-only on these machines);
+# systemd-cryptsetup-generator adds RequiresMountsFor= for the path, so
+# the unlock waits for that mount.  The path must match the script's
+# KEYDIR/KEYFILE.  Only the path lives here: no key material in this
+# layer.
+LAMADIST_VAR_NOTPM_KEYFILE ?= "/boot/lamadist-keys/var.key"
+
+# The generating unit ships only where the key is used (its recipe
+# also refuses to build with tpm2: CONFLICT_DISTRO_FEATURES).
+IMAGE_INSTALL:append = "${@bb.utils.contains('DISTRO_FEATURES', 'tpm2', '', ' lamadist-var-notpm-key', d)}"
 
 lamadist_crypttab_var() {
-    echo 'var  PARTLABEL=var  ${@'none' if bb.utils.contains('DISTRO_FEATURES', 'tpm2', True, False, d) else d.getVar('LAMADIST_VAR_NOTPM_KEYFILE')}  luks,discard${@bb.utils.contains('DISTRO_FEATURES', 'tpm2', ',tpm2-device=auto', '', d)}' >> ${IMAGE_ROOTFS}${sysconfdir}/crypttab
+    echo 'var  PARTLABEL=var  ${@'none' if bb.utils.contains('DISTRO_FEATURES', 'tpm2', True, False, d) else d.getVar('LAMADIST_VAR_NOTPM_KEYFILE')}  luks,discard${@bb.utils.contains('DISTRO_FEATURES', 'tpm2', ',tpm2-device=auto', ',headless=true', d)}' >> ${IMAGE_ROOTFS}${sysconfdir}/crypttab
 }
 # Registered with no ";" after the name.  oe-core's image.bbclass sets
 # ROOTFS_POSTPROCESS_COMMAND[vardeps] to the expanded value, and a
@@ -319,10 +329,25 @@ ROOTFS_POSTPROCESS_COMMAND += "lamadist_etc_overlay_unit; "
 # using the filesystem label the WKS template gives the ESP
 # partition (--label msdos on the /boot part in
 # lamadist-dmverity-bootdisk.wks.in).
+#
+# Without tpm2 the ESP also holds the per-device /var key
+# (LAMADIST_VAR_NOTPM_KEYFILE above).  vfat has no per-file modes:
+# with no umask= option every file takes the mounting process's
+# umask (0022), so the key would be world-readable.  umask=0077 makes
+# the whole ESP root-only on those machines; every ESP reader and
+# writer (RAUC, its hooks, the health check) runs as root.  tpm2
+# machines keep the line exactly as it was.
+#
+# Never add an x-systemd.idle-timeout= to this line.  On machines
+# without tpm2, systemd-cryptsetup@var Requires= boot.mount (the
+# generator's RequiresMountsFor= on the key path), so an idle unmount
+# of /boot would propagate a stop to the /var mapping under a mounted
+# /var.
 lamadist_fstab_boot() {
-    echo 'LABEL=msdos  /boot  vfat  defaults,x-systemd.automount  0  2' >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
+    echo 'LABEL=msdos  /boot  vfat  defaults,x-systemd.automount${@bb.utils.contains('DISTRO_FEATURES', 'tpm2', '', ',umask=0077', d)}  0  2' >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
 }
-ROOTFS_POSTPROCESS_COMMAND += "lamadist_fstab_boot; "
+# No ";" after the name, as for lamadist_crypttab_var above.
+ROOTFS_POSTPROCESS_COMMAND += "lamadist_fstab_boot"
 
 # read_only_rootfs_hook points sshd at volatile /var/run/ssh host
 # keys, which would regenerate every boot and break known_hosts
