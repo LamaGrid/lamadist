@@ -32,12 +32,16 @@ S = "${UNPACKDIR}"
 
 inherit allarch systemd features_check
 
-# tpm2: lamadist-var-tpm2-enroll.service needs systemd-cryptenroll's
-# TPM2 support, which is gated by that same DISTRO_FEATURE across
-# the layer stack (see meta-lamadist/conf/machine/include/
-# lamadist-tpm2.inc and the systemd PACKAGECONFIG[tpm2] open
-# question this recipe's README/commit notes).
-REQUIRED_DISTRO_FEATURES = "systemd luks tpm2"
+# tpm2 is deliberately NOT required (ADR 0013 decision 7): a machine
+# without the tpm2 DISTRO_FEATURE still gets LUKS2 /var.  The enroll
+# half stays in this recipe but is inert there:
+# lamadist-image.bbclass masks lamadist-var-tpm2-enroll.service in
+# every image without tpm2 (lamadist_mask_tpm2_enroll_service), so it
+# never runs and the health gate's degraded check never sees it.  The
+# gate is build time, like the crypttab line, not a runtime
+# ConditionSecurity=tpm2 (that trusts firmware PCR-bank reporting and
+# could skip enrollment on a tpm2 machine).
+REQUIRED_DISTRO_FEATURES = "systemd luks"
 
 SYSTEMD_SERVICE:${PN} = " \
     lamadist-var-encrypt.service \
