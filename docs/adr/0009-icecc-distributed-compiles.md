@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted.  Addendum 2026-11-27: the `tar` pin.
 
 ## Context
 
@@ -70,3 +70,26 @@ network namespace).  The scheduler address is site configuration
   setscene pass, and the first `--icecc` build is effectively cold.
 - All `ICECC_*` tuning variables are in `BB_BASEHASH_IGNORE_VARS`,
   so scheduler and parallelism changes do not invalidate caches.
+
+## Addendum: the `tar` pin (2026-11-27)
+
+`container/packages.txt` lists `tar`, so that `container/packages.lock`
+pins its version.  Like the `icecc` and `patchelf` packages above, it
+is an apt package of the build container.
+
+- License: tar is GPL-3.0-or-later.
+- Not new: tar is an Essential package in Debian and Ubuntu, a
+  packaging convention that this tree does not check, and it is
+  already present in the builder image's base.  The pin only fixes its
+  version, so the entry ships nothing new.
+- Alternatives: replace GNU tar with BSD tar, or leave tar unlisted, as
+  before, so that `apt-get upgrade` sets its version at build time.
+  Replacing it would not remove GNU tar, which is Essential and stays
+  in the base image.
+- Distribution: the project owner's stated reason is that "we are not
+  currently distributing images, therefore we are not distributing the
+  packages in LamaDist."  No LamaDist OS image and no builder image
+  (the image that carries this tar) is distributed today; CI pushes the
+  builder image only to the project's in-cluster registry.
+- Revisit: if distribution starts, this is revisited.
+- Decision: the project owner chose this addendum on 2026-11-27.
