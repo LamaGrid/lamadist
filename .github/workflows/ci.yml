@@ -92,27 +92,33 @@ jobs:
         run: |
           git config --global --add safe.directory "${GITHUB_WORKSPACE}"
           BUILD_NEEDED=false
+          # The builder image's inputs: container/, the script that
+          # builds it, and this workflow, which runs the script.  The
+          # build task is listed because its local branch builds the
+          # image from the same inputs; CI runs the script directly.
+          set -- container/ .mise/lib/builder-ci.sh \
+              .mise/tasks/container/builder/build .github/workflows/ci.yml
 
           CHANGES=""
           if [ "${{ github.event_name }}" = "pull_request" ]; then
               git fetch --depth=1 origin "${{ github.base_ref }}"
-              CHANGES=$(git diff --name-only FETCH_HEAD -- container/)
+              CHANGES=$(git diff --name-only FETCH_HEAD -- "$@")
           elif [ "${{ github.event_name }}" = "push" ]; then
               if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-                  CHANGES=$(git diff --name-only HEAD~1 -- container/ 2>/dev/null || echo "initial push")
+                  CHANGES=$(git diff --name-only HEAD~1 -- "$@" 2>/dev/null || echo "initial push")
               else
                   # On feature branches, compare against main to detect any divergence
                   git fetch origin main
-                  CHANGES=$(git diff --name-only origin/main...HEAD -- container/ 2>/dev/null || echo "new branch")
+                  CHANGES=$(git diff --name-only origin/main...HEAD -- "$@" 2>/dev/null || echo "new branch")
               fi
           fi
 
           if [ -n "${CHANGES}" ]; then
-              echo "Container files changed:"
+              echo "Builder image inputs changed:"
               echo "${CHANGES}"
               BUILD_NEEDED=true
           else
-              echo "No container/ changes, skipping rebuild"
+              echo "No builder image input changed, skipping rebuild"
           fi
 
           echo "build_needed=${BUILD_NEEDED}" >> "$GITHUB_OUTPUT"
@@ -140,7 +146,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Configure container storage
         run: |
@@ -166,11 +174,16 @@ jobs:
           # a failure of podman info from failing the job.
           podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphOptions}}' || true
 
-      - name: Install mise
-        uses: jdx/mise-action@v2
-
+      # The push step runs .mise/lib/builder-ci.sh with the image's bash,
+      # under a shell line that reads no profile, rc file, or BASH_ENV.
+      # The script calls podman by absolute path and its other tools
+      # through a pinned PATH.  The run line starts with exec, so the
+      # step's shell is replaced by the script's bash and does not stay
+      # alive holding the step's environment.  The site requirement for
+      # this job is in docs/TOOLING.md under Runner Sets.
       - name: Build and push container image
-        run: mise run container:builder:build --ci
+        shell: /usr/bin/bash --noprofile --norc -p -eo pipefail {0}
+        run: exec /usr/bin/bash -p .mise/lib/builder-ci.sh
         env:
           LAMADIST_REGISTRY: ${{ secrets.LAMADIST_REGISTRY }}
           LAMADIST_REGISTRY_USER: ${{ secrets.LAMADIST_REGISTRY_USER }}

@@ -358,13 +358,73 @@ scaling sets. The workflow is defined in `.github/workflows/ci.yml`.
 | `container-build-set` | Build the KAS build container image |
 | `yocto-runner-set` | Run Yocto/KAS builds (persistent workspace + sstate) |
 
+The `build-container` job gets the registry push credential on pushes
+to `main`.  Its steps are the checkout action (pinned by commit), the
+container storage step, and the push step; it installs and runs no
+mise.  The push step runs `.mise/lib/builder-ci.sh` with the image's
+`/usr/bin/bash -p` (the run line starts with `exec`, so the step's
+shell is replaced), under a shell line that reads no profile, rc file,
+or `BASH_ENV`.  The script calls podman by absolute path, runs its
+other tools through a pinned `PATH`, and logs in to the registry with
+an auth file in a temporary directory that it removes when it exits.
+The directory comes from `mktemp -d`, which reads `TMPDIR`, so it
+follows the `TMPDIR` that the script inherits.  The job's text in
+`.github/workflows/ci.yml` and the script's text hold these properties.
+`tests/ci/test_build_container_job.py` parses the workflow with PyYAML,
+a YAML 1.1 parser; GitHub's own parser may read some forms differently,
+and the test cannot check that.  It fails on the characters U+0085,
+U+2028, and U+2029 (YAML 1.1 reads them as line breaks and YAML 1.2
+reads them as text), on a duplicate mapping key, and on more than one
+YAML document.  It compares the `build-container` job's step names, in
+order, its checkout step, and its push step with the values kept in the
+test, and it ignores comments and key order.  It does not compare the
+storage step, the job's other keys, or the rest of the workflow.  The
+test needs PyYAML, which `tests/ci/requirements.txt` declares as a test
+dependency with hashes (compiled from `tests/ci/requirements.in` with
+`uv pip compile`, as for `tests/validate`).  It runs by hand; no hook
+or workflow runs it.  To run it, make a virtual environment, install the
+requirements into it, and run pytest with its Python:
+
+```bash
+uv venv .cache/ci-tests-venv
+uv pip install --python .cache/ci-tests-venv/bin/python \
+    --require-hashes -r tests/ci/requirements.txt
+.cache/ci-tests-venv/bin/python -m pytest tests/ci
+```
+
+A site that runs this job must keep storage that outlives a job, or
+that other jobs can write, from holding, at any time while this job
+runs, a file that this job runs, reads as configuration, or pushes, and
+that another job could have written or replaced.  For example, the
+runner's cache of actions, the runner's temporary directory, the job's
+home directory, podman's image store (its graph root and layer cache),
+the workspace (including its `.git` directory), and any storage shared
+between jobs may be such storage, depending on the site.  The builder's
+base images (the `FROM` lines of `container/Dockerfile` and its `uv`
+`COPY`) are pulled by tag, so the build runs third-party build code in
+the same job as the login and push.  The script keeps the password out
+of the build's environment, but its value is still in the script's own
+memory, and in the process's initial environment block, while the build
+runs.  The runner may also hold a copy for the step's life: in
+Kubernetes hook mode, a step script under its temporary directory, and
+briefly in the argv of the hook's `env` call (a job log from the site
+shows that mode; the argv was not checked).  Whether the kernel's ptrace
+rules let a build step reach the script's copy on the runner was not
+checked.
+
 ### Workflow Stages
 
-1. **Build Container** (`container-build-set`): Conditionally builds the KAS
-   build container with `mise run container:builder:build --ci` (uses podman) when files in
-   `container/` have changed. When the registry credential is set, pushes the
-   image to the in-cluster OCI registry for downstream jobs to pull as their
-   workspace container; pull request runs build without pushing.
+1. **Build Container** (`container-build-set`): Conditionally builds the
+   KAS build container with `.mise/lib/builder-ci.sh` (podman by absolute
+   path) when a file in `container/`, that script,
+   `.mise/tasks/container/builder/build`, or `.github/workflows/ci.yml`
+   has changed.  The job runs no mise, so `.mise.toml` sets nothing in
+   it: the script takes the local image name from the workflow's
+   `LAMADIST_CONTAINER_IMAGE`.  When the registry credential is set,
+   pushes the image to the in-cluster OCI registry for downstream jobs
+   to pull as their workspace container; pull request runs build without
+   pushing.  `mise run container:builder:build --ci` runs the same
+   script, so it needs `/usr/bin/bash` and `/usr/bin/podman`.
 2. **Build x86_64** (`yocto-runner-set`): Uses the builder image from the
    registry as its workspace container and runs
    `mise run build --bsp x86_64 --ci`. Runs automatically on push to `main`

@@ -239,9 +239,9 @@ def test_a_comment_under_eight_spaces_above_the_next_step_is_outside_the_test(
     workflow_text: str,
 ) -> None:
     job = _job(workflow_text)
-    marker = f"{STEP_MARK}Install mise\n"
+    marker = f"{STEP_MARK}{BUILD_STEP}\n"
     assert marker in job
-    commented = job.replace(marker, f"      # Tools for the build task.\n{marker}", 1)
+    commented = job.replace(marker, f"      # Notes on the build step.\n{marker}", 1)
     broken = workflow_text.replace(job, commented, 1)
     assert broken != workflow_text
     _passes_every_check(broken)
