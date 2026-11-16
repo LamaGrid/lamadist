@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lucas Yamanishi <lucas.yamanishi@gmail.com>
+Date: Mon, 16 Nov 2026 17:09:36 -0500
+Subject: [PATCH] efi_loader: link boot/bootm.o for ExitBootServices without
+ commands
+
+efi_exit_boot_services() calls bootm_disable_interrupts() and
+board_quiesce_devices() (lib/efi_loader/efi_boottime.c), which are
+defined in boot/bootm.c.  boot/Makefile builds bootm.o only for
+CMD_BOOTM, CMD_BOOTZ, CMD_BOOTI, or BOOTMETH_CROS, and every command
+depends on CMDLINE.  With CMDLINE off and the EFI loader on, the final
+link fails with undefined references to both functions.
+
+Build boot/bootm.o and boot/bootm_os.o for LIB_BOOTM, and select
+LIB_BOOTM from EFI_LOADER on ARM, where arch/arm/lib/bootm.o is gated
+on LIB_BOOTM too.  The select adds no command and no boot method.  The
+rest of bootm.o is not referenced without one of the commands or
+BOOTMETH_CROS or BOOTMETH_ANDROID, so the linker's section garbage
+collection drops it.
+
+Upstream-Status: Pending
+Signed-off-by: Lucas Yamanishi <lucas.yamanishi@gmail.com>
+---
+ boot/Makefile          | 1 +
+ lib/efi_loader/Kconfig | 3 +++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/boot/Makefile b/boot/Makefile
+index 7fb56e7..81347e0 100644
+--- a/boot/Makefile
++++ b/boot/Makefile
+@@ -9,6 +9,7 @@ obj-$(CONFIG_BOOT_RETRY) += bootretry.o
+ obj-$(CONFIG_CMD_BOOTM) += bootm.o bootm_os.o
+ obj-$(CONFIG_CMD_BOOTZ) += bootm.o bootm_os.o
+ obj-$(CONFIG_CMD_BOOTI) += bootm.o bootm_os.o
++obj-$(CONFIG_LIB_BOOTM) += bootm.o bootm_os.o
+ obj-$(CONFIG_SUPPORT_EXTENSION_SCAN) += extension-uclass.o
+ 
+ obj-$(CONFIG_PXE_UTILS) += pxe_utils.o
+diff --git a/lib/efi_loader/Kconfig b/lib/efi_loader/Kconfig
+index 13e44be..9550e34 100644
+--- a/lib/efi_loader/Kconfig
++++ b/lib/efi_loader/Kconfig
+@@ -22,6 +22,9 @@ config EFI_LOADER
+ 	select DM_EVENT
+ 	select EVENT_DYNAMIC
+ 	select LIB_UUID
++	# efi_exit_boot_services() calls bootm_disable_interrupts() and
++	# board_quiesce_devices(), which live in boot/bootm.c
++	select LIB_BOOTM if ARM
+ 	select LMB
+ 	select OF_LIBFDT
+ 	imply PARTITION_UUIDS

@@ -39,7 +39,7 @@ meta-rockchip claims below):
 
 - The tree has one boot backend implemented end to end, `sdboot-uki`,
   and every ARM sibling the seam names (`lamadist-boot-uboot.inc`,
-  `soquartz.conf`, `rk1.conf`, a Rockchip Wic kickstart (WKS)) is
+  `soquartz-lamadist.conf`, `rk1.conf`, a Rockchip Wic kickstart (WKS)) is
   speced and absent.  The aarch64 Unified Kernel Image (UKI) path
   already boots under ARM Architecture Virtual Machine Firmware (AAVMF)
   with the project Platform Key (PK)/Key Exchange Key (KEK)/signature
@@ -90,8 +90,10 @@ meta-rockchip claims below):
   shim-lock, and volatile variable on restore, so
   PK/KEK/db/forbidden-signatures database (dbx) do not survive a
   reboot through the file store at all.  They persist only through
-  `EFI_VARIABLES_PRESEED` (compiled into U-Boot, then write-protected
-  including dbx, and exclusive with `EFI_MM_COMM_TEE`) or through
+  `EFI_VARIABLES_PRESEED` (compiled into U-Boot, then PK, KEK, and db
+  are write-protected; dbx is absent from the seed and accepts only
+  KEK-signed writes that do not persist; the option is exclusive with
+  `EFI_MM_COMM_TEE`) or through
   StandaloneMM on RPMB.  With the preseed, `SecureBoot=1` follows from
   PK presence alone.  Non-authenticated variables (`Boot####`,
   `BootOrder`) do restore from the file, and U-Boot reads that file
@@ -176,7 +178,7 @@ meta-rockchip claims below):
    tree ships inside the UKI (`ukify --devicetree`, covered by the db
    signature) so the stub installs it; `lamadist-uki.bbclass` gains
    that plumbing and each leaf names its `KERNEL_DEVICETREE`.
-   `soquartz.conf` and `rk1.conf` require
+   `soquartz-lamadist.conf` and `rk1.conf` require
    `lamadist-boot-sdboot-uki.inc`; `lamadist-boot-uboot.inc` is not
    authored.  The systemd-boot backend script, the health gate and
    its pending probe, the bundle hook, `system.conf`, both
@@ -197,21 +199,49 @@ meta-rockchip claims below):
    (a `COMPATIBLE_MACHINE`-scoped `u-boot` bbappend), never a reliance
    on ARMv8 defaults, and it removes every boot path that Secure Boot
    does not cover:
-   - on: `EFI_LOADER`, `CMD_BOOTEFI`, `EFI_BOOTMGR`,
-     `BOOTMETH_EFI_BOOTMGR`, `BOOTMETH_EFI`, `FS_FAT`, `FAT_WRITE`,
-     `FAT_RENAME`, `EFI_SECURE_BOOT`, `EFI_VARIABLES_PRESEED` with a
-     generated seed, `ENV_IS_NOWHERE`;
-   - off: `BOOTMETH_EXTLINUX`, `BOOTMETH_SCRIPT`,
-     `BOOTMETH_EXTLINUX_PXE`, `BOOTMETH_PXE`, `BOOTMETH_VBE`, and
-     `BOOTMETH_VBE_SIMPLE`, `BOOTMETH_ANDROID`, `CMD_BOOTI`,
-     `CMD_BOOTM`, `CMD_BOOTZ`, `CMD_BOOTELF`, `CMD_GO`, `CMD_MEMORY`
-     (or `CMDLINE=n` outright), every `ENV_IS_IN_*` and
-     `ENV_IMPORT_*` option, `EFI_RT_VOLATILE_STORE`,
-     `EFI_MM_COMM_TEE`;
-   - `boot_targets` pinned to the shipping medium only; autoboot
-     non-interruptible (`AUTOBOOT_KEYED` with `AUTOBOOT_ENCRYPTION`,
-     `bootdelay=-2`, or no CLI); `fdtfile` empty so U-Boot's
-     device-tree-from-medium lookup never runs.
+   - on: `EFI_LOADER`, `EFI_SECURE_BOOT`, `BOOTMETH_EFILOADER` (the
+     EFI boot method), `BOOTSTD_PROG`, `FS_FAT`, `FAT_WRITE`,
+     `FAT_RENAME`, `EFI_VARIABLES_PRESEED` with a generated seed,
+     `ENV_IS_NOWHERE`;
+   - off: `CMDLINE` (no U-Boot prompt: every command, including
+     `bootefi`, `go`, `loadb`, and `mmc`, is compiled out, and
+     `BOOTSTD_PROG`, which depends on `!CMDLINE`, boots through
+     standard boot and panics if that fails), `BOOTSTD_DEFAULTS` (it
+     selects `BOOT_DEFAULTS` and `BOOTMETH_DISTRO`, so those go off
+     with it), `BOOT_DEFAULTS`, `BOOTMETH_DISTRO`, `BOOTMETH_EXTLINUX`,
+     `BOOTMETH_SCRIPT`, `BOOTMETH_EXTLINUX_PXE`, `BOOTMETH_VBE`,
+     `BOOTMETH_VBE_SIMPLE`, `BOOTMETH_ANDROID`, `BOOTMETH_CROS`,
+     `BOOTMETH_RAUC`, `EFI_BOOTMGR`, `BOOTMETH_EFI_BOOTMGR`,
+     `CMD_BOOTEFI_BOOTMGR`, `CMD_BOOTI`, `CMD_BOOTM`, `CMD_BOOTZ`,
+     `CMD_ELF`, `CMD_GO`, `CMD_MEMORY`, `CMD_SYSBOOT`, `CMD_BOOTMENU`,
+     `CMD_NVEDIT_EFI`, `CMD_EFIDEBUG`, `CMD_BOOTEFI_SELFTEST`,
+     `USE_PREBOOT`, `USB_GADGET`,
+     `EFI_CAPSULE_ON_DISK`, `EFI_HTTP_BOOT`, `OF_BOARD`, `BUTTON`,
+     every `ENV_IS_IN_*` and `ENV_IMPORT_*` option,
+     `EFI_RT_VOLATILE_STORE`, `EFI_MM_COMM_TEE`.  `CMDLINE` hides most
+     of the command options from the resolved `.config`; an absent
+     line counts as off.  `EFI_BOOTMGR` is off because U-Boot's EFI
+     boot manager probes every block device and generates boot
+     options for all of them, removable media first, so it would boot
+     the SD card ahead of the eMMC; with it off only the pinned medium
+     boots, and `BOOTMETH_EFILOADER` finds systemd-boot at the
+     removable path alone.  The fallback if `BOOTSTD_PROG` does not
+     boot (its Kconfig help calls it limited, so a QEMU or board boot must
+     confirm it) is
+     `CMDLINE` on with `/config { bootsecure = <1>; bootcmd = "bootd"; };`
+     in the board's `-u-boot.dtsi`, which never returns to a prompt;
+   - `boot_targets` pinned to the shipping medium only; `fdtfile`
+     empty, so U-Boot's device-tree-from-medium lookup finds no name
+     (`efi_get_distro_fdt_name` returns `-ENOENT`) and reads no file.  The
+     environment holds no `bootcmd` and no `bootdelay`: with `CMDLINE`
+     off there is no autoboot delay or abort key to configure.  The
+     leaf sets `LAMADIST_BOOT_ENTRY_TIMEOUT` to 0.  A timeout of 0
+     hides the menu on the serial console but keeps a 100 ms key read:
+     one key in that time opens a menu that has no time limit.  The
+     owner chose `menu-disabled` (2026-11-18), which skips that read.
+     PR #64 ships a timeout of 0; PR #66 sets `menu-disabled` and
+     merges right after #64.  Quitting the menu returns to U-Boot,
+     which panics rather than prompts.
    - The variable store is `EFI_VARIABLE_NO_STORE`.  The preseed
      works without the file store, LamaDist needs no persisted
      `Boot####`/`BootOrder` because systemd-boot lives at the
@@ -219,6 +249,12 @@ meta-rockchip claims below):
      attacker-writable file in U-Boot's pre-verification path.  A
      leaf may choose `EFI_VARIABLE_FILE_STORE` only with a written
      reason in its header.
+   - With `CMDLINE` off nothing builds U-Boot's `boot/bootm.o`, yet the
+     EFI loader's `ExitBootServices` calls two functions in it, so the
+     leaf applies `0001-efi_loader-link-bootm-for-ExitBootServices.patch`
+     (U-Boot v2026.01 and master gate `bootm.o` alike), which builds it
+     through `LIB_BOOTM` without a command, a boot method, or any
+     reachable code beyond those two functions.
    - The seed is a build artifact generated from the same PK/KEK/db
      the x86_64 gate enrolls (`files/sb-dev/` today, whose `.esl`
      files the `regen-dev-sb-keys.sh` script already produces;
@@ -247,8 +283,10 @@ meta-rockchip claims below):
      power and needs PK-equivalent custody.
    - An attacker who holds the media or the board is not stopped:
      nothing verifies U-Boot, the DDR TPL, BL31, or BL32.
-   - dbx is immutable (the preseed write-protects it) and key or
-     image revocation is not available in the field on the first
+   - PK, KEK, and db are write-protected by the preseed; dbx is
+     absent from it and accepts only KEK-signed writes that do not
+     persist under `EFI_VARIABLE_NO_STORE`, so key or image
+     revocation is not available in the field on the first
      port: no OTA element can write the loader sectors, U-Boot has no
      A/B or torn-write story, and a bench reflash is undone by the
      same raw write the second bullet concedes.  Designing a U-Boot
@@ -467,8 +505,9 @@ meta-rockchip claims below):
   (or `include/soquartz.inc` plus its own two variables) and need not
   author the U-Boot defconfig name or `KERNEL_DEVICETREE`, but it
   carries the same neutralisations.  Its name changes from the kas
-  stub's `soquartz64`, which is no machine, to the leaf the later
-  package creates.  docs/PARTITIONING.md is corrected in both its
+  stub's `soquartz64`, which is no machine, to `soquartz-lamadist`
+  (upstream already owns `soquartz-model-a`, and plain `soquartz` is
+  upstream's family override).  docs/PARTITIONING.md is corrected in both its
   Rockchip and x86_64 sections to the shipped layouts before it is
   cited again.
 - What the boards lose relative to x86_64: runtime `SetVariable`
@@ -522,14 +561,16 @@ meta-rockchip claims below):
   payload, then 8 to 10 and every check again on the first board.
   1. The built U-Boot `.config` lacks `CONFIG_FAT_WRITE`,
      `CONFIG_FAT_RENAME`, `CONFIG_EFI_SECURE_BOOT`,
-     `CONFIG_EFI_VARIABLES_PRESEED`, or `CONFIG_ENV_IS_NOWHERE`, shows
+     `CONFIG_EFI_VARIABLES_PRESEED`, `CONFIG_ENV_IS_NOWHERE`, or
+     `CONFIG_BOOTSTD_PROG`, shows `CONFIG_CMDLINE`, shows
      any boot method or command from decision 3's off list, or
      shows a store other than `EFI_VARIABLE_NO_STORE` without the
      leaf's written reason.
   2. The EFI-enabled `u-boot.itb` or `u-boot-rockchip.bin` no longer
      fits the loader2 slot, or SPL reports a load or verify failure.
   3. U-Boot does not launch `EFI/BOOT/BOOTAA64.EFI` from the ESP on
-     eMMC or SD and reach systemd-boot's menu on the serial console.
+     eMMC or SD and reach systemd-boot on the serial console (its
+     menu is hidden on the SOQuartz leaf, decision 3).
   4. After one boot of a fresh `lamadist-<slot>+3.conf` the entry is
      still `+3` (no rename, no rollback: stop here).
   5. A UKI with bytes zeroed starts instead of being refused, or the

@@ -2,9 +2,10 @@
 """Build U-Boot's EFI variable preseed from PK, KEK, and db signature lists.
 
 U-Boot's ``CONFIG_EFI_VARIABLES_PRESEED`` embeds a variable store in
-the binary (``.incbin`` of ``CONFIG_EFI_VAR_SEED_FILE``) and, once it
-holds a PK, blocks every runtime write to PK, KEK, db, and dbx.  The
-store is the ``ubootefi.var`` layout of U-Boot v2026.01
+the binary (``.incbin`` of ``CONFIG_EFI_VAR_SEED_FILE``) and blocks
+every runtime write to the authenticated variables the store holds:
+PK, KEK, and db.  dbx is not in the store, so it is not protected; it
+accepts only KEK-signed writes.  The store is the ``ubootefi.var`` layout of U-Boot v2026.01
 (``include/efi_variable.h``, ``lib/efi_loader/efi_var_file.c``)::
 
     header   reserved u64 = 0, magic u64, length u32, crc32 u32

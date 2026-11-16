@@ -9,21 +9,40 @@
 #
 # lamadist-soquartz-efi.cfg is merged over the board defconfig by
 # u-boot-configure.inc; lamadist-soquartz.env is the whole default
-# environment (boot_targets pinned, fdtfile empty, bootdelay=-2).
+# environment (boot_targets pinned, fdtfile empty).  The fragment turns
+# the U-Boot prompt off (CMDLINE) and boots through BOOTSTD_PROG.
 
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
 SRC_URI:append:soquartz-lamadist = " \
     file://lamadist-soquartz-efi.cfg \
     file://lamadist-soquartz.env \
+    file://0001-efi_loader-link-bootm-for-ExitBootServices.patch \
 "
 
-# LAMADIST-SEED-HOOK: absolute path of the preseeded EFI variable file
-# (PK, KEK, db, dbx), generated at build time from the key hierarchy the
-# x86_64 gate enrolls; it is never checked in.  The preseed generator
-# package sets this.  Empty stops the build rather than shipping a
-# U-Boot with no Secure Boot variables.
-LAMADIST_UBOOT_EFI_SEED ??= ""
+# With CMDLINE off nothing builds boot/bootm.o, but the EFI loader's
+# ExitBootServices calls two functions in it, so the final link fails.
+# The patch builds bootm.o through LIB_BOOTM (ADR 0013 decision 3); it
+# adds no command or boot method.  It rides the SRC_URI:append above, so
+# no other machine's U-Boot is patched.
+
+# U-Boot turns the env text file into a C header with xxd, which is not
+# a HOSTTOOL.  oe-core's vim-native provides it (build-time only; Vim
+# license; nothing of it reaches the image).
+DEPENDS:append:soquartz-lamadist = " xxd-native"
+
+# The EFI variable preseed (PK, KEK, db; ADR 0016) is generated at
+# build time from the key hierarchy the x86_64 gate enrolls and is never
+# checked in.  The class writes ${S}/${LAMADIST_EFI_VAR_SEED_FILE}
+# between do_patch and do_configure; the fragment names the same file
+# source-relative (lib/efi_loader/Makefile prefixes $(srctree)/).  The
+# class is inherited for this machine only, so no other machine's U-Boot
+# gains the task.  The default is empty so that inherit_defer expands to
+# nothing and the file parses on every machine; an unset variable would
+# stay a literal ${...} and fail the parse ("Could not inherit file").
+LAMADIST_UBOOT_SEED_CLASS ??= ""
+LAMADIST_UBOOT_SEED_CLASS:soquartz-lamadist = "lamadist-efi-var-seed"
+inherit_defer ${LAMADIST_UBOOT_SEED_CLASS}
 
 # U-Boot reaches the image through the WKS rawcopy dependencies only, and
 # virtual/bootloader stays systemd-boot (ADR 0013 decision 10).  oe-core
@@ -33,14 +52,19 @@ LAMADIST_UBOOT_EFI_SEED ??= ""
 PROVIDES:remove:soquartz-lamadist = "virtual/bootloader"
 
 do_configure:prepend:soquartz-lamadist () {
-	# The fragment cannot name an absolute path, so fill in the
-	# environment file's unpack location and the seed path.
+	# The fragment names the environment file source-relative, because
+	# u-boot-configure.inc merges the layer's copy of the fragment (an
+	# edit to the ${UNPACKDIR} copy would never reach .config).  Put the
+	# file where that name resolves.
+	install -m 0644 "${UNPACKDIR}/lamadist-soquartz.env" "${S}/lamadist-soquartz.env"
 	cfg="${UNPACKDIR}/lamadist-soquartz-efi.cfg"
-	sed -i "s|@LAMADIST_UBOOT_ENV@|${UNPACKDIR}/lamadist-soquartz.env|" "$cfg"
-	if [ -z "${LAMADIST_UBOOT_EFI_SEED}" ]; then
-		bbfatal "LAMADIST_UBOOT_EFI_SEED is empty: no EFI variable seed for U-Boot (ADR 0013 decision 3)"
+	# Fail closed: a fragment and a class that disagree on the seed name,
+	# or a missing seed, must stop the build rather than ship a U-Boot
+	# with no Secure Boot variables.
+	if ! grep -qx 'CONFIG_EFI_VAR_SEED_FILE="${LAMADIST_EFI_VAR_SEED_FILE}"' "$cfg"; then
+		bbfatal "lamadist-soquartz-efi.cfg must set CONFIG_EFI_VAR_SEED_FILE=\"${LAMADIST_EFI_VAR_SEED_FILE}\" (ADR 0013 decision 3)"
 	fi
-	if ! grep -q '^CONFIG_EFI_VAR_SEED_FILE=' "$cfg"; then
-		echo 'CONFIG_EFI_VAR_SEED_FILE="${LAMADIST_UBOOT_EFI_SEED}"' >> "$cfg"
+	if [ ! -s "${S}/${LAMADIST_EFI_VAR_SEED_FILE}" ]; then
+		bbfatal "no EFI variable seed at ${S}/${LAMADIST_EFI_VAR_SEED_FILE}: is lamadist-efi-var-seed inherited? (ADR 0013 decision 3)"
 	fi
 }
