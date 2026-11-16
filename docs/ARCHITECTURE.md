@@ -308,7 +308,7 @@ kas/
 │   ├── x86_64.kas.yml        # Intel x86_64, machine: intel
 │   ├── orin-nx.kas.yml       # NVIDIA Orin NX, machine: jetson-orin-nano-devkit-nvme
 │   ├── rk1.kas.yml           # Radxa RK1, machine: rk1
-│   └── soquartz.kas.yml      # Pine64 SOQuartz, machine: soquartz64
+│   └── soquartz.kas.yml      # Pine64 SOQuartz, machine: soquartz-lamadist
 ├── extras/                   # Optional feature overlays (stack any number)
 │   ├── aws.yml               # meta-aws tooling
 │   ├── containers.yml        # meta-virtualization, rootless Podman
@@ -408,7 +408,7 @@ LamaDist machine config is planned, see PLAN.md M5)
 - PCIe, NVMe, SATA support
 
 #### Pine64 SOQuartz
-**Machine**: `soquartz64` (Rockchip RK3566)
+**Machine**: `soquartz-lamadist` (Rockchip RK3566)
 **Features**:
 - Raspberry Pi CM4 form factor
 - Low power consumption
