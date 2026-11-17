@@ -87,3 +87,10 @@ do_compile:append:soquartz-lamadist () {
 		bbfatal "built u-boot-initial-env differs from lamadist-soquartz.env (ADR 0013 decision 3)"
 	fi
 }
+
+# The `vm --firmware u-boot` QEMU payload for qemuarm64-lamadist (ADR
+# 0013 open question 6).  Off unless kas/extras/uboot-vm.kas.yml sets
+# LAMADIST_UBOOT_VM = "1"; when off, nothing is included and no machine's
+# U-Boot changes.  An empty require includes nothing.
+LAMADIST_UBOOT_VM ??= "0"
+require ${@'lamadist-uboot-vm.inc' if d.getVar('LAMADIST_UBOOT_VM') == '1' else ''}

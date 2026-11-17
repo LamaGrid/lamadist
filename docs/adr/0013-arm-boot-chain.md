@@ -643,7 +643,9 @@ meta-rockchip claims below):
 5. Revocation: accept "not available in the field" for the first
    port, or pull the U-Boot update path (decision 4) into M5.
 6. The `vm --firmware u-boot` QEMU payload: go or no-go.  Answered
-   2026-11-15: go; build the payload.
+   2026-11-15: go; build the payload.  The payload lives in
+   `meta-lamadist/recipes-bsp/u-boot/lamadist-uboot-vm.inc`, which the
+   U-Boot bbappend includes only under `kas/extras/uboot-vm.kas.yml`.
 7. SOQuartz permanently without an fTPM (decision 8).
 8. The first ARM deliverable as a flashed image only, with the
    installer port deferred past M5.  Answered 2026-11-15: yes; the
