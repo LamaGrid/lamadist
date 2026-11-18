@@ -256,6 +256,31 @@ meta-rockchip claims below):
      attacker-writable file in U-Boot's pre-verification path.  A
      leaf may choose `EFI_VARIABLE_FILE_STORE` only with a written
      reason in its header.
+   - What the preseed gives, and no more: the SetVariable API refuses
+     writes to PK, KEK, and db, and nothing persists.  Before
+     `ExitBootServices` U-Boot refuses every write to a preseeded
+     variable of the PK, KEK, or db type with `EFI_WRITE_PROTECTED`
+     (`lib/efi_loader/efi_variable.c:299-301` at v2026.01), signed or
+     not.  This is a rule of the API, not a limit on db-signed code: a
+     db-signed EFI binary runs in U-Boot's address space and can
+     change the variable buffer or the verifier in memory for the rest
+     of that boot.  A reset restores the seed.  With the public
+     development keys, anyone can make such a binary.
+   - The run-time half of that claim depends on
+     `EFI_RT_VOLATILE_STORE` staying off.  With it on, the run-time
+     `SetVariable` checks only the `READ_ONLY` and non-volatile
+     attributes (`efi_variable.c:520-547`), and the seed sets no
+     `READ_ONLY` bit, so an unauthenticated run-time delete of PK,
+     KEK, or db succeeds in RAM.  The build check on the merged
+     `.config` (`lamadist_uboot_check_config` in `u-boot_%.bbappend`)
+     fails the build on that symbol, so it carries the claim; it is not
+     a second line of defence.
+   - Known limit: a kernel module that calls `efi.set_variable`
+     directly skips Linux's read-only efivarfs.  U-Boot then returns
+     `EFI_UNSUPPORTED` (`efi_variable.c:499-500` at v2026.01), but
+     only the source shows this.  The N7 write test does not exercise
+     it, because that needs a test kernel with `CONFIG_EFI_TEST`
+     (`docs/validation/N7-WRITE-TEST.md`).
    - With `CMDLINE` off nothing builds U-Boot's `boot/bootm.o`, yet the
      EFI loader's `ExitBootServices` calls two functions in it, so the
      leaf applies `0001-efi_loader-link-bootm-for-ExitBootServices.patch`
