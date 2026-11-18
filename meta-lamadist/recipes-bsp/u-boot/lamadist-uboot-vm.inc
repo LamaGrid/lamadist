@@ -57,6 +57,15 @@ do_configure:prepend:qemuarm64-lamadist () {
 	fi
 }
 
+# Fail closed on the merged .config, as the board does (the function is
+# defined in u-boot_%.bbappend): every line of both fragments must
+# survive oldconfig, or the QEMU result would describe a different U-Boot
+# than the one the board runs.  The fragments are named in the order
+# SRC_URI merges them, so the QEMU delta wins where it differs.
+do_configure:append:qemuarm64-lamadist () {
+	lamadist_uboot_check_config "${UNPACKDIR}/lamadist-soquartz-efi.cfg" "${UNPACKDIR}/lamadist-qemu-arm64-efi.cfg"
+}
+
 # Fail closed on the default environment, as the board does: the built
 # u-boot-initial-env must equal the layer's env text.
 do_compile:append:qemuarm64-lamadist () {
