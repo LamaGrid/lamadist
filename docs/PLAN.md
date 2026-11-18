@@ -1027,18 +1027,32 @@ up.
 
 ### Review Policy (Fable reviewers)
 
-Per Lucas (2026-07-17):
+Per the owner (2026-07-17, amended 2026-11-18):
 
-- At most ONE `claude-fable-5` reviewer per milestone stage --
-  either a whole-body review or a targeted critical-aspect review,
-  the orchestrator's choice.
-- Every milestone SHOULD close with one Fable whole-body reviewer
-  at the fold, generalizing the M4-fold pattern.  Milestone
-  sections may schedule that pass explicitly (M4 fold, M5 research
-  kickoff, M3 pass 2); where a milestone does not, the fold review
-  still applies by default.
-- Fable sub-agents remain restricted to planning, architecture,
-  and review; effort capped at xhigh.  All other sub-agent work
+- The Fable review runs only as the last step before a pull request
+  (PR) is submitted for merge, after every other gate of that PR has
+  passed: builds, tests, windows, the PR body, and the known limits.
+  No Fable review runs earlier in a PR's work.
+- Correct every finding, including notes that change the PR's code,
+  text, or known limits.  A finding that will not be fixed needs an
+  owner ruling.
+- The corrected PR gets exactly one Fable re-review.  If it finds a
+  blocker or a false claim, submission stops for an owner ruling.
+  Otherwise correct its other findings and submit, with no third
+  review.
+- The reviewer is the `fable` alias, never a pinned version, at effort
+  xhigh or lower.  Check that the replies came from a Fable model; a
+  review answered by another model (a fallback or a model switch) does
+  not count.
+- This use of Fable is allowed even where a general rule bans or
+  limits Fable or the top quality band.
+- Which PRs need the review is unchanged: security-sensitive work
+  (SELinux, boot chain, crypto, TPM, Secure Boot) and each milestone's
+  closing PR.  Other PRs may have one at the coordinator's choice.
+- Interim review of security work before the PR stage goes to a
+  non-Fable reviewer, never the agent that wrote the work.
+- Fable sub-agents are otherwise restricted to planning and
+  architecture, with effort capped at xhigh.  All other sub-agent work
   routes to haiku/sonnet/opus per the global routing table.
 
 ### Durable State and Resume
