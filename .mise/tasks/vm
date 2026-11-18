@@ -14,13 +14,13 @@
 #USAGE flag "-H --headless" help="Headless-interactive mode: serial/monitor unix sockets + ssh port-forward"
 #USAGE flag "-p --ssh-port <port>" help="Host port forwarded to guest :22 (headless mode)" default="2222"
 #USAGE flag "-R --allow-reboot" help="Let the guest actually reset QEMU on reboot instead of exiting (needed to drive multi-reboot tests)"
-#USAGE flag "-s --snapshot" help="Discard all disk writes on exit (headless/interactive mode; CI mode always snapshots)"
+#USAGE flag "-s --snapshot" help="Discard all disk writes on exit (headless/interactive mode; CI mode always snapshots).  Without it, writes to a raw image last past the run; a compressed image is decompressed into the per-run directory, and its writes go to that copy.  The task removes that directory at exit, except a directory named with --tmpdir, which the caller removes"
 #USAGE flag "-T --tmpdir <tmpdir>" help="Reuse this dir for ephemeral VM state instead of creating one, so callers can predict socket paths"
 #USAGE flag "-S --secureboot" help="Boot Secure Boot firmware (OVMF_CODE.secboot.fd) with the pre-enrolled PK/KEK/db vars artifact (M4 stage B, W10); build the artifact first with .mise/tasks/ovmf-vars.  With --firmware u-boot, Secure Boot is always on (build-time seed) and this only makes the CI smoke assert it"
 #USAGE flag "--firmware <firmware>" help="qemuarm64 only: guest firmware.  aavmf: edk2 from the host (the default, unchanged).  u-boot: the U-Boot qemu_arm64 payload (u-boot.bin in the deploy dir, built under kas/extras/uboot-vm.kas.yml) through -bios, with --no-tpm required (the payload has no TCG protocol); proves U-Boot's EFI code, never a board (ADR 0013 open question 6)" default="aavmf" {
 #USAGE   choices "aavmf" "u-boot"
 #USAGE }
-#USAGE flag "--image <wic>" help="Boot this raw disk image (e.g. a modified scratch copy) instead of the newest WIC in the deploy dir"
+#USAGE flag "--image <wic>" help="Boot this disk image (e.g. a modified scratch copy) instead of the newest WIC in the deploy dir.  A .zst, .xz, .gz, or .bz2 image is decompressed into the per-run directory first; any other name is booted as a raw image"
 #USAGE flag "--extra-disk <wic>" help="With --firmware u-boot: attach this raw image as a second virtio disk (snapshot), after the boot disk, to check that the pinned boot target ignores it"
 set -o errexit
 set -o nounset
@@ -221,8 +221,10 @@ else
 fi
 
 # --- Find WIC image ---
-# Newest by mtime across compressed and uncompressed candidates,
-# so a stale decompression leftover never shadows a fresh build.
+# Newest by mtime across compressed and uncompressed candidates.  The
+# task itself never writes a raw copy into the deploy dir (see below),
+# so a raw .wic found there is a build output, never a decompression
+# leftover that could outlive the compressed image it came from.
 
 if [[ -n "${_image}" ]]; then
 	_wic_image="${_image}"
@@ -230,17 +232,30 @@ else
 	_wic_image=$(find "${_deploy_dir}" -maxdepth 1 \( -name "*.wic" -o -name "*.wic.zst" -o -name "*.wic.xz" -o -name "*.wic.gz" -o -name "*.wic.bz2" \) -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
 fi
 [[ -n "${_wic_image}" ]] || { echo "ERROR: No WIC image found in ${_deploy_dir}"; exit 1; }
-# --image is used as given (raw); only a deploy-dir find is decompressed.
-if [[ -z "${_image}" && "${_wic_image}" != *.wic ]]; then
-	echo "==> Decompressing ${_wic_image}..."
-	case "${_wic_image}" in
-		*.zst) zstd -d -k -f "${_wic_image}" ;;
-		*.xz)  xz -d -k -f "${_wic_image}" ;;
-		*.gz)  gunzip -k -f "${_wic_image}" ;;
-		*.bz2) bzip2 -d -k -f "${_wic_image}" ;;
-	esac
-	_wic_image="${_wic_image%.*}"
-fi
+# QEMU reads the drive as raw, so a compressed image, found in the
+# deploy dir or named with --image, is decompressed first; any other
+# file is used as given.  The raw copy goes to the per-run directory,
+# not beside the source: a file in the deploy dir is in no sstate
+# manifest, so BitBake's cleanup handlers never remove it, and it would
+# boot in place of a newer image once they delete the compressed
+# original.  The copy stays sparse, so its zero runs (most of an image)
+# take no space in the run directory: zstd writes holes itself, and the
+# other formats go through cp --sparse=always.
+case "${_wic_image}" in
+	*.zst | *.xz | *.gz | *.bz2)
+		_raw_image="${_qemu_tmpdir}/${_wic_image##*/}"
+		_raw_image="${_raw_image%.*}"
+		echo "==> Decompressing ${_wic_image} to ${_raw_image}..."
+		# shellcheck disable=SC2216  # GNU cp opens /dev/stdin as a file, so it reads the pipe
+		case "${_wic_image}" in
+			*.zst) zstd -d -q -f -o "${_raw_image}" "${_wic_image}" ;;
+			*.xz) xz -d -c "${_wic_image}" | cp --sparse=always /dev/stdin "${_raw_image}" ;;
+			*.gz) gzip -d -c "${_wic_image}" | cp --sparse=always /dev/stdin "${_raw_image}" ;;
+			*.bz2) bzip2 -d -c "${_wic_image}" | cp --sparse=always /dev/stdin "${_raw_image}" ;;
+		esac
+		_wic_image="${_raw_image}"
+		;;
+esac
 
 # --tamper-uki boots a scratch copy whose UKI is corrupted, so the only
 # acceptable outcome is the firmware refusing to start it.  The copy is

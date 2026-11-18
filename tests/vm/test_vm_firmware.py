@@ -186,6 +186,95 @@ def test_u_boot_secureboot_skips_the_enrolled_vars(tmp_path: Path) -> None:
     assert not any(a.startswith("if=pflash") for a in _args(record))
 
 
+def _drive_path(record: Path) -> Path:
+    """The path of the boot disk (id=hd0) in the recorded QEMU arguments."""
+    for arg in _args(record):
+        m = re.fullmatch(r"file=(.+),format=raw,if=none,id=hd0", arg)
+        if m:
+            return Path(m.group(1))
+    raise AssertionError("no hd0 drive in the recorded QEMU arguments")
+
+
+@pytest.mark.parametrize(
+    ("suffix", "packer"),
+    [
+        (".zst", ["zstd", "-q"]),
+        (".xz", ["xz"]),
+        (".gz", ["gzip"]),
+        (".bz2", ["bzip2"]),
+    ],
+)
+def test_a_compressed_image_is_decompressed_into_the_run_dir(
+    tmp_path: Path, suffix: str, packer: list[str]
+) -> None:
+    """A raw copy in the deploy dir is in no sstate manifest, so BitBake's
+    cleanup handlers never remove it, and it would outlive the fresh
+    compressed image it came from and boot in its place.  The task must
+    write the raw copy to the per-run directory instead."""
+    env, record, images = _setup(tmp_path)
+    (images / "lamadist-image-base.wic").unlink()
+    raw = tmp_path / "payload.wic"
+    raw.write_bytes(b"\0" * 4096)
+    subprocess.run([*packer, "-k", str(raw)], check=True)
+    packed = images / f"lamadist-image-base.wic{suffix}"
+    (tmp_path / f"payload.wic{suffix}").rename(packed)
+    before = sorted(p.name for p in images.iterdir())
+
+    res = _run(env)
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert sorted(p.name for p in images.iterdir()) == before
+    drive = _drive_path(record)
+    assert drive.parent == tmp_path / "run"
+    assert drive.read_bytes() == raw.read_bytes()
+
+
+def test_every_stream_decompressor_writes_a_sparse_copy() -> None:
+    """A redirect writes every zero byte, so a 9 GB image would fill the
+    run directory (often a memory file system).  zstd -o writes holes on
+    its own; the stream formats go through cp --sparse=always."""
+    text = VM.read_text()
+    for tool, suffix in (("xz", "xz"), ("gzip", "gz"), ("bzip2", "bz2")):
+        branch = rf"^\s*\*\.{suffix}\) ({tool} -d -c .*) ;;$"
+        m = re.search(branch, text, re.MULTILINE)
+        assert m, f"no .{suffix} branch"
+        sink = r'\| cp --sparse=always /dev/stdin "\$\{_raw_image\}"$'
+        assert re.search(sink, m.group(1))
+        assert ">" not in m.group(1)
+    zst = r'^\s*\*\.zst\) zstd -d -q -f -o "\$\{_raw_image\}"'
+    assert re.search(zst, text, re.MULTILINE)
+
+
+def test_a_compressed_image_named_with_image_is_decompressed(tmp_path: Path) -> None:
+    """QEMU reads the drive as raw; handing it a compressed file would boot
+    garbage.  --image gets the same decompression as a deploy-dir find."""
+    env, record, _images = _setup(tmp_path)
+    raw = tmp_path / "scratch.wic"
+    raw.write_bytes(b"\1" + b"\0" * 4095)
+    subprocess.run(["xz", "-k", str(raw)], check=True)
+    packed = tmp_path / "scratch.wic.xz"
+    packed_bytes = packed.read_bytes()
+
+    res = _run(env, image=str(packed))
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    drive = _drive_path(record)
+    assert drive.parent == tmp_path / "run"
+    assert drive.read_bytes() == raw.read_bytes()
+    assert packed.read_bytes() == packed_bytes
+
+
+def test_a_raw_image_named_with_image_is_booted_as_given(tmp_path: Path) -> None:
+    env, record, _images = _setup(tmp_path)
+    scratch = tmp_path / "scratch.img"
+    scratch.write_bytes(b"\0" * 512)
+
+    res = _run(env, image=str(scratch))
+
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _drive_path(record) == scratch
+
+
 def test_u_boot_refuses_a_software_tpm_before_swtpm_starts(tmp_path: Path) -> None:
     """The payload has no TCG protocol and the board has no TPM, so a TPM
     run under it proves nothing that transfers.  The task must refuse the
