@@ -206,7 +206,8 @@ meta-rockchip claims below):
    - off: `CMDLINE` (no U-Boot prompt: every command, including
      `bootefi`, `go`, `loadb`, and `mmc`, is compiled out, and
      `BOOTSTD_PROG`, which depends on `!CMDLINE`, boots through
-     standard boot and panics if that fails), `BOOTSTD_DEFAULTS` (it
+     standard boot and panics if that fails; with `PANIC_HANG` off the
+     panic resets the board rather than hanging), `BOOTSTD_DEFAULTS` (it
      selects `BOOT_DEFAULTS` and `BOOTMETH_DISTRO`, so those go off
      with it), `BOOT_DEFAULTS`, `BOOTMETH_DISTRO`, `BOOTMETH_EXTLINUX`,
      `BOOTMETH_SCRIPT`, `BOOTMETH_EXTLINUX_PXE`, `BOOTMETH_VBE`,
@@ -242,6 +243,12 @@ meta-rockchip claims below):
      PR #64 ships a timeout of 0; PR #66 sets `menu-disabled` and
      merges right after #64.  Quitting the menu returns to U-Boot,
      which panics rather than prompts.
+     The return to U-Boot was tested on the QEMU payload (a local QEMU
+     run).  That image used a menu timeout of 5, not 0, so the run did
+     not test the key read.  After the menu, U-Boot printed "Standard
+     boot failed (err=-14)", "Failed to boot", and "resetting ...",
+     then reset instead of hanging, and no prompt appeared.  The SoC
+     reset on a board is not exercised.
    - The variable store is `EFI_VARIABLE_NO_STORE`.  The preseed
      works without the file store, LamaDist needs no persisted
      `Boot####`/`BootOrder` because systemd-boot lives at the
