@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+# Test overlay: build the N7 write probe (ADR 0017), a db-signed UEFI
+# application that tries to write PK, KEK, and db before
+# ExitBootServices.  Stack it after kas/bsp/qemuarm64.kas.yml and run
+# `bitbake lamadist-n7-probe`; the signed n7-probe.efi and n7-target.efi
+# land in ${TOPDIR}/n7-probe, outside every deploy directory.
+# .mise/tasks/test-efivars --probe copies them onto a scratch copy of
+# the image.  The probe recipe is skipped in every build without this
+# overlay, and nothing else changes: no image, no firmware.
+header:
+  version: 15
+local_conf_header:
+  90_n7_probe: |
+    LAMADIST_N7_PROBE = "1"
+    RM_WORK_EXCLUDE += "lamadist-n7-probe"
