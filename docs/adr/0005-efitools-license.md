@@ -25,9 +25,11 @@ component, the same shape of finding as ADR 0003
 ## Decision
 
 Depend on `efitools` as a build-container-only apt package
-(`container/packages.txt`), used solely for `cert-to-efi-sig-list`
-in `regen-dev-sb-keys.sh` to produce the `.esl` form of each sb-dev
-cert.
+(`container/packages.txt`), used for two tools only:
+`cert-to-efi-sig-list` in `regen-dev-sb-keys.sh`, to produce the
+`.esl` form of each sb-dev cert, and `sign-efi-sig-list` in the N7
+write test task (`.mise/tasks/test-efivars`), to sign its test
+payloads with the development keys.
 
 ## Alternatives considered
 
@@ -74,7 +76,11 @@ cert.
   the unmodified package.
 - This dependency is stage-B-only dev-key tooling; it has no effect
   on the stage-A gate and is not invoked by any automated build or
-  test task.
+  test task.  The N7 write test task (`.mise/tasks/test-efivars`) is
+  the one exception: it runs `sign-efi-sig-list` in the build
+  container to make signed test payloads from the development keys,
+  under the same build-tool terms, and those payloads, like the ESLs,
+  are tool output kept out of every image and deploy directory.
 - Flagged to Lucas per the copyleft policy's notify-on-any-copyleft
   rule; this ADR is that sign-off request, pending explicit
   confirmation.
