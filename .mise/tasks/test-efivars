@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="N7 write test: try to change PK, KEK, and db on the qemuarm64 guest, from Linux (Part A) and with --probe before ExitBootServices (Part B), across a reset"
+#USAGE flag "--firmware <firmware>" help="u-boot: the shipped U-Boot payload, the GREEN run.  aavmf: edk2 with the enrolled vars, the R1 RED run" default="u-boot" {
+#USAGE   choices "u-boot" "aavmf"
+#USAGE }
+#USAGE flag "--image <wic>" help="Copy this image instead of the newest WIC in the deploy dir (the copy is the scratch image; the source is never written)"
+#USAGE flag "--probe <dir>" help="Run Part B: put n7-probe.efi from this dir (bitbake lamadist-n7-probe under kas/extras/n7-probe.kas.yml) in place of BOOTAA64.EFI on the scratch copy"
+#USAGE flag "-t --timeout <seconds>" help="Budget for the whole guest session: two TCG boots, the serial transfers, and Part A" default="1800"
+#USAGE flag "--uboot-sha256 <sha256>" help="With --firmware u-boot (required): the SHA-256 that u-boot.bin in the deploy dir must have before and after the run"
+#USAGE flag "--evidence <dir>" help="Copy the transcript, the verdict, and the plan into this dir at the end"
+#USAGE flag "--print-plan" help="Print the plan (PLAN key=value lines) and exit; starts no container and no VM"
+#
+# The design and the RED map are in docs/validation/N7-WRITE-TEST.md.
+# Payloads come from the public development keys only (ADR 0005).  The
+# scratch image, the payloads, and the transcript go to a per-run dir
+# under <tree>/.cache/efivars, which the build container can see and
+# which is outside every deploy dir; the QEMU sockets go to a short
+# /tmp dir.  The deploy dir is only read.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+_firmware="${usage_firmware:-u-boot}"
+_image="${usage_image:-}"
+_probe="${usage_probe:-}"
+_timeout="${usage_timeout:-1800}"
+_uboot_sha256="${usage_uboot_sha256:-}"
+_evidence="${usage_evidence:-}"
+_print_plan="${usage_print_plan:-false}"
+
+usage_error() {
+	echo "ERROR: $*" >&2
+	exit 2
+}
+
+case "${_firmware}" in
+	u-boot)
+		[[ "${_uboot_sha256}" =~ ^[0-9a-f]{64}$ ]] ||
+			usage_error "--firmware u-boot needs --uboot-sha256 <64 lowercase hex digits>"
+		;;
+	aavmf)
+		[[ -z "${_uboot_sha256}" ]] ||
+			usage_error "--uboot-sha256 applies only to --firmware u-boot"
+		;;
+	*) usage_error "--firmware must be u-boot or aavmf, not '${_firmware}'" ;;
+esac
+[[ "${_timeout}" =~ ^[1-9][0-9]*$ ]] || usage_error "--timeout must be a positive number of seconds"
+if [[ -n "${_image}" && ! -f "${_image}" ]]; then
+	usage_error "--image ${_image} does not exist"
+fi
+if [[ -n "${_probe}" ]]; then
+	for _f in n7-probe.efi n7-target.efi; do
+		[[ -s "${_probe}/${_f}" ]] || usage_error "--probe ${_probe} has no ${_f}"
+	done
+fi
+
+# shellcheck source=.mise/tasks/_lib.sh
+source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
+_machine=$(bsp_to_machine qemuarm64)
+_deploy_dir="${LAMADIST_HOST_DEPLOY_DIR}/images/${_machine}"
+_uboot_bin="${_deploy_dir}/u-boot.bin"
+_lib="${MISE_CONFIG_ROOT}/.mise/lib"
+_keys="${MISE_CONFIG_ROOT}/meta-lamadist/files/sb-dev"
+_run_base="${MISE_CONFIG_ROOT}/.cache/efivars"
+_run_dir="${_run_base}/run-$(date +%Y%m%dT%H%M%S)"
+_ctr_run_dir="${KAS_WORK_DIR}/.cache/efivars/${_run_dir##*/}"
+_ctr_keys="${KAS_WORK_DIR}/meta-lamadist/files/sb-dev"
+
+# The scratch image and the probe must never land in a deploy dir.
+_real_deploy=$(realpath -m "${LAMADIST_HOST_DEPLOY_DIR}")
+_real_base=$(realpath -m "${_run_base}")
+if [[ "${_real_base}/" == "${_real_deploy}/"* ]]; then
+	echo "ERROR: the run dir ${_real_base} is inside the deploy dir ${_real_deploy}" >&2
+	exit 1
+fi
+
+if [[ -z "${_image}" ]]; then
+	_image=$(find "${_deploy_dir}" -maxdepth 1 \( -name "*.wic" -o -name "*.wic.zst" \) \
+		-printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
+	[[ -n "${_image}" ]] || {
+		echo "ERROR: no WIC image in ${_deploy_dir}" >&2
+		exit 1
+	}
+fi
+
+_rows=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import efivar_payloads as e; print(" ".join(r.tag for r in e.ROWS))' "${_lib}")
+
+_vm_tmpdir_plan=/tmp/lamadist-n7.XXXXXX
+# Sets _vm_argv for the vm task, with $1 as its --tmpdir.
+_vm_args() {
+	_vm_argv=(--bsp qemuarm64 --firmware "${_firmware}" --no-tpm --headless
+		--allow-reboot --snapshot --timeout "${_timeout}" --tmpdir "$1"
+		--image "${_run_dir}/scratch.wic")
+	# Under edk2 the enrolled vars make Secure Boot real; U-Boot's is
+	# always on from the build-time seed.
+	if [[ "${_firmware}" == aavmf ]]; then
+		_vm_argv+=(--secureboot)
+	fi
+}
+
+print_plan() {
+	echo "PLAN firmware=${_firmware}"
+	echo "PLAN image=${_image}"
+	echo "PLAN probe=${_probe:-none}"
+	echo "PLAN run_dir=${_run_dir}"
+	if [[ "${_firmware}" == u-boot ]]; then
+		echo "PLAN uboot_bin=${_uboot_bin}"
+		echo "PLAN uboot_sha256=${_uboot_sha256}"
+	fi
+	echo "PLAN rows=${_rows}"
+	_vm_args "$1"
+	echo "PLAN vm=${_vm_argv[*]}"
+	if [[ -n "${_probe}" ]]; then
+		echo "PLAN esp=mmd ::/n7; mmove ::/EFI/BOOT/BOOTAA64.EFI ::/n7/sdboot.efi;" \
+			"mcopy n7-probe.efi ::/EFI/BOOT/BOOTAA64.EFI;" \
+			"mcopy <rows>.bin n7-target.efi ::/n7/"
+	else
+		echo "PLAN esp=unchanged"
+	fi
+}
+
+if [[ "${_print_plan}" == "true" ]]; then
+	print_plan "${_vm_tmpdir_plan}"
+	exit 0
+fi
+
+# --- payloads -------------------------------------------------------------
+mkdir -p "${_run_dir}/signed" "${_run_dir}/bins"
+echo "==> Run dir: ${_run_dir}"
+_uboot_before=""
+if [[ "${_firmware}" == u-boot ]]; then
+	[[ -s "${_uboot_bin}" ]] || {
+		echo "ERROR: ${_uboot_bin} not found" >&2
+		exit 1
+	}
+	_uboot_before=$(sha256sum "${_uboot_bin}" | cut -d' ' -f1)
+	echo "==> u-boot.bin SHA-256 before: ${_uboot_before}"
+fi
+
+echo "==> Signing the payload rows in the build container (efitools, ADR 0005)"
+python3 "${_lib}/efivar_payloads.py" sign-script "${_ctr_keys}" "${_ctr_run_dir}/signed" \
+	>"${_run_dir}/sign.sh"
+run_in_container --no-tty --entrypoint '["/bin/dumb-init", "-r", "2:15"]' -- \
+	bash "${_ctr_run_dir}/sign.sh"
+python3 "${_lib}/efivar_payloads.py" bins "${_keys}" "${_run_dir}/signed" "${_run_dir}/bins"
+
+# --- scratch image --------------------------------------------------------
+echo "==> Scratch copy of ${_image}"
+case "${_image}" in
+	*.zst) zstd -d -q -f -o "${_run_dir}/scratch.wic" "${_image}" ;;
+	*) cp --sparse=always --reflink=auto "${_image}" "${_run_dir}/scratch.wic" ;;
+esac
+if [[ -n "${_probe}" ]]; then
+	cp "${_probe}/n7-probe.efi" "${_probe}/n7-target.efi" "${_run_dir}/"
+	sha256sum "${_run_dir}/n7-probe.efi" "${_run_dir}/n7-target.efi"
+	_esp=$(python3 "${_lib}/efivar_payloads.py" esp-offset "${_run_dir}/scratch.wic")
+	_img="${_ctr_run_dir}/scratch.wic@@${_esp}"
+	_bins=()
+	for _t in ${_rows}; do _bins+=("${_ctr_run_dir}/bins/${_t}.bin"); done
+	echo "==> Probe in place of BOOTAA64.EFI on the scratch ESP (offset ${_esp})"
+	# The script expands in the container, from its own arguments.
+	# shellcheck disable=SC2016
+	run_in_container --no-tty --entrypoint '["/bin/dumb-init", "-r", "2:15"]' -- \
+		env MTOOLS_SKIP_CHECK=1 bash -c '
+			set -o errexit
+			img=$1; dir=$2; shift 2
+			mmd -i "${img}" ::/n7
+			mmove -i "${img}" ::/EFI/BOOT/BOOTAA64.EFI ::/n7/sdboot.efi
+			mcopy -i "${img}" "${dir}/n7-probe.efi" ::/EFI/BOOT/BOOTAA64.EFI
+			mcopy -i "${img}" "$@" "${dir}/n7-target.efi" ::/n7/
+			mdir -i "${img}" ::/n7 ::/EFI/BOOT
+		' n7-esp "${_img}" "${_ctr_run_dir}" "${_bins[@]}"
+fi
+
+# --- the guest session ----------------------------------------------------
+_vm_tmpdir=$(mktemp -d "${_vm_tmpdir_plan}")
+print_plan "${_vm_tmpdir}" >"${_run_dir}/plan.txt"
+_vm_pid=""
+# shellcheck disable=SC2329 # run by the EXIT trap
+cleanup() {
+	python3 "${_lib}/efivar_write_test.py" quit "${_vm_tmpdir}/monitor.sock" || true
+	if [[ -n "${_vm_pid}" ]]; then
+		for _ in $(seq 1 20); do
+			kill -0 "${_vm_pid}" 2>/dev/null || break
+			sleep 0.5
+		done
+		# setsid made the vm task a process-group leader, so this
+		# reaches QEMU and nothing else.
+		kill -TERM -- "-${_vm_pid}" 2>/dev/null || true
+		wait "${_vm_pid}" 2>/dev/null || true
+	fi
+	cp "${_vm_tmpdir}/serial.log" "${_run_dir}/serial.log" 2>/dev/null || true
+	echo "==> Removing ${_vm_tmpdir} and ${_run_dir}/scratch.wic"
+	rm -rf -- "${_vm_tmpdir}"
+	rm -f -- "${_run_dir}/scratch.wic"
+}
+trap cleanup EXIT
+
+_vm_args "${_vm_tmpdir}"
+echo "==> mise run vm ${_vm_argv[*]}"
+setsid mise run vm "${_vm_argv[@]}" >"${_run_dir}/vm.log" 2>&1 &
+_vm_pid=$!
+
+for _ in $(seq 1 120); do
+	[[ -S "${_vm_tmpdir}/serial.sock" ]] && break
+	kill -0 "${_vm_pid}" 2>/dev/null || {
+		echo "ERROR: the vm task exited before QEMU started" >&2
+		cat "${_run_dir}/vm.log" >&2
+		exit 1
+	}
+	sleep 0.5
+done
+[[ -S "${_vm_tmpdir}/serial.sock" ]] || {
+	echo "ERROR: no serial socket at ${_vm_tmpdir}/serial.sock" >&2
+	exit 1
+}
+
+_driver=(python3 "${_lib}/efivar_write_test.py" run
+	--firmware "${_firmware}" --keys "${_keys}"
+	--serial-sock "${_vm_tmpdir}/serial.sock"
+	--monitor-sock "${_vm_tmpdir}/monitor.sock"
+	--log "${_vm_tmpdir}/serial.log"
+	--part-a "${_lib}/efivar_part_a.sh" --bins "${_run_dir}/bins"
+	--timeout "${_timeout}" --out "${_run_dir}/verdict.txt")
+[[ -n "${_probe}" ]] && _driver+=(--probe)
+if [[ "${_firmware}" == u-boot ]]; then
+	_driver+=(--uboot-bin "${_uboot_bin}" --uboot-sha256 "${_uboot_sha256}"
+		--uboot-sha-before "${_uboot_before}")
+fi
+_rc=0
+"${_driver[@]}" || _rc=$?
+
+if [[ -n "${_evidence}" ]]; then
+	mkdir -p "${_evidence}"
+	cp "${_vm_tmpdir}/serial.log" "${_run_dir}/verdict.txt" "${_run_dir}/plan.txt" \
+		"${_evidence}/" 2>/dev/null || true
+	echo "==> Evidence in ${_evidence}"
+fi
+if [[ ${_rc} -eq 0 ]]; then
+	echo "==> N7 write test PASSED (${_firmware})"
+else
+	echo "==> N7 write test FAILED (${_firmware}); see ${_run_dir}/verdict.txt"
+fi
+exit "${_rc}"

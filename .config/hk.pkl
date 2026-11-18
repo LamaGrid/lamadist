@@ -3,7 +3,7 @@
 amends "package://github.com/jdx/hk/releases/download/v1.38.0/hk@1.38.0#/Config.pkl"
 import "package://github.com/jdx/hk/releases/download/v1.38.0/hk@1.38.0#/Builtins.pkl"
 
-exclude = List("ext", "build", "deploy", ".cache")
+exclude = List("ext", "build", "deploy", ".cache", "tests/vm/fixtures")
 
 local linters = new Mapping<String, Step> {
   // A unified diff's blank context lines carry a single space, so

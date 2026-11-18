@@ -1,0 +1,36 @@
+U-Boot 2026.01 (Jan 05 2026 - 20:49:22 +0000)
+7[r[999;999H[6n8Booting /\EFI\BOOT\BOOTAA64.EFI
+N7PROBE BEGIN v1
+N7PROBE READ pre PK status=0x0000000000000000 attr=0x00000027 size=1365 crc=0xbd5119d2
+N7PROBE READ pre KEK status=0x0000000000000000 attr=0x00000027 size=1367 crc=0xd3ec5712
+N7PROBE READ pre db status=0x0000000000000000 attr=0x00000027 size=1365 crc=0x4b5f3bdd
+N7PROBE READ pre dbx status=0x800000000000000e attr=0x00000000 size=0 crc=0x00000000
+N7PROBE ROW U-PK attr=0x00000007 size=1365 status=0x8000000000000008
+N7PROBE ROW U-KEK attr=0x00000007 size=1367 status=0x8000000000000008
+N7PROBE ROW U-db attr=0x00000007 size=1365 status=0x8000000000000008
+N7PROBE ROW W-db attr=0x00000027 size=3386 status=0x8000000000000008
+N7PROBE ROW X-PK attr=0x00000000 size=0 status=0x8000000000000008
+N7PROBE ROW S-db attr=0x00000067 size=3389 status=0x8000000000000008
+N7PROBE ROW S-KEK attr=0x00000067 size=3384 status=0x8000000000000008
+Image not authenticated
+N7PROBE L1 n7-target status=0x800000000000001a
+N7PROBE ROW S-PK attr=0x00000027 size=2019 status=0x8000000000000008
+N7PROBE READ post PK status=0x0000000000000000 attr=0x00000027 size=1365 crc=0xbd5119d2
+N7PROBE READ post KEK status=0x0000000000000000 attr=0x00000027 size=1367 crc=0xd3ec5712
+N7PROBE READ post db status=0x0000000000000000 attr=0x00000027 size=1365 crc=0x4b5f3bdd
+N7PROBE READ post dbx status=0x800000000000000e attr=0x00000000 size=0 crc=0x00000000
+N7PROBE END v1
+[    0.000000] Booting Linux on physical CPU 0x0000000000 [0x411fd070]
+We trust you have received the usual lecture from the local System
+Administrator. It usually boils down to these three things:
+
+    #1) Respect the privacy of others.
+    #2) Think before you type.
+    #3) With great power comes great responsibility.
+
+For security reasons, the password you type will not be visible.
+
+Password: 
+qemuarm64-lamadist:/home/lama# stty -echo; set +o emacs +o vi
+echo N7SYNC_"$((qemuarm64-lamadist:/home/lama# N7SYNC_42
+qemuarm64-lamadist:/home/lama# 
