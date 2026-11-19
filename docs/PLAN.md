@@ -1276,6 +1276,29 @@ Deferred until the milestones above are complete:
   new key and the RAUC slot state (docs/SECURITY.md, the /var
   section).  Give the ESP a fixed PARTUUID in each WKS and mount it by
   that.
+- AAVMF authenticated-write investigation.  In the N7 RED runs
+  (docs/validation/N7-WRITE-TEST.md), edk2 refused every signed write
+  to PK, KEK, and db with SECURITY_VIOLATION, though the signatures
+  verify offline against the enrolled certificates.  Until a run
+  shows a write that takes, no run shows the write test catching a
+  key change that persists.  The questions are:
+  - H1: the variable driver's runtime crypto (RSA-4096 and its fixed
+    memory pool) fails on these payloads.
+  - H2: a check in edk2-stable202408, in the time-based payload
+    verification or in the PKCS#7 verify, that the 202202 source
+    lacks.  Read the edk2-stable202408 source at those points, at the
+    runtime allocator's pool size, and at the build's
+    `PcdMaxAuthVariableSize`, and read the distribution's edk2 build
+    for overrides.
+  - An RSA-2048 control run on QEMU only: a throwaway PK and KEK, the
+    development db certificate kept so the signed probe still boots.
+    If the firmware accepts the signed KEK and PK writes, H1 holds;
+    if it refuses them, H2 holds.
+  - The S-db size limit: db is 9001 bytes and the S-db append adds
+    1367, over the 10240-byte `PcdMaxAuthVariableSize` of
+    edk2-stable202202 (the 202408 value is unchecked).  Either build
+    the R1 vars without the template's Microsoft db certificates, or
+    make S-db a signed replace of `db.esl` and `kek.esl`.
 
 ---
 
