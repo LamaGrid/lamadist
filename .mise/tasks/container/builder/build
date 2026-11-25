@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #MISE description="Build the KAS build container image"
-#USAGE flag "-c --ci" help="CI mode: rootless container build, push to registry"
+#USAGE flag "-c --ci" help="CI mode: container build; push to registry when the registry credential is set"
 set -o errexit
 set -o nounset
 set -o pipefail
