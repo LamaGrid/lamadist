@@ -355,8 +355,12 @@ def test_bbappend_fails_closed_without_the_seed() -> None:
 
 
 def test_leaf_shows_no_boot_menu() -> None:
-    """No 5 s systemd-boot menu on the UART (the class exposes the knob)."""
-    assert _has(_code(LEAF), r'^LAMADIST_BOOT_ENTRY_TIMEOUT \?= "0"$')
+    """No systemd-boot menu on the UART, and no key read that opens one.
+
+    A timeout of 0 keeps a 100 ms key read; `menu-disabled` skips it
+    (ADR 0013 decision 3).  The class exposes the knob.
+    """
+    assert _has(_code(LEAF), r'^LAMADIST_BOOT_ENTRY_TIMEOUT \?= "menu-disabled"$')
     assert "LAMADIST_BOOT_ENTRY_TIMEOUT" in ESP_CLASS.read_text()
 
 

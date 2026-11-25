@@ -133,7 +133,7 @@ def test_default_qemuarm64_files_do_not_mention_the_payload() -> None:
         assert "uboot-vm" not in text, path.name
 
 
-def test_overlay_sets_the_gate_and_nothing_else() -> None:
+def test_overlay_sets_the_gate_and_the_menu_timeout_and_nothing_else() -> None:
     text = OVERLAY.read_text()
     assert re.search(r"^header:\n  version: \d+$", text, re.MULTILINE)
     body = re.search(r"^local_conf_header:\n((?:  .*\n?)+)", text, re.MULTILINE)
@@ -145,7 +145,10 @@ def test_overlay_sets_the_gate_and_nothing_else() -> None:
         and not ln.strip().startswith("#")
         and not ln.rstrip().endswith("|")
     ]
-    assert settings == [f'{GATE} = "1"']
+    assert settings == [
+        f'{GATE} = "1"',
+        f'LAMADIST_BOOT_ENTRY_TIMEOUT:{MACHINE} = "menu-disabled"',
+    ]
     for key in ("machine:", "repos:", "target:", "distro:"):
         assert not re.search(rf"^{key}", text, re.MULTILINE), key
 
