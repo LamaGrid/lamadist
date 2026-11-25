@@ -123,7 +123,13 @@ jobs:
     if: needs.version.outputs.container_build_needed == 'true'
     runs-on: container-build-set
     container:
-      image: quay.io/podman/stable
+      # Pinned by digest, with the immutable tag v6.2.0-immutable (podman
+      # 6.2.0, built 2026-11-18) beside it so a reader sees the release.
+      # The digest decides what runs, so the storage drop-ins the image
+      # ships cannot change under this job.  No tool in this repository
+      # moves the pin: a new image is a manual bump.
+      # yamllint disable-line rule:line-length
+      image: quay.io/podman/stable:v6.2.0-immutable@sha256:e0da0a3aba6b332587c693dc206efa2dd2888dde286c280ef852cbad72c0e701
     # The registry and its push credential are yocto-publish
     # environment secrets (main only).  Pull request runs get no
     # environment: they build the image to prove it builds, and do not
@@ -138,13 +144,27 @@ jobs:
 
       - name: Configure container storage
         run: |
-          cat > /etc/containers/storage.conf <<'EOF'
+          cat > /etc/containers/storage.conf << 'EOF'
           [storage]
           driver = "overlay"
           [storage.options.overlay]
           mount_program = ""
           EOF
           sed -i 's/^ *//' /etc/containers/storage.conf
+          # The job image ships a storage drop-in that selects
+          # fuse-overlayfs and a mount option only it accepts (fsync=0),
+          # and a drop-in overrides storage.conf.  The job container has
+          # no /dev/fuse, so a later drop-in clears the mount program
+          # and the FUSE-only option.
+          cat > /etc/containers/storage.rootful.conf.d/99-lamadist.conf << 'EOF'
+          [storage.options.overlay]
+          mount_program = ""
+          mountopt = "nodev"
+          EOF
+          # Print the configured storage driver and graph options for the
+          # log.  This is informational and checks nothing: || true keeps
+          # a failure of podman info from failing the job.
+          podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphOptions}}' || true
 
       - name: Install mise
         uses: jdx/mise-action@v2

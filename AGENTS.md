@@ -80,7 +80,7 @@ values.
 The CI workflow (`.github/workflows/ci.yml`) runs on ARC scaling sets:
 
 - **`container-build-set`**: Builds the container image with Podman, pushes
-  to the in-cluster OCI registry.
+  to the in-cluster OCI registry when the registry credential is set.
 - **`yocto-runner-set`**: Runs the Yocto build inside the builder container
   as the workspace image.
 

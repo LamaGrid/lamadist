@@ -226,7 +226,7 @@ specs for shell autocompletion of flags and arguments.
 | `mise run build --bsp <bsp> --release` | Release mode: machine-default xz compression, CVE checks |
 | `mise run build --bsp <bsp> --include-scans` | Enable security scans (CVE manifest generation) |
 | `mise run container:builder:build` | Build the KAS build container image |
-| `mise run container:builder:build --ci` | Build container with podman (rootless, for CI) |
+| `mise run container:builder:build --ci` | Build container with podman; push when the registry credential is set (for CI) |
 
 **Available BSPs**: `x86_64`, `qemuarm64`, `orin-nx`, `rk1`, `soquartz`
 
@@ -362,8 +362,9 @@ scaling sets. The workflow is defined in `.github/workflows/ci.yml`.
 
 1. **Build Container** (`container-build-set`): Conditionally builds the KAS
    build container with `mise run container:builder:build --ci` (uses podman) when files in
-   `container/` have changed. Pushes the image to the in-cluster OCI registry
-   for downstream jobs to pull as their workspace container.
+   `container/` have changed. When the registry credential is set, pushes the
+   image to the in-cluster OCI registry for downstream jobs to pull as their
+   workspace container; pull request runs build without pushing.
 2. **Build x86_64** (`yocto-runner-set`): Uses the builder image from the
    registry as its workspace container and runs
    `mise run build --bsp x86_64 --ci`. Runs automatically on push to `main`
