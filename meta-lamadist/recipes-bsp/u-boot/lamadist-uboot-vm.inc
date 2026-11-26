@@ -4,8 +4,9 @@
 # The `vm --firmware u-boot` QEMU payload (ADR 0013 open question 6,
 # answered go 2026-11-15): U-Boot qemu_arm64 as the UEFI provider for
 # the qemuarm64-lamadist image, under the existing sdboot-uki profile.
-# AAVMF stays the vm task's default and the image does not change; this
-# builds only u-boot.bin for `vm --firmware u-boot`.
+# AAVMF stays the vm task's default.  This file builds only u-boot.bin
+# for `vm --firmware u-boot`; the overlay that sets LAMADIST_UBOOT_VM
+# also sets the image's systemd-boot menu timeout (see the overlay).
 #
 # u-boot_%.bbappend requires this file only when LAMADIST_UBOOT_VM is
 # "1", which kas/extras/uboot-vm.kas.yml sets.  Every statement is

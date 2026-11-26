@@ -4,9 +4,20 @@
 # u-boot` (ADR 0013 open question 6).  Stack it after
 # kas/bsp/qemuarm64.kas.yml and build the payload with
 # `bitbake u-boot -c deploy`; it lands as u-boot.bin next to the WIC in
-# the qemuarm64-lamadist deploy dir.  The image itself does not change:
-# the variable below is read only by the U-Boot bbappend, so every
-# image task signature stays the one the plain qemuarm64 build has.
+# the qemuarm64-lamadist deploy dir.
+#
+# The image takes the SOQuartz leaf's systemd-boot setting, so the
+# payload boots what the board ships: the second block sets the menu
+# timeout to menu-disabled for qemuarm64-lamadist (ADR 0013 decision 3).
+# lamadist-esp-slot-a.bbclass reads that variable in do_image_wic
+# (vardeps), so the signature of do_image_wic (which also runs the wic
+# conversions), and of the tasks that depend on it, differs from the
+# plain qemuarm64 build once this overlay is stacked.  The menu block
+# changes no other task: the rootfs, verity, and kernel tasks keep the
+# plain build's signatures.  U-Boot differs from the plain build only
+# through the first block, which sets LAMADIST_UBOOT_VM and so pulls in
+# lamadist-uboot-vm.inc.  The class default of 5 never changes, so
+# x86_64 and the plain qemuarm64 build keep it.
 #
 # The payload proves U-Boot's EFI code at the pinned tag, never the SoC.
 # Never cite a result from it as a board property; every check re-runs
@@ -17,3 +28,5 @@ header:
 local_conf_header:
   90_uboot_vm: |
     LAMADIST_UBOOT_VM = "1"
+  91_uboot_vm_menu: |
+    LAMADIST_BOOT_ENTRY_TIMEOUT:qemuarm64-lamadist = "menu-disabled"
