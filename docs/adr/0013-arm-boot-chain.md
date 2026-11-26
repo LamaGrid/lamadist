@@ -237,19 +237,69 @@ meta-rockchip claims below):
      (`efi_get_distro_fdt_name` returns `-ENOENT`) and reads no file.  The
      environment holds no `bootcmd` and no `bootdelay`: with `CMDLINE`
      off there is no autoboot delay or abort key to configure.  The
-     leaf sets `LAMADIST_BOOT_ENTRY_TIMEOUT` to 0.  A timeout of 0
-     hides the menu on the serial console but keeps a 100 ms key read:
-     one key in that time opens a menu that has no time limit.  The
-     owner chose `menu-disabled` (2026-11-18), which skips that read.
-     PR #64 ships a timeout of 0; PR #66 sets `menu-disabled` and
-     merges right after #64.  Quitting the menu returns to U-Boot,
-     which panics rather than prompts.
-     The return to U-Boot was tested on the QEMU payload (a local QEMU
-     run).  That image used a menu timeout of 5, not 0, so the run did
-     not test the key read.  After the menu, U-Boot printed "Standard
-     boot failed (err=-14)", "Failed to boot", and "resetting ...",
-     then reset instead of hanging, and no prompt appeared.  The SoC
-     reset on a board is not exercised.
+     leaf sets `LAMADIST_BOOT_ENTRY_TIMEOUT` to `menu-disabled` (owner
+     decision, 2026-11-18).  A timeout of 0 hides the menu on the
+     serial console but keeps a 100 ms key read: one key in that time
+     opens a menu that has no time limit.  In systemd 259.5,
+     `menu-disabled` skips that read: the read in `src/boot/boot.c`
+     sits in a branch that `menu-disabled` never enters, and
+     loader.conf(5) says the menu cannot be shown by a key press when
+     it is used.  The class writes the word into `loader.conf`
+     unchanged.  Its default of 5 does not change, so x86_64 keeps it.
+     With `menu-disabled` the board has no menu, so the menu's quit
+     key cannot be reached.  That key was tested once on the QEMU
+     payload at a menu timeout of 5 (a local run, kept here as
+     history): after the menu was quit, U-Boot printed "Standard boot
+     failed (err=-14)", "Failed to boot", and "resetting ...", then
+     reset instead of hanging, and no prompt appeared.  The SoC reset
+     on a board is not exercised.  systemd-boot still returns to
+     U-Boot when it finds no entry, and when an entry fails to start
+     and has no boot counter or no tries left (`src/boot/boot.c`,
+     v259.5: the no-entry check before the menu, and the failed start
+     in `run()`).  The return after a failed start was not tested as
+     an error return.
+     The key flood on the QEMU payload shows the difference.  The
+     payload image takes `menu-disabled` too, for `qemuarm64-lamadist`
+     only, through `kas/extras/uboot-vm.kas.yml`.  A driver
+     (`.mise/lib/menu_flood.py`) sends one byte every 0.1 s from the
+     moment it connects to the serial socket.  Its `no-menu` verdict
+     needs the socket itself to have carried U-Boot's start of
+     systemd-boot and, after it, the kernel banner, so a flood byte
+     was waiting when systemd-boot ran; a driver that starts late
+     fails.
+     On a scratch copy of the image with `loader.conf` edited to
+     `timeout 0` (the board's former value), in two runs, the menu rows
+     were drawn and the kernel had not started 120 s later; the second
+     run was judged by the driver's `run --log`.  On the built image
+     with `menu-disabled`, in four runs, no menu row was drawn and the
+     default entry booted to a login prompt.  The fourth run was
+     judged by `run --log` with the in-time row.  The first three were
+     judged from the saved log, and no file records when their flood
+     began.  The built image was compressed at zstd level 3, not the
+     release level, which does not
+     touch `loader.conf`.  This is QEMU's serial socket, not the
+     board's UART, and it shows U-Boot's EFI console and systemd-boot
+     only.  A GREEN result needs a RED control on the same image,
+     because the driver reads output and cannot tell a flooded boot
+     from an unflooded one on a saved log.
+     Known limits, read from the source and not tested:
+     - systemd-boot lets an EFI variable `LoaderConfigTimeout`
+       override the `loader.conf` value, and
+       `LoaderConfigTimeoutOneShot` forces the menu.  With
+       `EFI_VARIABLE_NO_STORE` neither survives a reset, so neither is
+       set at boot.  This rests on the preseed holding only PK, KEK,
+       and db.
+     - The default fails open.  systemd-boot's own default timeout is
+       0, which keeps the key read.  A word it does not know is logged
+       and ignored, and a missing `loader.conf` is skipped, so either
+       leaves the timeout at 0.  The class writes the value unchecked;
+       two layer tests pin the leaf's and the overlay's word.
+     - The value is written when the image is built.  No update bundle
+       carries `loader.conf`, so an image built before this change
+       keeps its old value until it is written again.
+     - A boot entry that starts and returns `EFI_SUCCESS` opens the
+       menu with no time limit at any setting.  A kernel does not
+       return, so no serial byte reaches this path.
    - The variable store is `EFI_VARIABLE_NO_STORE`.  The preseed
      works without the file store, LamaDist needs no persisted
      `Boot####`/`BootOrder` because systemd-boot lives at the
@@ -618,8 +668,8 @@ meta-rockchip claims below):
   2. The EFI-enabled `u-boot.itb` or `u-boot-rockchip.bin` no longer
      fits the loader2 slot, or SPL reports a load or verify failure.
   3. U-Boot does not launch `EFI/BOOT/BOOTAA64.EFI` from the ESP on
-     eMMC or SD and reach systemd-boot on the serial console (its
-     menu is hidden on the SOQuartz leaf, decision 3).
+     eMMC or SD and reach systemd-boot on the serial console (no menu
+     opens on the SOQuartz leaf, decision 3).
   4. After one boot of a fresh `lamadist-<slot>+3.conf` the entry is
      still `+3` (no rename, no rollback: stop here).
   5. A UKI with bytes zeroed starts instead of being refused, or the
