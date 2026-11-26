@@ -103,7 +103,8 @@ meta-rockchip claims below):
   refuses authenticated variables, does not persist, and says in its
   own help text that it violates the specification.  efivarfs mounts
   read-only; systemd's random-seed unit downgrades its write failure
-  to a notice, so the health gate is unaffected.
+  to a notice, so the health gate is unaffected (whether the image
+  ships and enables that unit is an open item, decision 11).
 - U-Boot's EFI boot method loads a device tree from the boot medium
   (`/dtb/<fdtfile>` and siblings, `boot/bootmeth_efi.c`) and hands it
   to the EFI application; it falls back to its built-in flattened device
@@ -442,9 +443,25 @@ meta-rockchip claims below):
 11. The ESP is the one un-redundant element on these boards: both
     slots' entries, the keyless `boot.conf`, and the loader itself
     live on one FAT volume that U-Boot's FAT writer touches on every
-    boot.  `loader.conf` sets `random-seed-mode off` to remove the
-    per-boot write (the seed cannot persist without runtime
-    `SetVariable` anyway); the counter rename is the only write left.
+    boot.  The counter rename is one such write.  The random seed is
+    the other, conditionally: systemd-boot 259.5 has no
+    `random-seed-mode` or any other `loader.conf` option for the
+    seed (`loader.conf.xml`, `boot.c`), and `loader.conf` here
+    carries only `timeout` (`lamadist-esp-slot-a.bbclass`).  For a
+    Linux or UKI entry, `boot.c:3128-3129` calls
+    `process_random_seed`, which opens `\loader\random-seed`
+    read-write and returns without writing when the file is missing
+    or write-protected (`random-seed.c:196-205`); when the file
+    exists it rewrites it on every boot (`random-seed.c:292-298`).
+    Nothing in the tree creates `\loader\random-seed` on the ESP
+    (not the WIC files, not the ESP populate step), and no recipe,
+    packagegroup, or config names `systemd-boot-random-seed.service`
+    or `bootctl random-seed`.  Whether the file exists on a booted
+    board is an open item: systemd's `efi` PACKAGECONFIG, which
+    `lamadist-base.inc` turns on, may ship the userspace seed unit,
+    and the tree does not show whether it runs or can write the ESP.
+    If the file is absent, no seed write happens; if present, it is
+    a second per-boot ESP write beside the counter rename.
     SECURITY.md and docs/OTA.md record the ESP as the un-redundant
     element, and kill-switch check 15 soaks it.
 
