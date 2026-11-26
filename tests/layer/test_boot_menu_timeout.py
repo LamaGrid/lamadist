@@ -57,7 +57,7 @@ def _code(path: Path) -> list[str]:
 
 def _assigned(path: Path, op: str) -> list[str]:
     """The values of the file's `KNOB[:override] <op> "value"` lines."""
-    rx = re.compile(rf'^{KNOB}(?::[\w-]+)? {re.escape(op)} "([^"]*)"$')
+    rx = re.compile(rf'^{KNOB}(?::[\w-]+)* {re.escape(op)} "([^"]*)"$')
     return [m.group(1) for line in _code(path) if (m := rx.match(line))]
 
 
@@ -154,11 +154,27 @@ def test_timeout_is_a_variable_dependency_of_the_wic() -> None:
     )
 
 
+SETTER = re.compile(
+    rf"^\s*{KNOB}(?::[\w-]+)*\s*(?:\?\?=|\?=|:=|\+=|\.=|=)", re.MULTILINE
+)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        f'{KNOB} = "5"',
+        f'{KNOB}:intel = "5"',
+        f'{KNOB}:append:intel = " 5"',
+        f'    {KNOB}:remove:qemuarm64-lamadist ??= "5"',
+    ],
+)
+def test_the_setter_guard_sees_stacked_overrides(line: str) -> None:
+    assert SETTER.search(line)
+
+
 def test_only_the_class_the_leaf_and_the_payload_overlay_set_the_timeout() -> None:
     """x86_64 and the plain qemuarm64 build keep the class default."""
-    setter = re.compile(
-        rf"^\s*{KNOB}(?::[\w-]+)?\s*(?:\?\?=|\?=|:=|\+=|\.=|=)", re.MULTILINE
-    )
+    setter = SETTER
     files = [
         *LAYER.rglob("*.conf"),
         *LAYER.rglob("*.inc"),
