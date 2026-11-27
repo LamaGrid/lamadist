@@ -123,11 +123,7 @@ jobs:
     if: needs.version.outputs.container_build_needed == 'true'
     runs-on: container-build-set
     container:
-      # Pinned by digest to the immutable tag v6.2.0-immutable (podman
-      # 6.2.0, built 2026-11-18), so the storage drop-ins the image
-      # ships cannot change under this job.  No tool in this repository
-      # moves the pin: a new image is a manual bump.
-      image: quay.io/podman/stable@sha256:e0da0a3aba6b332587c693dc206efa2dd2888dde286c280ef852cbad72c0e701
+      image: quay.io/podman/stable
     # The registry and its push credential are yocto-publish
     # environment secrets (main only).  Pull request runs get no
     # environment: they build the image to prove it builds, and do not
@@ -149,18 +145,6 @@ jobs:
           mount_program = ""
           EOF
           sed -i 's/^ *//' /etc/containers/storage.conf
-          # The job image ships a storage drop-in that selects
-          # fuse-overlayfs and a mount option only it accepts (fsync=0),
-          # and a drop-in overrides storage.conf.  The job container has
-          # no /dev/fuse, so a later drop-in clears the mount program
-          # and the FUSE-only option.
-          cat > /etc/containers/storage.rootful.conf.d/99-lamadist.conf <<'EOF'
-          [storage.options.overlay]
-          mount_program = ""
-          mountopt = "nodev"
-          EOF
-          # Print the configured storage driver and graph options.
-          podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphOptions}}'
 
       - name: Install mise
         uses: jdx/mise-action@v2
