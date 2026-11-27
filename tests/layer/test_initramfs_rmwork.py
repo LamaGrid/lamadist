@@ -204,13 +204,23 @@ def fake_bb(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return commands
 
 
-def _newc(entries: Iterable[tuple[str, int, bytes]]) -> bytes:
-    """Build a newc ("070701") cpio archive from (name, mode, data) entries."""
+def _newc(
+    entries: Iterable[tuple[str, int, bytes]],
+    *,
+    trailer: bool = True,
+    links: dict[str, tuple[int, int]] | None = None,
+) -> bytes:
+    """Build a newc ("070701") cpio archive from (name, mode, data) entries.
+
+    LINKS maps an entry name to its (inode, link count); entries default to
+    a unique inode and one link.  A name may hold a NUL and more bytes, as
+    a crafted archive's may; the name size counts all of them.
+    """
     out = bytearray()
 
-    def add(name: str, mode: int, data: bytes, ino: int) -> None:
+    def add(name: str, mode: int, data: bytes, ino: int, nlink: int = 1) -> None:
         raw = name.encode() + b"\0"
-        fields = (ino, mode, 0, 0, 1, 0, len(data), 0, 0, 0, 0, len(raw), 0)
+        fields = (ino, mode, 0, 0, nlink, 0, len(data), 0, 0, 0, 0, len(raw), 0)
         out.extend(b"070701" + b"".join(b"%08X" % f for f in fields))
         out.extend(raw)
         out.extend(b"\0" * (-len(out) % 4))
@@ -218,8 +228,9 @@ def _newc(entries: Iterable[tuple[str, int, bytes]]) -> bytes:
         out.extend(b"\0" * (-len(out) % 4))
 
     for ino, (name, mode, data) in enumerate(entries, 1):
-        add(name, mode, data, ino)
-    add("TRAILER!!!", 0, b"", 0)
+        add(name, mode, data, *(links or {}).get(name, (ino, 1)))
+    if trailer:
+        add("TRAILER!!!", 0, b"", 0)
     return bytes(out)
 
 
@@ -244,6 +255,25 @@ def _empty_rootfs_cpio() -> bytes:
     that deploy_verity_hash writes, and the zero-byte, mode-0644 init it
     appends because the tree has none."""
     return _newc([_VERITY_ENV, ("init", 0o100644, b"")])
+
+
+def _truncated_cpio() -> bytes:
+    """A good archive that ends before its TRAILER!!! entry."""
+    return _newc([_VERITY_ENV, ("init", 0o100755, _INIT_SCRIPT)], trailer=False)
+
+
+def _symlink_init_cpio() -> bytes:
+    """An archive whose /init is a symlink, as a distro's /init may be."""
+    return _newc([_VERITY_ENV, ("init", 0o120777, b"/sbin/init")])
+
+
+def _patch(cpio: bytes, offset: int, new: bytes) -> bytes:
+    return cpio[:offset] + new + cpio[offset + len(new) :]
+
+
+def _field(index: int) -> int:
+    """Offset of the INDEXth 8-digit hex field of a newc header."""
+    return 6 + 8 * index
 
 
 def _deploy(tmp_path: Path, cpio: bytes, min_bytes: int | str | None = 0) -> _Data:
@@ -343,6 +373,165 @@ def test_the_uki_build_accepts_a_full_initramfs(
     _uki_build_function()(d)
     assert len(fake_bb) == 2
     assert all("dm-verity-image-initramfs-intel.cpio" in c for c in fake_bb)
+
+
+_NOT_EXECUTABLE = r"not an executable file \(mode 100644\)"
+# init and systemd as two names of one inode with two links.
+_ONE_INODE = {"init": (7, 2), "usr/lib/systemd/systemd": (7, 2)}
+
+
+def _build_fails(tmp_path: Path, fake_bb: list[str], cpio: bytes, match: str) -> None:
+    d = _deploy(tmp_path, cpio)
+    with pytest.raises(_Fatal, match=match):
+        _uki_build_function()(d)
+    assert fake_bb == []
+
+
+def test_the_uki_build_refuses_the_empty_rootfs_initramfs(
+    tmp_path: Path, fake_bb: list[str]
+) -> None:
+    # Above the floor and carrying a good dm-verity.env, this archive still
+    # has only the zero-byte, non-executable init that cpio appended.
+    _build_fails(tmp_path, fake_bb, _empty_rootfs_cpio(), _NOT_EXECUTABLE)
+
+
+def test_the_uki_build_refuses_an_initramfs_without_a_trailer(
+    tmp_path: Path, fake_bb: list[str]
+) -> None:
+    _build_fails(tmp_path, fake_bb, _truncated_cpio(), "ends before its TRAILER")
+
+
+@pytest.mark.parametrize(
+    ("cpio", "match"),
+    [
+        pytest.param(_newc([_VERITY_ENV]), "has no init entry", id="no-init"),
+        pytest.param(
+            _newc([("init", 0o040755, b"")]),
+            r"not an executable file \(mode 40755\)",
+            id="init-is-a-directory",
+        ),
+        pytest.param(
+            _newc([("init", 0o100644, _INIT_SCRIPT)]),
+            _NOT_EXECUTABLE,
+            id="not-executable",
+        ),
+        pytest.param(
+            _newc([("init", 0o100755, b"")]), "has an empty init", id="zero-size"
+        ),
+        pytest.param(
+            _newc([("init", 0o100755, _INIT_SCRIPT), ("init", 0o100644, b"")]),
+            _NOT_EXECUTABLE,
+            id="a-later-empty-init-wins",
+        ),
+        pytest.param(
+            _newc([("sbin/init", 0o100755, _INIT_SCRIPT)]),
+            "has no init entry",
+            id="init-only-in-sbin",
+        ),
+        pytest.param(
+            _newc([("init", 0o100755, _INIT_SCRIPT), ("init\0junk", 0o100755, b"")]),
+            "has an empty init",
+            id="a-later-empty-init-named-up-to-a-nul-wins",
+        ),
+        pytest.param(
+            _newc(
+                [
+                    ("init", 0o100755, b""),
+                    ("usr/lib/systemd/systemd", 0o100755, b""),
+                ],
+                links=_ONE_INODE,
+            ),
+            "has an empty init",
+            id="hard-linked-init-with-no-data-on-any-link",
+        ),
+    ],
+)
+def test_the_uki_build_refuses_an_initramfs_without_a_usable_init(
+    tmp_path: Path, fake_bb: list[str], cpio: bytes, match: str
+) -> None:
+    _build_fails(tmp_path, fake_bb, cpio, match)
+
+
+_WHOLE = _good_cpio()
+_NO_TRAILER = _truncated_cpio()
+
+
+@pytest.mark.parametrize(
+    ("cpio", "match"),
+    [
+        pytest.param(_patch(_WHOLE, 0, b"070702"), "bad header", id="bad-magic"),
+        pytest.param(
+            _patch(_WHOLE, _field(1), b"ZZZZZZZZ"), "bad header", id="non-hex"
+        ),
+        pytest.param(
+            _patch(_WHOLE, _field(1), b"+0000001"), "bad header", id="signed-hex"
+        ),
+        pytest.param(
+            _patch(_WHOLE, _field(11), b"00000000"), "bad name length", id="no-name"
+        ),
+        pytest.param(
+            _patch(_WHOLE, _field(11), b"FFFFFFFF"), "bad name length", id="huge-name"
+        ),
+        pytest.param(
+            _patch(_WHOLE, _field(6), b"FFFFFFFF"), "runs past", id="huge-data"
+        ),
+        pytest.param(
+            _patch(_WHOLE, 113, b"x"), "unterminated name", id="name-not-terminated"
+        ),
+        pytest.param(_WHOLE[:50], "ends before its TRAILER", id="cut-in-header"),
+        pytest.param(_WHOLE[:112], "bad name length", id="cut-in-name"),
+        pytest.param(_NO_TRAILER[:-10], "runs past", id="cut-in-data"),
+        pytest.param(_WHOLE[:6], "ends before its TRAILER", id="cut-in-magic"),
+        pytest.param(b"", "ends before its TRAILER", id="empty-file"),
+    ],
+)
+def test_the_uki_build_refuses_a_malformed_cpio(
+    tmp_path: Path, fake_bb: list[str], cpio: bytes, match: str
+) -> None:
+    _build_fails(tmp_path, fake_bb, cpio, match)
+
+
+@pytest.mark.parametrize(
+    "cpio",
+    [
+        pytest.param(_good_cpio(), id="regular-executable"),
+        pytest.param(_symlink_init_cpio(), id="symlink"),
+        pytest.param(
+            _newc([_VERITY_ENV, ("./init", 0o100755, _INIT_SCRIPT)]), id="dot-slash"
+        ),
+        pytest.param(
+            _newc([("init", 0o100644, b""), ("init", 0o100755, _INIT_SCRIPT)]),
+            id="a-later-good-init-wins",
+        ),
+        pytest.param(
+            _newc(
+                [
+                    ("init", 0o100755, b""),
+                    ("usr/lib/systemd/systemd", 0o100755, _INIT_SCRIPT),
+                ],
+                links=_ONE_INODE,
+            ),
+            id="hard-linked-init-data-on-the-last-link",
+        ),
+        pytest.param(_WHOLE + bytes(512), id="padding-after-the-trailer"),
+        pytest.param(
+            _newc(
+                [
+                    _VERITY_ENV,
+                    ("init", 0o100755, _INIT_SCRIPT),
+                    ("TRAILER!!!\0x", 0, b""),
+                ],
+                trailer=False,
+            ),
+            id="trailer-named-up-to-a-nul",
+        ),
+    ],
+)
+def test_the_uki_build_accepts_an_initramfs_with_a_usable_init(
+    tmp_path: Path, fake_bb: list[str], cpio: bytes
+) -> None:
+    _uki_build_function()(_deploy(tmp_path, cpio))
+    assert len(fake_bb) == 2
 
 
 def _uki_image_wic_depends(values: dict[str, str]) -> list[str]:
