@@ -65,7 +65,7 @@ LAMADIST_UKI_SLOTS ?= "a b"
 # build refuses a smaller file.  The value must be an integer.  The
 # dm-verity initramfs is tens of MiB, and one packed from an emptied
 # rootfs is 1536 bytes.  An overlay may raise or lower the floor, and
-# 0 turns the size check off.
+# 0 turns the size check off (the newc walk below still runs).
 LAMADIST_UKI_INITRAMFS_MIN_BYTES ?= "1048576"
 
 # The task that deploys microcode.cpio, which the UKI build reads when
@@ -79,6 +79,7 @@ do_image_wic[depends] += "${@d.getVar('LAMADIST_UKI_MICROCODE_DEPLOY') if d.getV
 
 python lamadist_uki_build () {
     import os
+    import re
     import bb.process
 
     deploydir = d.getVar('DEPLOY_DIR_IMAGE')
@@ -144,6 +145,68 @@ python lamadist_uki_build () {
                  "left that tree empty and do_rootfs did not re-run: re-run "
                  "it with 'bitbake -c rootfs -f %s', or use a new TMPDIR"
                  % (initramfs, size, min_bytes, initramfs_image))
+
+    # The size floor only proves "not nearly empty".  IMAGE_CMD:cpio
+    # appends a zero-byte, mode-0644 init to a tree that has none, so
+    # "init exists" proves nothing either.  Walk the newc headers (no
+    # cpio tool, no extraction) and require a whole archive, ending in
+    # TRAILER!!!, whose init is an executable non-empty regular file
+    # or a symlink.  As in the kernel's unpacker, a name ends at its
+    # first NUL, and the last entry of a name wins.  Every offset is
+    # checked against the file size.
+    def bad_cpio(why):
+        bb.fatal("lamadist_uki_build: initramfs %s is not a whole newc "
+                 "cpio archive: %s" % (initramfs, why))
+
+    init_entry = None
+    link_sizes = {}
+    trailer = False
+    with open(initramfs, 'rb') as f:
+        pos = 0
+        while not trailer:
+            if pos + 110 > size:
+                bad_cpio("it ends before its TRAILER!!! entry")
+            f.seek(pos)
+            header = f.read(110)
+            if header[:6] != b'070701' or \
+                    not re.fullmatch(rb'[0-9A-Fa-f]{104}', header[6:]):
+                bad_cpio("bad header at offset %d" % pos)
+            fields = [int(header[6 + 8 * i:14 + 8 * i], 16) for i in range(13)]
+            ino, mode, nlink, filesize = fields[0], fields[1], fields[4], fields[6]
+            devmajor, devminor, namesize = fields[7], fields[8], fields[11]
+            if namesize < 1 or pos + 110 + namesize > size:
+                bad_cpio("bad name length at offset %d" % pos)
+            name = f.read(namesize)
+            if not name.endswith(b'\0'):
+                bad_cpio("unterminated name at offset %d" % pos)
+            name = name.split(b'\0', 1)[0].decode('utf-8', 'replace')
+            data = (pos + 110 + namesize + 3) & ~3
+            if data + filesize > size:
+                bad_cpio("entry %r at offset %d runs past the end of the "
+                         "file" % (name, pos))
+            pos = (data + filesize + 3) & ~3
+            if name == 'TRAILER!!!':
+                trailer = True
+                continue
+            # A hard link's data rides on its last link; earlier links
+            # are empty, so remember each inode's largest size.
+            inode = (devmajor, devminor, ino)
+            link_sizes[inode] = max(link_sizes.get(inode, 0), filesize)
+            while name.startswith('./'):
+                name = name[2:]
+            if name == 'init':
+                init_entry = (mode, filesize, nlink, inode)
+    if init_entry is None:
+        bb.fatal("lamadist_uki_build: initramfs %s has no init entry" %
+                 initramfs)
+    mode, filesize, nlink, inode = init_entry
+    if mode & 0o170000 == 0o120000:
+        pass
+    elif mode & 0o170000 != 0o100000 or not mode & 0o111:
+        bb.fatal("lamadist_uki_build: initramfs %s has an init that is "
+                 "not an executable file (mode %o)" % (initramfs, mode))
+    elif not filesize and not (nlink > 1 and link_sizes[inode]):
+        bb.fatal("lamadist_uki_build: initramfs %s has an empty init" % initramfs)
 
     kernel_version = d.getVar('KERNEL_VERSION')
     tools_dir = "%s%s/lib/systemd/tools" % (d.getVar('RECIPE_SYSROOT_NATIVE'),
