@@ -83,6 +83,16 @@ python lamadist_uki_build () {
     import bb.process
 
     deploydir = d.getVar('DEPLOY_DIR_IMAGE')
+
+    # The UKIs are signed straight into the deploy directory, outside
+    # any sstate manifest, so a failed build would leave the previous
+    # pair there for anything that reads the directory without bitbake.
+    # Remove them before any check that can fail.
+    for slot in d.getVar('LAMADIST_UKI_SLOTS').split():
+        stale = os.path.join(deploydir, 'lamadist-%s.efi' % slot)
+        if os.path.lexists(stale):
+            os.unlink(stale)
+
     staging_verity_dir = d.getVar('STAGING_VERITY_DIR')
     verity_image = d.getVar('DM_VERITY_IMAGE')
     verity_type = d.getVar('DM_VERITY_IMAGE_TYPE')

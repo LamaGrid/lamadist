@@ -534,6 +534,59 @@ def test_the_uki_build_accepts_an_initramfs_with_a_usable_init(
     assert len(fake_bb) == 2
 
 
+def _stale_pair(d: _Data) -> list[Path]:
+    """Leave an older signed UKI pair, and an unrelated file, in the deploy dir."""
+    deploy = Path(d.values["DEPLOY_DIR_IMAGE"])
+    pair = [deploy / "lamadist-a.efi", deploy / "lamadist-b.efi"]
+    for uki in pair:
+        uki.write_bytes(b"signed by an earlier build")
+    (deploy / "lamadist-c.efi").write_bytes(b"not a slot of this build")
+    return pair
+
+
+@pytest.mark.parametrize(
+    ("cpio", "min_bytes", "match"),
+    [
+        pytest.param(_empty_rootfs_cpio(), 0, _NOT_EXECUTABLE, id="no-usable-init"),
+        pytest.param(
+            _good_cpio(), len(_good_cpio()) + 1, "floor", id="under-the-floor"
+        ),
+        pytest.param(_good_cpio(), "1M", "must be an integer", id="non-integer-floor"),
+    ],
+)
+def test_a_failed_uki_build_leaves_no_signed_uki_behind(
+    tmp_path: Path, fake_bb: list[str], cpio: bytes, min_bytes: int | str, match: str
+) -> None:
+    d = _deploy(tmp_path, cpio, min_bytes=min_bytes)
+    stale = _stale_pair(d)
+    with pytest.raises(_Fatal, match=match):
+        _uki_build_function()(d)
+    assert [uki.exists() for uki in stale] == [False, False]
+    assert (Path(d.values["DEPLOY_DIR_IMAGE"]) / "lamadist-c.efi").exists()
+    assert fake_bb == []
+
+
+def test_an_early_failure_leaves_no_signed_uki_behind(
+    tmp_path: Path, fake_bb: list[str]
+) -> None:
+    d = _deploy(tmp_path, _good_cpio())
+    stale = _stale_pair(d)
+    (Path(d.values["DEPLOY_DIR_IMAGE"]) / "linuxx64.efi.stub").unlink()
+    with pytest.raises(_Fatal, match="stub"):
+        _uki_build_function()(d)
+    assert [uki.exists() for uki in stale] == [False, False]
+
+
+def test_a_dangling_signed_uki_link_is_removed_too(
+    tmp_path: Path, fake_bb: list[str]
+) -> None:
+    d = _deploy(tmp_path, _good_cpio())
+    link = Path(d.values["DEPLOY_DIR_IMAGE"]) / "lamadist-a.efi"
+    link.symlink_to(tmp_path / "gone")
+    _uki_build_function()(d)
+    assert not link.is_symlink()
+
+
 def _uki_image_wic_depends(values: dict[str, str]) -> list[str]:
     """Expand the class's do_image_wic[depends] for the given variables.
 
