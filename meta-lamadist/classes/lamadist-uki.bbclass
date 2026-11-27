@@ -68,6 +68,15 @@ LAMADIST_UKI_SLOTS ?= "a b"
 # 0 turns the size check off.
 LAMADIST_UKI_INITRAMFS_MIN_BYTES ?= "1048576"
 
+# The task that deploys microcode.cpio, which the UKI build reads when
+# the machine sets LAMADIST_UKI_INCLUDE_MICROCODE = "1".  Nothing in
+# DEPENDS reaches that recipe, so do_image_wic's recrdeptask on
+# do_deploy does not order the UKI build after it; do_image_wic waits
+# for this task instead.  A machine whose microcode comes from another
+# recipe overrides it.
+LAMADIST_UKI_MICROCODE_DEPLOY ?= "intel-microcode:do_deploy"
+do_image_wic[depends] += "${@d.getVar('LAMADIST_UKI_MICROCODE_DEPLOY') if d.getVar('LAMADIST_UKI_INCLUDE_MICROCODE') == '1' else ''}"
+
 python lamadist_uki_build () {
     import os
     import bb.process

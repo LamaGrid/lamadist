@@ -343,3 +343,37 @@ def test_the_uki_build_accepts_a_full_initramfs(
     _uki_build_function()(d)
     assert len(fake_bb) == 2
     assert all("dm-verity-image-initramfs-intel.cpio" in c for c in fake_bb)
+
+
+def _uki_image_wic_depends(values: dict[str, str]) -> list[str]:
+    """Expand the class's do_image_wic[depends] for the given variables.
+
+    Weak defaults (?=) in the class fill any variable VALUES omits; an
+    inline ${@...} expression is evaluated against them.
+    """
+    text = UKI_CLASS.read_text()
+    known = dict(values)
+    for m in re.finditer(r'^(\w+)\s*\?=\s*"(.*?)"', text, re.MULTILINE):
+        known.setdefault(m.group(1), m.group(2))
+    d = _Data(known)
+    tokens: list[str] = []
+    for m in re.finditer(
+        r'^do_image_wic\[depends\]\s*\+=\s*"(.*?)"', text, re.MULTILINE | re.DOTALL
+    ):
+        value = re.sub(
+            r"\$\{@(.*?)\}",
+            lambda e: str(eval(e.group(1), {"d": d})),
+            m.group(1),
+        )
+        tokens += value.replace("\\\n", " ").split()
+    return tokens
+
+
+def test_a_microcode_uki_waits_for_the_microcode_deploy() -> None:
+    depends = _uki_image_wic_depends({"LAMADIST_UKI_INCLUDE_MICROCODE": "1"})
+    assert "intel-microcode:do_deploy" in depends
+
+
+def test_a_uki_without_microcode_does_not_pull_it_in() -> None:
+    depends = _uki_image_wic_depends({})
+    assert not any("microcode" in t for t in depends)
