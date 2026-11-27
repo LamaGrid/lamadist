@@ -35,10 +35,11 @@
 # lamadist-image-base.bb (bitbake runs prefuncs in the order they
 # were appended); that recipe inherits lamadist-uki before
 # lamadist-esp-slot-a specifically so lamadist_uki_build runs first.
-# Cross-recipe artifact availability (systemd-boot/kernel/microcode)
-# is separately guaranteed by image_types_wic.bbclass's
+# Cross-recipe artifact availability (systemd-boot/kernel) is
+# separately guaranteed by image_types_wic.bbclass's
 # "do_image_wic[recrdeptask] += 'do_deploy'" plus lamadist-uki.bbclass's
-# own DEPENDS.
+# own DEPENDS; microcode by lamadist-uki.bbclass's explicit
+# do_image_wic[depends] on LAMADIST_UKI_MICROCODE_DEPLOY.
 #
 # The populated directory is wired into the ESP partition via
 # --include-path on the bootimg-efi line in
