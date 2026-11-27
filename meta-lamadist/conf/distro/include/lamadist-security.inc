@@ -69,6 +69,18 @@ INITRAMFS_IMAGE = 'dm-verity-image-initramfs'
 INITRAMFS_FSTYPES = 'cpio'
 INITRAMFS_IMAGE_BUNDLE = '0'
 
+# The initramfs recipe sets do_image[nostamp], so do_image_cpio
+# re-runs in every bitbake invocation.  With rm_work inherited,
+# rm_work_rootfs empties the recipe's rootfs after do_image_complete.
+# Normally the recipe's own do_rm_work then runs, drops the stamps,
+# and the next invocation re-runs do_rootfs.  If that do_rm_work does
+# not run (the invocation fails or is interrupted after
+# do_image_complete, or nothing schedules it because the image that
+# consumes the initramfs is itself in RM_WORK_EXCLUDE), the do_rootfs
+# stamp stays valid and the next invocation packs the empty tree into
+# the UKI ("No working init found").  Keep its work directory.
+RM_WORK_EXCLUDE += '${INITRAMFS_IMAGE}'
+
 # Enable creation of SPDX manifests by default
 INHERIT += 'create-spdx'
 SPDX_INCLUDE_SOURCES ?= '0'

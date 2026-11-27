@@ -119,6 +119,14 @@ docs/                   # Documentation
   release series (currently `wrynose`). Check `kas/main.kas.yml` branch
   settings if a layer reports incompatibility.
 
+- **UKI build fails with "under the ... floor"**: The initramfs the UKI
+  build found is smaller than `LAMADIST_UKI_INITRAMFS_MIN_BYTES` (1 MiB by
+  default; a healthy one is tens of MiB).  An earlier invocation left the
+  initramfs recipe's rootfs empty and its `do_rootfs` did not re-run.
+  Force it with `bitbake -c rootfs -f dm-verity-image-initramfs`, or use a
+  new `TMPDIR`.  The distro keeps the recipe out of `rm_work` so a tree is
+  not emptied again, but that does not repair one that already is.
+
 ## Agent Monitoring Gotchas
 
 Hard-won rules for background monitors and pollers (builds, CI runs,
