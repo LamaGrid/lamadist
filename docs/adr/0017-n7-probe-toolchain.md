@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed (2026-11-18).  Records the licence choice for the test-only
-N7 write probe.  The probe has built in a local build, and under
+Accepted (2026-11-27, accepted by Lucas Yamanishi).  Proposed
+2026-11-18.  Records the licence choice for the test-only N7 write
+probe.  The probe has built in a local build, and under
 QEMU it loaded and ran under U-Boot and under edk2 (AAVMF).  That
 probe was built from an earlier revision of the recipe plus an
 untracked one-line append, `inherit nospdx`, which the recipe now

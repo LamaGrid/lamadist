@@ -2,9 +2,10 @@
 
 ## Status
 
-Proposed (2026-11-15).  Closes the generator question that ADR 0013
-decision 3 left to the kill-switch spike.  Pending the build checks
-in the Consequences.
+Accepted (2026-11-27, accepted by Lucas Yamanishi).  Proposed
+2026-11-15.  Closes the generator question that ADR 0013 decision 3
+left to the kill-switch spike.  The Consequences record which of the
+owed build checks ran, and where.
 
 ## Context
 
@@ -116,3 +117,18 @@ that walks the output the way `efi_var_restore()` does.
      `SetupMode` is 0, a db-signed UKI boots, and an unsigned one is
      refused.  A write to PK, KEK, or db returns write-protected;
      record what a write to dbx does.
+
+  What ran (2026-11-27, by evidence window of the M5 SOQuartz work):
+  1. Not run as written: no `efivar.py print` dump was made, and the
+     attempt in window e gave no output.  The content was shown
+     another way.  In window n the N7 probe read PK, KEK, and db back
+     and they matched by SHA-256, and in window e all three were
+     present.  The 0x27 attributes are covered by the unit tests
+     only.
+  2. Ran.  The out-of-tree build links the seed: the `u-boot.map` of
+     window a holds `.rodata.efi_seed.init`, and the payload built in
+     windows e and i.
+  3. Ran.  In window e, `SecureBoot` was 1 and `SetupMode` 0, the
+     signed image booted, and the tampered and the unsigned UKI were
+     refused.  In window n, writes to PK, KEK, and db were refused.
+     A write to dbx was not tested.
