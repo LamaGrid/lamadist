@@ -246,7 +246,7 @@ mise run container:builder:build             # Rebuild container
 
 | Task | Description |
 |------|-------------|
-| `mise run check --bsp <bsp>` | Run static analysis and validate KAS configuration |
+| `mise run check --bsp <bsp>` | Run static analysis, the layer unit tests (not in `--ci`), and validate KAS configuration |
 | `mise run test --bsp <bsp>` | Validate build artifacts exist and are well-formed |
 | `mise run vm --bsp <bsp>` | Boot test build artifacts with QEMU (`x86_64`, `qemuarm64`) |
 | `mise run vm --bsp qemuarm64 --cpu <model> --smp <spec> --mem <MiB>` | Shape the `virt` machine's CPU model, core layout, and memory (no board firmware or peripherals) |
@@ -277,7 +277,7 @@ search.
 
 **Examples**:
 ```bash
-mise run check --bsp x86_64     # Run linters and validate KAS config
+mise run check --bsp x86_64     # Run linters, layer unit tests (not in --ci), and validate KAS config
 mise run test --bsp x86_64     # Check build artifacts
 mise run vm --bsp x86_64     # QEMU boot test
 mise run test --bsp qemuarm64  # aarch64 artifacts + login smoke under AAVMF

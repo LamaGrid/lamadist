@@ -110,7 +110,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 ```bash
 mise tasks                      # list available tasks
 mise run build --bsp x86_64     # build for x86_64
-mise run check                  # static analysis + KAS validation
+mise run check                  # static analysis + layer tests (not in --ci) + KAS validation
 mise run test                   # validate build artifacts
 mise run vm                     # boot the built image in QEMU
 mise run kas --bsp x86_64       # interactive KAS shell

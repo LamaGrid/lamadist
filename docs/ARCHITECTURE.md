@@ -345,7 +345,7 @@ reference; the most common tasks are:
 - `mise run inspect --bsp <bsp>`: Dump KAS configuration for specified BSP
 
 #### Validation and Testing Tasks
-- `mise run check --bsp <bsp>`: Run static analysis and validate KAS configuration
+- `mise run check --bsp <bsp>`: Run static analysis, the layer unit tests (not in `--ci`), and validate KAS configuration
 - `mise run test --bsp <bsp>`: Validate build artifacts
 - `mise run vm --bsp <bsp>`: Boot test build artifacts with QEMU
 
