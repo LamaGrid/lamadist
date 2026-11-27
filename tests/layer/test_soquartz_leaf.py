@@ -603,8 +603,14 @@ def _plan_item(start: str) -> str:
         "- [x] Device tree inside the UKI",
     ],
 )
-def test_plan_ticks_the_static_m5_items(start: str) -> None:
-    assert "static; build pending" in _flat_text(_plan_item(start))
+def test_plan_ticks_the_m5_items_with_their_build_record(start: str) -> None:
+    """Each ticked item names the evidence window that built it on an
+    earlier tree, and says that a build at the tip is still pending."""
+    item = _flat_text(_plan_item(start))
+    assert re.search(r"\bwindow [a-z]\b", item)
+    assert "earlier tree" in item
+    assert "a build at the tip is pending" in item
+    assert "static; build pending" not in item
 
 
 def _flat_text(text: str) -> str:
