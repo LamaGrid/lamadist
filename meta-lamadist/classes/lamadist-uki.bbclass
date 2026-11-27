@@ -61,6 +61,13 @@ UKI_SB_CERT ?= ""
 
 LAMADIST_UKI_SLOTS ?= "a b"
 
+# Smallest initramfs, in bytes, that a UKI may be built from; the
+# build refuses a smaller file.  The value must be an integer.  The
+# dm-verity initramfs is tens of MiB, and one packed from an emptied
+# rootfs is 1536 bytes.  An overlay may raise or lower the floor, and
+# 0 turns the size check off.
+LAMADIST_UKI_INITRAMFS_MIN_BYTES ?= "1048576"
+
 python lamadist_uki_build () {
     import os
     import bb.process
@@ -112,6 +119,22 @@ python lamadist_uki_build () {
                               (initramfs_image, machine, initramfs_fstype))
     if not os.path.exists(initramfs):
         bb.fatal("lamadist_uki_build: cannot find %s" % initramfs)
+    # A re-packed, emptied initramfs rootfs yields a cpio of a few
+    # blocks that boots to "No working init found"; never sign one.
+    min_value = d.getVar('LAMADIST_UKI_INITRAMFS_MIN_BYTES')
+    try:
+        min_bytes = int(min_value)
+    except (TypeError, ValueError):
+        bb.fatal("lamadist_uki_build: LAMADIST_UKI_INITRAMFS_MIN_BYTES must "
+                 "be an integer byte count, not %r" % (min_value,))
+    size = os.path.getsize(initramfs)
+    if size < min_bytes:
+        bb.fatal("lamadist_uki_build: initramfs %s is %d bytes, under the "
+                 "%d-byte floor (LAMADIST_UKI_INITRAMFS_MIN_BYTES); it was "
+                 "likely packed from an empty rootfs.  An earlier invocation "
+                 "left that tree empty and do_rootfs did not re-run: re-run "
+                 "it with 'bitbake -c rootfs -f %s', or use a new TMPDIR"
+                 % (initramfs, size, min_bytes, initramfs_image))
 
     kernel_version = d.getVar('KERNEL_VERSION')
     tools_dir = "%s%s/lib/systemd/tools" % (d.getVar('RECIPE_SYSROOT_NATIVE'),
@@ -177,6 +200,7 @@ python lamadist_uki_build () {
 do_image_wic[prefuncs] += "lamadist_uki_build"
 do_image_wic[vardeps] += "\
     APPEND \
+    LAMADIST_UKI_INITRAMFS_MIN_BYTES \
     LAMADIST_UKI_SLOTS \
     UKIFY_CMD \
     UKI_SB_CERT \

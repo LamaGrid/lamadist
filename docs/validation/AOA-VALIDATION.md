@@ -128,7 +128,8 @@ build-versus-buy.
 
 `veritysetup` is **not** in this list.  It appears nowhere on the
 booted rootfs: every occurrence in `meta-lamadist/` is in the
-initramfs or in a comment (`lamadist-uki.bbclass:128,134`,
+initramfs or in a comment (the `systemd.verity=0` comment in
+`lamadist-uki.bbclass`,
 `recipes-core/initrdscripts/initramfs-framework-dm/dmverity:63`,
 `recipes-connectivity/openssh/files/10-genkeys-per-connection.
 conf:5`).  It is in neither the probe's present nor its missing
