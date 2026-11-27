@@ -108,6 +108,11 @@ On failure the full serial transcript is preserved at
   CMS-encrypted bundles are M3 pass 2.
 - Slots are written to raw partitions; LUKS-backed slots (writing
   through decrypted mapper devices) arrive with M4.
+- The ESP has no A/B copy.  systemd-boot, both slots' UKIs and
+  loader entries, and the keyless `boot.conf` live on one FAT
+  volume, so a corrupt or lost ESP stops both slots.  The firmware
+  writes it during a trial boot (the counter rename; U-Boot's FAT
+  writer on the Rockchip boards, ADR 0013 decision 11).
 - If BOTH slots' entries are ever exhausted, the uncounted
   `boot.conf` entry (a copy of slot a's) is the last resort and
   the machine will loop rebooting unhealthy rather than degrade.

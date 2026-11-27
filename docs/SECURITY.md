@@ -6,8 +6,8 @@ policy, including a dontaudit-disabled certification pass with
 zero findings.  This document covers the x86_64/QEMU development
 profile.  Production
 key management and per-platform hardware trust anchors are M6+
-scope; the ARM platforms surveyed for M5 have a different firmware
-trust model (see "Portability boundaries").
+scope.  The Rockchip boards (the SOQuartz leaf) have a weaker
+firmware trust model; "ARM boards: the Rockchip chain" states it.
 
 ## What this system defends against
 
@@ -103,6 +103,64 @@ keys, committed to this repository on purpose:
   role change requires clearing these keys from firmware and
   re-provisioning under the M6 chain.  The procedure is
   docs/installer/FLASHING-LAB.md.
+
+## ARM boards: the Rockchip chain
+
+The SOQuartz leaf boots through U-Boot as the UEFI provider (ADR
+0013).  From systemd-boot on, the chain is the x86_64 chain:
+
+```text
+BootROM (mask ROM; on an unfused board it verifies nothing)
+  -> rkbin DDR TPL (vendor binary, not auditable)
+  -> U-Boot SPL
+  -> BL31, and BL32 if the SPL FIT packs it (vendor binaries)
+  -> U-Boot 2026.01 as the UEFI provider: EFI_LOADER,
+     EFI_SECURE_BOOT, and PK/KEK/db from a build-time preseed
+     (ADR 0016); no prompt, and the EFI loader is its only boot
+     method
+  -> systemd-boot at EFI/BOOT/BOOTAA64.EFI (sbsign-signed, db key)
+  -> per-slot UKI (ukify-signed; also carries the board device tree)
+  -> dm-verity, systemd, and SELinux, as on x86_64
+```
+
+The trust statement (ADR 0013 decision 4), for production keys.
+With the development keys in `files/sb-dev/` the boards have no
+Secure Boot property at all, as for x86_64 above.
+
+- The trust anchor is a build-time seed inside an unverified U-Boot
+  on writable storage.  PK, KEK, and db are compiled into the U-Boot
+  binary, and U-Boot sits in the raw loader sectors of the boot
+  medium.  The boards are not fused (ADR 0013 decision 5), so
+  nothing verifies the DDR TPL, SPL, BL31, or U-Boot.
+- Stopped: an attacker who can only write the ESP or supply
+  removable media.  U-Boot starts no UKI that the project db does
+  not sign, and the shipped U-Boot has no other boot path (no
+  script, extlinux, or boot-manager method, and no prompt).
+- NOT stopped: OS root in any domain that can open the whole-disk
+  node; today that includes the OTA writer.  It can replace U-Boot,
+  and with it db.  This is weaker than x86_64, where the OS cannot
+  rewrite the firmware's PK and db.
+- NOT stopped: an attacker who holds the medium or the board.
+- PK, KEK, and db cannot change at run time: the variable store is
+  `EFI_VARIABLE_NO_STORE`, and the build fails if the merged U-Boot
+  configuration differs from its fragments.  dbx is not in the
+  preseed and no write to it persists, so there is no revocation in
+  the field.
+- `SecureBoot=1` on these boards is the enforcement mechanism, not a
+  root of trust.  No document, CI job, or check cites it as a root
+  of trust until a board is fused.  Results from the QEMU U-Boot
+  payload (`vm --firmware u-boot`) prove U-Boot's EFI code at the
+  pinned tag, never a board property.
+
+Where the Secure Boot anchor lives:
+
+| Platform | PK, KEK, and db live in | Who can change them | Anchor |
+| --- | --- | --- | --- |
+| x86_64 (OVMF, lab UEFI) | Firmware NVRAM | Only a PK- or KEK-signed write | Firmware NVRAM |
+| Rockchip (SOQuartz) | The U-Boot binary, in the raw loader sectors of the boot medium | Anyone who can write those sectors: OS root on the whole-disk node, or physical access | None: unfused loader |
+
+ADR 0013 decision 4 asks the validator to print the anchor beside
+its Secure Boot assertion; the validator does not print it yet.
 
 ## Data at rest: /var on LUKS2 + TPM2
 
@@ -354,6 +412,19 @@ an attack surface with its own trust model:
   units/config read through it are a persistence path bounded by
   SELinux, not verity.  A /var `--integrity` mode is deferred
   (performance cost, format-path re-key).
+- The ESP is the one element with no A/B copy.  systemd-boot, both
+  slots' UKIs and loader entries, and the keyless `boot.conf` live on
+  one FAT volume, so a corrupt or lost ESP stops both slots.  The
+  firmware writes it during boot: the counter rename on a trial boot
+  (U-Boot's FAT writer on the Rockchip boards), and
+  `\loader\random-seed` on every boot if that file exists, which is
+  open (ADR 0013 decision 11).  The OTA install writes it too.
+- Rockchip boards: the anchor is unverified U-Boot on writable
+  storage, and there is no TPM, no field revocation, no
+  anti-rollback for U-Boot, and no runtime `SetVariable`
+  (`bootctl set-default` and `set-oneshot` fail).  On an unfused
+  board the USB maskrom path can rewrite all storage.  See "ARM
+  boards: the Rockchip chain".
 - No anti-rollback / unauthenticated ESP: an old validly-signed
   slot can be forced by rewriting the plaintext loader entries;
   ESP entry deletion/corruption is also a DoS.  A monotonic
@@ -413,13 +484,15 @@ an attack surface with its own trust model:
   trust anchors (real UEFI implementations, discrete TPMs) are
   unvalidated until the post-M4 hardware checkpoint.
 
-## Portability boundaries (M5 forward-look)
+## Portability boundaries
 
-The M5 platform surveys (meta-tegra, meta-rockchip) show the
-OS-level stack (erofs+dm-verity, LUKS /var, RAUC, SELinux, IMA)
-ports as-is, while every firmware-anchored property (UEFI Secure
-Boot, systemd-boot+UKI, TPM2 PCR 7 sealing) is x86/UEFI-specific
-today.  ARM ports will re-anchor those properties per-platform
-(BootROM/efuse roots of trust, U-Boot FIT signing, OP-TEE fTPM)
-or explicitly ship without them at first.  This document's claims
-are scoped to the x86_64 profile until those ports land.
+The OS-level stack (erofs and dm-verity, LUKS /var, RAUC, SELinux,
+and IMA) ports as-is.  The Rockchip leaf also keeps the boot path:
+it ships UEFI Secure Boot (provided by U-Boot), systemd-boot, and
+the signed UKI, and it does not use U-Boot FIT signing (ADR 0013).
+What changes is the anchor (see "ARM boards: the Rockchip chain"):
+no firmware-held root of trust until a board is fused, and no TPM2,
+so no PCR 7 sealing (/var uses the per-device key).  An OP-TEE
+fTPM on the RK1 is a later spike.  Tegra keeps its own EDK2 design,
+not yet built.  Every other claim in this document holds for the
+x86_64 profile only.
