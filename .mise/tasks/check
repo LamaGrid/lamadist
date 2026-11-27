@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-#MISE description="Run static analysis and validate KAS configuration"
+#MISE description="Run static analysis and the layer unit tests (not in --ci), and validate KAS configuration"
 #USAGE flag "-b --bsp <bsp>" help="BSP target to validate" default="x86_64" {
 #USAGE   choices "x86_64" "qemuarm64" "orin-nx" "rk1" "soquartz"
 #USAGE }
@@ -14,6 +14,27 @@ hk check --all
 
 _bsp="${usage_bsp:-x86_64}"
 _ci="${usage_ci:-false}"
+
+# The layer unit tests need pytest from a venv built from the hash-pinned
+# requirements the validate task already uses, never from whatever python3
+# the host has.  They are not run in --ci yet, because this step has not
+# been tried in the builder container; --ci skips it, loudly, until it has.
+if [ "${_ci}" = "true" ]; then
+	echo "==> SKIPPING layer unit tests: not yet run in --ci (untested in the builder container)"
+else
+	echo "==> Running layer unit tests..."
+	_venv="${MISE_CONFIG_ROOT}/.cache/check-venv"
+	_reqs="${MISE_CONFIG_ROOT}/tests/validate/requirements.txt"
+	if [[ ! -x "${_venv}/bin/python" ]]; then
+		uv venv -q --python 3.14 "${_venv}"
+	fi
+	if [[ ! -f "${_venv}/.requirements.sha256" ]] \
+		|| ! sha256sum -c --quiet "${_venv}/.requirements.sha256" 2> /dev/null; then
+		uv pip install -q --python "${_venv}/bin/python" --require-hashes -r "${_reqs}"
+		sha256sum "${_reqs}" > "${_venv}/.requirements.sha256"
+	fi
+	"${_venv}/bin/python" -m pytest "${MISE_CONFIG_ROOT}/tests/layer" -q -p no:cacheprovider
+fi
 
 _kas_config="${KAS_WORK_DIR}/kas/main.kas.yml:${KAS_WORK_DIR}/kas/bsp/${_bsp}.kas.yml"
 

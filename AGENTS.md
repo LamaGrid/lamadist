@@ -44,7 +44,7 @@ container image and build tooling that CI uses.
 | ----------------------------- | ---------------------------------------- |
 | `mise run container:builder:build`          | Build the builder container image        |
 | `mise run build`              | Run the Yocto/KAS build                  |
-| `mise run check`              | Run linters and validate KAS config      |
+| `mise run check`              | Run linters, layer unit tests (not in --ci), validate KAS config |
 | `mise run kas`              | Interactive KAS shell in container       |
 | `mise run clean`              | Clean deploy artifacts                   |
 | `mise run clean:all`          | Clean entire build directory             |
