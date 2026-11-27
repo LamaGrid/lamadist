@@ -82,5 +82,6 @@ payloads with the development keys.
   under the same build-tool terms, and those payloads, like the ESLs,
   are tool output kept out of every image and deploy directory.
 - Flagged to Lucas per the copyleft policy's notify-on-any-copyleft
-  rule; this ADR is that sign-off request, pending explicit
-  confirmation.
+  rule.  Confirmed 2026-11-27 by Lucas Yamanishi with the wider
+  scope above: `sign-efi-sig-list` in the N7 write test, from the
+  same `efitools` package under the same licence.
