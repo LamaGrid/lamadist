@@ -51,7 +51,30 @@ do_compile:prepend() {
         ${S}/policy/modules/${LAMADIST_SELINUX_LAYER}/lamadist.if
     install -m 0644 ${UNPACKDIR}/lamadist.fc \
         ${S}/policy/modules/${LAMADIST_SELINUX_LAYER}/lamadist.fc
+    if [ -n "${LAMADIST_SELINUX_NOTPM_RULES}" ]; then
+        printf '\n%s\n' "${LAMADIST_SELINUX_NOTPM_RULES}" \
+            >> ${S}/policy/modules/${LAMADIST_SELINUX_LAYER}/lamadist.te
+    fi
 }
+
+# Rules that only machines WITHOUT the tpm2 DISTRO_FEATURE get, appended
+# to lamadist.te above.  Empty on tpm2 machines, so their policy is the
+# same as before.  refpolicy is MACHINE_ARCH (refpolicy_common.inc), so a
+# per-machine difference cannot collide in a shared package feed.
+#
+# fs_read_dos_files(lvm_t): the per-device /var key on the ESP
+# (lamadist-var-notpm-key).  Not in the AVC corpus.  Local no-TPM boots
+# under enforcing showed no AVC line, but those runs kept dontaudit
+# rules on, so a hidden denial would not show.  The ESP is vfat, labeled
+# dosfs_t by refpolicy's genfscon,
+# and base refpolicy lets lvm_t read nothing there.  cryptsetup
+# (luksAddKey, luksKillSlot, --test-passphrase) and
+# systemd-cryptsetup@var (crypttab's key field) all run as lvm_t and
+# read that file; without this every no-TPM boot's /var unlock is
+# denied under enforcing.  Read-only (search dirs, read files), but FAT
+# has no per-file labels: it covers every file on every FAT filesystem,
+# removable media included, which is why tpm2 machines do not get it.
+LAMADIST_SELINUX_NOTPM_RULES = "${@bb.utils.contains('DISTRO_FEATURES', 'tpm2', '', 'fs_read_dos_files(lvm_t)', d)}"
 
 # Guarantee lamadist is enabled in modules.conf.  `oe_runmake conf`'s XML
 # pass (support/sedoctool.py) already defaults a newly-detected, non-base

@@ -47,6 +47,38 @@ not yet scope.
   `lamadist-var-encrypt.service` and idempotent via a `luksDump`
   token check.  See the script's header comment and the DEV
   BEHAVIOR note above.
+- `lamadist-var-notpm-key` / `lamadist-var-notpm-key.service` --
+  machines WITHOUT the tpm2 DISTRO_FEATURE only (shipped by
+  `../lamadist-var-notpm-key.bb`, which tpm2 machines skip; the gate
+  is build time only, with no runtime TPM condition, because the
+  crypttab line that names the key is build time too).  At first
+  boot it generates a 32-byte per-device key from the kernel RNG at
+  `/boot/lamadist-keys/var.key` on the ESP (mounted `umask=0077` on
+  these machines), and puts it in LUKS2 keyslot 1 of `/var` with
+  this dev keyfile as the unlock key, ordered after
+  `lamadist-var-encrypt.service` and before
+  `systemd-cryptsetup@var.service`.  `/etc/crypttab` on these
+  machines unlocks with that key (`headless=true`, so a missing key
+  fails at once instead of prompting), so a headless board boots
+  with no TPM and no prompt.  A key that already unlocks `/var` is a
+  no-op; any unlock-test failure other than "no key matches" fails
+  the unit; otherwise a fresh key is generated and replaces keyslot
+  1 (`luksKillSlot`, then `luksAddKey --key-slot 1`), so nothing
+  found on the ESP is ever enrolled as is, and the slot count stays
+  at two.  That recovery from a lost or damaged key works only while
+  the dev keyfile slot exists: every kill and add is authorised with
+  this dev keyfile, so killing the dev slot (one of the two options
+  above) also means formatting with the per-device key and turning
+  the loss of the ESP key into the loss of `/var`.  Without a TPM
+  this key gives NO protection against physical access: it sits in
+  the clear on the same disk as the volume it unlocks.  The dev
+  keyfile slot above STILL EXISTS on these machines too (the
+  per-device key is added alongside it, not in its place).  While
+  the public development keyfile slot remains, a no-TPM /var opens
+  with a public key, so the per-device key adds no protection at
+  rest; that lasts until the pending owner decision to kill or gate
+  the dev keyfile slot
+  (meta-lamadist/recipes-core/luks/files/README.md).
 - `regen-dev-var-key.sh` -- regenerates the keyfile in place.  Run it
   only to rotate the dev key (e.g. it leaks); commit the result like
   any other source file.  Rotating this file does NOT re-key any

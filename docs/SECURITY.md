@@ -6,8 +6,8 @@ policy, including a dontaudit-disabled certification pass with
 zero findings.  This document covers the x86_64/QEMU development
 profile.  Production
 key management and per-platform hardware trust anchors are M6+
-scope; the ARM platforms surveyed for M5 have a different firmware
-trust model (see "Portability boundaries").
+scope.  The Rockchip boards (the SOQuartz leaf) have a weaker
+firmware trust model; "ARM boards: the Rockchip chain" states it.
 
 ## What this system defends against
 
@@ -104,6 +104,64 @@ keys, committed to this repository on purpose:
   re-provisioning under the M6 chain.  The procedure is
   docs/installer/FLASHING-LAB.md.
 
+## ARM boards: the Rockchip chain
+
+The SOQuartz leaf boots through U-Boot as the UEFI provider (ADR
+0013).  From systemd-boot on, the chain is the x86_64 chain:
+
+```text
+BootROM (mask ROM; on an unfused board it verifies nothing)
+  -> rkbin DDR TPL (vendor binary, not auditable)
+  -> U-Boot SPL
+  -> BL31, and BL32 if the SPL FIT packs it (vendor binaries)
+  -> U-Boot 2026.01 as the UEFI provider: EFI_LOADER,
+     EFI_SECURE_BOOT, and PK/KEK/db from a build-time preseed
+     (ADR 0016); no prompt, and the EFI loader is its only boot
+     method
+  -> systemd-boot at EFI/BOOT/BOOTAA64.EFI (sbsign-signed, db key)
+  -> per-slot UKI (ukify-signed; also carries the board device tree)
+  -> dm-verity, systemd, and SELinux, as on x86_64
+```
+
+The trust statement (ADR 0013 decision 4), for production keys.
+With the development keys in `files/sb-dev/` the boards have no
+Secure Boot property at all, as for x86_64 above.
+
+- The trust anchor is a build-time seed inside an unverified U-Boot
+  on writable storage.  PK, KEK, and db are compiled into the U-Boot
+  binary, and U-Boot sits in the raw loader sectors of the boot
+  medium.  The boards are not fused (ADR 0013 decision 5), so
+  nothing verifies the DDR TPL, SPL, BL31, or U-Boot.
+- Stopped: an attacker who can only write the ESP or supply
+  removable media.  U-Boot starts no UKI that the project db does
+  not sign, and the shipped U-Boot has no other boot path (no
+  script, extlinux, or boot-manager method, and no prompt).
+- NOT stopped: OS root in any domain that can open the whole-disk
+  node; today that includes the OTA writer.  It can replace U-Boot,
+  and with it db.  This is weaker than x86_64, where the OS cannot
+  rewrite the firmware's PK and db.
+- NOT stopped: an attacker who holds the medium or the board.
+- PK, KEK, and db cannot change at run time: the variable store is
+  `EFI_VARIABLE_NO_STORE`, and the build fails if the merged U-Boot
+  configuration differs from its fragments.  dbx is not in the
+  preseed and no write to it persists, so there is no revocation in
+  the field.
+- `SecureBoot=1` on these boards is the enforcement mechanism, not a
+  root of trust.  No document, CI job, or check cites it as a root
+  of trust until a board is fused.  Results from the QEMU U-Boot
+  payload (`vm --firmware u-boot`) prove U-Boot's EFI code at the
+  pinned tag, never a board property.
+
+Where the Secure Boot anchor lives:
+
+| Platform | PK, KEK, and db live in | Who can change them | Anchor |
+| --- | --- | --- | --- |
+| x86_64 (OVMF, lab UEFI) | Firmware NVRAM | Only a PK- or KEK-signed write | Firmware NVRAM |
+| Rockchip (SOQuartz) | The U-Boot binary, in the raw loader sectors of the boot medium | Anyone who can write those sectors: OS root on the whole-disk node, or physical access | None: unfused loader |
+
+ADR 0013 decision 4 asks the validator to print the anchor beside
+its Secure Boot assertion; the validator does not print it yet.
+
 ## Data at rest: /var on LUKS2 + TPM2
 
 All mutable state (logs, RAUC state, service data, the /etc
@@ -149,6 +207,40 @@ overlay upper) lives on a LUKS2 volume unlocked at boot:
   QEMU first-boot inside the gate budget.  If a release ever adds
   a human-passphrase keyslot, this weak-KDF path MUST be revisited
   (argon2id).
+- Machines without a TPM (no tpm2 DISTRO_FEATURE; ADR 0013
+  decision 7): `lamadist-var-notpm-key` generates a per-device key
+  at first boot, stores it on the ESP (`/boot/lamadist-keys/var.key`),
+  and puts it in one fixed /var keyslot; crypttab unlocks with it, so
+  a headless board needs no TPM and no prompt.  Without a TPM, this
+  key gives no protection against physical access, and the exposure
+  is wider than physical access: anyone who can read the storage or
+  any copy of it (a disk image, a backup, a returned or discarded
+  module) can read /var, because the key sits in the clear on the
+  same disk as the volume it unlocks.  The ESP is mounted
+  `umask=0077` on these machines; that is hygiene, not a control: it
+  keeps unprivileged local users from reading the key and does
+  nothing against anyone with the storage.  The key has no integrity
+  and no revocation: nothing authenticates the ESP copy, so whoever
+  can write the ESP can replace it (the unit then puts a fresh key in
+  the slot rather than enrolling what it finds), and nothing rotates
+  it, so a copied key stays valid until the ESP copy is lost or
+  replaced.  The dev keyfile slot above still exists on these
+  machines as well (the per-device key is added alongside it), so
+  the public keyfile also unlocks /var, and the /var partition alone
+  is enough: the ESP key is not even needed.  While the public
+  development keyfile slot remains, a no-TPM /var opens with a
+  public key, so the per-device key adds no protection at rest; that
+  lasts until the pending owner decision to kill or gate the dev
+  keyfile slot (meta-lamadist/recipes-core/luks/files/README.md).
+  Known limit: fstab mounts the ESP at /boot by its filesystem label,
+  `LABEL=msdos`, which is not unique to the boot disk.  A second FAT
+  volume with that label (a USB stick or an SD card attached at boot)
+  can take the label link.  The key unit then finds no working key
+  there, replaces the fixed keyslot, and writes the new key to that
+  removable medium, and the slot state that the RAUC backend writes
+  to /boot goes there too.  The fix, mounting the ESP by a fixed
+  PARTUUID from the WKS, is planned after M5 (docs/PLAN.md, Future
+  Work).
 
 ## Runtime confinement: SELinux enforcing
 
@@ -305,12 +397,34 @@ an attack surface with its own trust model:
 - Dev-keyfile slot nullifies TPM2/PCR 7 confidentiality on dev
   images (see the /var section); real at-rest protection begins
   when M6 drops the slot.
+- No-TPM machines: /var at rest is unprotected against anyone who
+  can read the storage or a copy of it, by design (the per-device
+  key is in the clear on the ESP; see the /var section).  The dev
+  keyfile slot is live there too, so the public key alone opens
+  /var.  The per-device key has no integrity and no revocation
+  without a TPM, and recovering a lost key depends on the dev slot.
+  The ESP is mounted by the label `msdos`, which is not unique, so a
+  removable FAT volume with that label can receive the key (see the
+  /var section); a fixed PARTUUID is planned after M5.
 - IMA is log-only (by design for now; see above).
 - /var has NO integrity protection (LUKS2 aes-xts, no AEAD): the
   /etc overlay upper is confidential but malleable, and late-boot
   units/config read through it are a persistence path bounded by
   SELinux, not verity.  A /var `--integrity` mode is deferred
   (performance cost, format-path re-key).
+- The ESP is the one element with no A/B copy.  systemd-boot, both
+  slots' UKIs and loader entries, and the keyless `boot.conf` live on
+  one FAT volume, so a corrupt or lost ESP stops both slots.  The
+  firmware writes it during boot: the counter rename on a trial boot
+  (U-Boot's FAT writer on the Rockchip boards), and
+  `\loader\random-seed` on every boot if that file exists, which is
+  open (ADR 0013 decision 11).  The OTA install writes it too.
+- Rockchip boards: the anchor is unverified U-Boot on writable
+  storage, and there is no TPM, no field revocation, no
+  anti-rollback for U-Boot, and no runtime `SetVariable`
+  (`bootctl set-default` and `set-oneshot` fail).  On an unfused
+  board the USB maskrom path can rewrite all storage.  See "ARM
+  boards: the Rockchip chain".
 - No anti-rollback / unauthenticated ESP: an old validly-signed
   slot can be forced by rewriting the plaintext loader entries;
   ESP entry deletion/corruption is also a DoS.  A monotonic
@@ -370,13 +484,15 @@ an attack surface with its own trust model:
   trust anchors (real UEFI implementations, discrete TPMs) are
   unvalidated until the post-M4 hardware checkpoint.
 
-## Portability boundaries (M5 forward-look)
+## Portability boundaries
 
-The M5 platform surveys (meta-tegra, meta-rockchip) show the
-OS-level stack (erofs+dm-verity, LUKS /var, RAUC, SELinux, IMA)
-ports as-is, while every firmware-anchored property (UEFI Secure
-Boot, systemd-boot+UKI, TPM2 PCR 7 sealing) is x86/UEFI-specific
-today.  ARM ports will re-anchor those properties per-platform
-(BootROM/efuse roots of trust, U-Boot FIT signing, OP-TEE fTPM)
-or explicitly ship without them at first.  This document's claims
-are scoped to the x86_64 profile until those ports land.
+The OS-level stack (erofs and dm-verity, LUKS /var, RAUC, SELinux,
+and IMA) ports as-is.  The Rockchip leaf also keeps the boot path:
+it ships UEFI Secure Boot (provided by U-Boot), systemd-boot, and
+the signed UKI, and it does not use U-Boot FIT signing (ADR 0013).
+What changes is the anchor (see "ARM boards: the Rockchip chain"):
+no firmware-held root of trust until a board is fused, and no TPM2,
+so no PCR 7 sealing (/var uses the per-device key).  An OP-TEE
+fTPM on the RK1 is a later spike.  Tegra keeps its own EDK2 design,
+not yet built.  Every other claim in this document holds for the
+x86_64 profile only.

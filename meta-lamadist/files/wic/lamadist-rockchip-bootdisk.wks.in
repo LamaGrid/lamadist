@@ -1,0 +1,93 @@
+# short-description: Create an EFI disk image for a Rockchip board: raw U-Boot loaders at the fixed sectors, then systemd-boot, dm-verity A/B slots, and a LUKS2 var partition
+# Based on meta-rockchip's files/wic/rockchip.wks (commit 9d02575) for the
+# raw prelude and on lamadist-dmverity-bootdisk.wks.in for everything
+# after it; keep both halves in step with their sources (the layer tests
+# compare them).  The A/B slot layout, the ESP sizing, and the swap and
+# /var rationale are explained once, in the x86_64 template; the
+# comments below are copied from it.
+#
+# Prelude: the fixed-sector layout Rockchip BootROM and SPL expect, at
+# the upstream offsets and sizes (rockchip.wks:21-28; table at :10-19).
+# Differences from upstream, all on purpose:
+#   - no rootfsA ext4 root (rockchip.wks:29): the verity slots below
+#     replace it;
+#   - uboot_env stays an empty reserved region (rockchip.wks:25 appends
+#     ${RK_UBOOT_ENV}): U-Boot keeps no persistent environment
+#     (ENV_IS_NOWHERE), so there is nothing to seed;
+#   - every part names --ondisk mmcblk0, the boot medium, so wic builds
+#     one disk image rather than one per disk name.
+# v_storage (vendor serial number, MAC, and the like), reserved,
+# reserved1, reserved2, and atf are left untouched: nothing is written
+# into them.  Sector 64 is loader1 (idbloader.img: DDR TPL plus SPL),
+# sector 16384 is loader2 (u-boot.itb: U-Boot, BL31, and the device
+# tree); both files come from the u-boot deploy directory through the
+# WKS_FILE_DEPENDS u-boot dependency set in soquartz-lamadist.conf.
+#
+# The ESP starts at the first aligned sector after atf (32768s).
+
+part loader1   --ondisk mmcblk0 --offset 64s    --fixed-size 3552K --fstype=none --part-name loader1   --source rawcopy --sourceparams="file=${SPL_BINARY}"
+part v_storage --ondisk mmcblk0 --offset 7168s  --fixed-size 256K  --fstype=none --part-name v_storage
+part reserved  --ondisk mmcblk0 --offset 7680s  --fixed-size 192K  --fstype=none --part-name reserved
+part reserved1 --ondisk mmcblk0 --offset 8064s  --fixed-size 32K   --fstype=none --part-name reserved1
+part uboot_env --ondisk mmcblk0 --offset 8128s  --fixed-size 32K   --fstype=none --part-name uboot_env
+part reserved2 --ondisk mmcblk0 --offset 8192s  --fixed-size 4096K --fstype=none --part-name reserved2
+part loader2   --ondisk mmcblk0 --offset 16384s --fixed-size 4096K --fstype=none --part-name loader2   --source rawcopy --sourceparams="file=u-boot.${UBOOT_SUFFIX}"
+part atf       --ondisk mmcblk0 --offset 24576s --fixed-size 4096K --fstype=none --part-name atf
+
+# --part-type sets the DPS/UEFI ESP type UUID; without it the
+# partition is typed as Microsoft basic data and firmware need not
+# treat it as the EFI System Partition.
+#
+# --include-path seeds slot A's boot content and systemd-boot entry
+# (lamadist/a/lamadist.efi -- a single unified kernel image carrying
+# kernel+initramfs+microcode+cmdline, per m4-plan.md D1/D2 --
+# loader/entries/lamadist-a+3.conf, loader/loader.conf) so first
+# boot uses the same PARTLABEL + roothash discovery an OTA update to
+# slot B will use later; see classes/lamadist-esp-slot-a.bbclass
+# (do_image_wic prefunc) for what populates that directory.
+# Trailing "/." copies the directory's contents, not the directory
+# itself.
+#
+# install-kernel-into-boot-dir=false and no initrd= sourceparam:
+# every loader entry references /lamadist/<slot>/lamadist.efi only
+# (no separate initrd line -- see the boot-entry template), so
+# bootimg-efi's root-level kernel/initrd copies would be dead weight
+# (the stock boot.conf that references them is overwritten by the
+# bbclass above).  --fixed-size is mandatory with that: wic
+# otherwise sizes the ESP from its build-time content (slot A only),
+# leaving no room for the RAUC bundle hook to stage slot B's UKI at
+# update time.  512M holds two slots (~70 MB each today) plus
+# growth; resizing an ESP on fielded A/B devices is not realistically
+# possible, so oversize now.
+part /boot --source bootimg-efi --sourceparams="loader=systemd-boot,install-kernel-into-boot-dir=false" --ondisk mmcblk0 --label msdos --active --align 1024 --fixed-size 512M --use-uuid --part-type c12a7328-f81f-11d2-ba4b-00a0c93ec93b --include-path ${LAMADIST_ESP_SLOT_A_DIR}/.
+
+# Slot A: populated from this build's dm-verity artifacts.
+part --source rawcopy --sourceparams="file=${DM_VERITY_DEPLOY_DIR}/${DM_VERITY_IMAGE}-${MACHINE}${IMAGE_NAME_SUFFIX}.${DM_VERITY_IMAGE_TYPE}.verity" --ondisk mmcblk0 --align 1024 --fixed-size ${DM_VERITY_ROOT_SIZE} --part-name rootfs_a --part-type="${DM_VERITY_ROOT_GUID}" --use-uuid
+part --source rawcopy --sourceparams="file=${DM_VERITY_DEPLOY_DIR}/${DM_VERITY_IMAGE}-${MACHINE}${IMAGE_NAME_SUFFIX}.${DM_VERITY_IMAGE_TYPE}.vhash" --ondisk mmcblk0 --align 1024 --fixed-size ${DM_VERITY_HASH_SIZE} --part-name hash_a --part-type="${DM_VERITY_RHASH_GUID}" --use-uuid
+
+# Slot B: empty until the first RAUC update writes it; --fstype=none
+# with no --source reserves the raw space without formatting it.
+part --ondisk mmcblk0 --align 1024 --fixed-size ${DM_VERITY_ROOT_SIZE} --fstype=none --part-name rootfs_b --part-type="${DM_VERITY_ROOT_GUID}" --use-uuid
+part --ondisk mmcblk0 --align 1024 --fixed-size ${DM_VERITY_HASH_SIZE} --fstype=none --part-name hash_b --part-type="${DM_VERITY_RHASH_GUID}" --use-uuid
+
+# root=/roothash=/lamadist.slot= move into each slot's UKI cmdline
+# (baked in at UKI-build time, per m4-plan.md D1/D2 -- the Type1
+# entries carry no options line at all); only slot-independent args
+# belong here.
+bootloader --ptable gpt --timeout=5 --append=""
+
+# No swap partition.  A plaintext swap on the same disk would defeat
+# the at-rest confidentiality story (the kernel can page decrypted
+# /var contents or the cached LUKS volume key to it), and this image
+# has no swap-dependent workload.  If a future workload needs swap,
+# add it through crypttab with a random per-boot key
+# (`swap PARTLABEL=swap /dev/urandom swap,cipher=...`), never as a
+# bare `--fstype=swap` partition (which wic types with the Linux
+# swap DPS GUID that systemd-gpt-auto-generator auto-activates in
+# the clear).  Found by the M4 Fable security review (BLOCKER-1).
+
+# Writable data partition mounted at /var via the fstab entry baked
+# into the image (lamadist-image.bbclass); DPS "Variable Data" type
+# UUID.  --no-fstab-update because the rootfs partition content is
+# verity-sealed and must not be modified by wic.
+part /var --ondisk mmcblk0 --fstype=ext4 --label var --align 1024 --size 2G --part-type 4d21b016-b534-45c2-a9fb-5c16e091fd2d --no-fstab-update --use-uuid

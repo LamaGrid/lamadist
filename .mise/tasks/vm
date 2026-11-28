@@ -14,9 +14,14 @@
 #USAGE flag "-H --headless" help="Headless-interactive mode: serial/monitor unix sockets + ssh port-forward"
 #USAGE flag "-p --ssh-port <port>" help="Host port forwarded to guest :22 (headless mode)" default="2222"
 #USAGE flag "-R --allow-reboot" help="Let the guest actually reset QEMU on reboot instead of exiting (needed to drive multi-reboot tests)"
-#USAGE flag "-s --snapshot" help="Discard all disk writes on exit (headless/interactive mode; CI mode always snapshots)"
+#USAGE flag "-s --snapshot" help="Discard all disk writes on exit (headless/interactive mode; CI mode always snapshots).  Without it, writes to a raw image last past the run; a compressed image is decompressed into the per-run directory, and its writes go to that copy.  The task removes that directory at exit, except a directory named with --tmpdir, which the caller removes"
 #USAGE flag "-T --tmpdir <tmpdir>" help="Reuse this dir for ephemeral VM state instead of creating one, so callers can predict socket paths"
-#USAGE flag "-S --secureboot" help="Boot Secure Boot firmware (OVMF_CODE.secboot.fd) with the pre-enrolled PK/KEK/db vars artifact (M4 stage B, W10); build the artifact first with .mise/tasks/ovmf-vars"
+#USAGE flag "-S --secureboot" help="Boot Secure Boot firmware (OVMF_CODE.secboot.fd) with the pre-enrolled PK/KEK/db vars artifact (M4 stage B, W10); build the artifact first with .mise/tasks/ovmf-vars.  With --firmware u-boot, Secure Boot is always on (build-time seed) and this only makes the CI smoke assert it"
+#USAGE flag "--firmware <firmware>" help="qemuarm64 only: guest firmware.  aavmf: edk2 from the host (the default, unchanged).  u-boot: the U-Boot qemu_arm64 payload (u-boot.bin in the deploy dir, built under kas/extras/uboot-vm.kas.yml) through -bios, with --no-tpm required (the payload has no TCG protocol); proves U-Boot's EFI code, never a board (ADR 0013 open question 6)" default="aavmf" {
+#USAGE   choices "aavmf" "u-boot"
+#USAGE }
+#USAGE flag "--image <wic>" help="Boot this disk image (e.g. a modified scratch copy) instead of the newest WIC in the deploy dir.  A .zst, .xz, .gz, or .bz2 image is decompressed into the per-run directory first; any other name is booted as a raw image"
+#USAGE flag "--extra-disk <wic>" help="With --firmware u-boot: attach this raw image as a second virtio disk (snapshot), after the boot disk, to check that the pinned boot target ignores it"
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -35,6 +40,9 @@ _allow_reboot="${usage_allow_reboot:-false}"
 _snapshot="${usage_snapshot:-false}"
 _tmpdir="${usage_tmpdir:-}"
 _secureboot="${usage_secureboot:-false}"
+_firmware="${usage_firmware:-aavmf}"
+_image="${usage_image:-}"
+_extra_disk="${usage_extra_disk:-}"
 
 # shellcheck source=.mise/tasks/_lib.sh
 source "${MISE_CONFIG_ROOT}/.mise/tasks/_lib.sh"
@@ -58,6 +66,33 @@ if [[ "${_tamper_uki}" == "true" && ("${_ci}" != "true" || "${_secureboot}" != "
 	echo "ERROR: --tamper-uki needs --ci and --secureboot"
 	exit 1
 fi
+case "${_firmware}" in
+	aavmf | u-boot) ;;
+	*)
+		echo "ERROR: --firmware must be aavmf or u-boot, not '${_firmware}'"
+		exit 1
+		;;
+esac
+if [[ "${_firmware}" == "u-boot" && "${_arch}" != "aarch64" ]]; then
+	echo "ERROR: --firmware u-boot needs --bsp qemuarm64 (the payload is U-Boot qemu_arm64)"
+	exit 1
+fi
+# The payload models the board, and the board has no TPM.  Its QEMU
+# fragment turns the TCG protocol off, so a software TPM here would run
+# a measured-boot path the board never runs, and an enrollment that did
+# succeed would seal to a PCR that no boot state ever extended.  Refuse
+# the pairing before anything starts.
+if [[ "${_firmware}" == "u-boot" && "${_no_tpm}" != "true" ]]; then
+	echo "ERROR: --firmware u-boot needs --no-tpm (the payload has no TCG protocol and the board has no TPM, so a software TPM run proves nothing that transfers)"
+	exit 1
+fi
+if [[ -n "${_extra_disk}" && "${_firmware}" != "u-boot" ]]; then
+	echo "ERROR: --extra-disk needs --firmware u-boot"
+	exit 1
+fi
+for _disk in "${_image}" "${_extra_disk}"; do
+	[[ -z "${_disk}" || -f "${_disk}" ]] || { echo "ERROR: disk image ${_disk} not found"; exit 1; }
+done
 
 # The edk2 firmware for the guest.  The aarch64 candidates live in
 # aavmf_firmware (.mise/tasks/_lib.sh) so the ovmf-vars task enrolls
@@ -85,7 +120,16 @@ fi
 # been run yet, --secureboot errors clearly: it fails the firmware-
 # presence check below instead of doing anything silently wrong.
 # Normal (no --secureboot) boots are untouched.
-if [[ "${_secureboot}" == "true" ]]; then
+#
+# --firmware u-boot replaces both: U-Boot qemu_arm64 runs from -bios, and
+# its Secure Boot state is the PK/KEK/db seed compiled in at build time
+# (lamadist-uboot-vm.inc), so there is no vars file to pick or check.
+if [[ "${_firmware}" == "u-boot" ]]; then
+	_uboot_bin="${_deploy_dir}/u-boot.bin"
+	if [[ "${_secureboot}" == "true" ]]; then
+		echo "==> Secure Boot: U-Boot build-time PK/KEK/db seed (always enforcing; no vars file)"
+	fi
+elif [[ "${_secureboot}" == "true" ]]; then
 	_ovmf_code="${_fw_sb_code}"
 	_ovmf_vars_template="${_deploy_dir}/ovmf-vars-enrolled.fd"
 	echo "==> Secure Boot: ${_ovmf_code##*/} + enrolled vars (${_ovmf_vars_template})"
@@ -164,25 +208,54 @@ fi
 for tool in "${_required_tools[@]}"; do
 	command -v "${tool}" >/dev/null || { echo "ERROR: ${tool} not found"; exit 1; }
 done
-[[ -n "${_ovmf_code}" && -f "${_ovmf_code}" ]] || { echo "ERROR: ${_fw_name} firmware not found (${_ovmf_code:-no candidate readable})"; exit 1; }
-[[ -n "${_ovmf_vars_template}" && -f "${_ovmf_vars_template}" ]] || { echo "ERROR: ${_fw_name} VARS template not found (${_ovmf_vars_template:-no candidate readable})"; exit 1; }
+if [[ "${_firmware}" == "u-boot" ]]; then
+	[[ -s "${_uboot_bin}" ]] || {
+		echo "ERROR: U-Boot payload ${_uboot_bin} not found; build it with"
+		echo "       kas/extras/uboot-vm.kas.yml stacked on kas/bsp/qemuarm64.kas.yml"
+		echo "       and 'bitbake u-boot -c deploy'"
+		exit 1
+	}
+else
+	[[ -n "${_ovmf_code}" && -f "${_ovmf_code}" ]] || { echo "ERROR: ${_fw_name} firmware not found (${_ovmf_code:-no candidate readable})"; exit 1; }
+	[[ -n "${_ovmf_vars_template}" && -f "${_ovmf_vars_template}" ]] || { echo "ERROR: ${_fw_name} VARS template not found (${_ovmf_vars_template:-no candidate readable})"; exit 1; }
+fi
 
 # --- Find WIC image ---
-# Newest by mtime across compressed and uncompressed candidates,
-# so a stale decompression leftover never shadows a fresh build.
+# Newest by mtime across compressed and uncompressed candidates.  The
+# task itself never writes a raw copy into the deploy dir (see below),
+# so a raw .wic found there is a build output, never a decompression
+# leftover that could outlive the compressed image it came from.
 
-_wic_image=$(find "${_deploy_dir}" -maxdepth 1 \( -name "*.wic" -o -name "*.wic.zst" -o -name "*.wic.xz" -o -name "*.wic.gz" -o -name "*.wic.bz2" \) -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
-[[ -n "${_wic_image}" ]] || { echo "ERROR: No WIC image found in ${_deploy_dir}"; exit 1; }
-if [[ "${_wic_image}" != *.wic ]]; then
-	echo "==> Decompressing ${_wic_image}..."
-	case "${_wic_image}" in
-		*.zst) zstd -d -k -f "${_wic_image}" ;;
-		*.xz)  xz -d -k -f "${_wic_image}" ;;
-		*.gz)  gunzip -k -f "${_wic_image}" ;;
-		*.bz2) bzip2 -d -k -f "${_wic_image}" ;;
-	esac
-	_wic_image="${_wic_image%.*}"
+if [[ -n "${_image}" ]]; then
+	_wic_image="${_image}"
+else
+	_wic_image=$(find "${_deploy_dir}" -maxdepth 1 \( -name "*.wic" -o -name "*.wic.zst" -o -name "*.wic.xz" -o -name "*.wic.gz" -o -name "*.wic.bz2" \) -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
 fi
+[[ -n "${_wic_image}" ]] || { echo "ERROR: No WIC image found in ${_deploy_dir}"; exit 1; }
+# QEMU reads the drive as raw, so a compressed image, found in the
+# deploy dir or named with --image, is decompressed first; any other
+# file is used as given.  The raw copy goes to the per-run directory,
+# not beside the source: a file in the deploy dir is in no sstate
+# manifest, so BitBake's cleanup handlers never remove it, and it would
+# boot in place of a newer image once they delete the compressed
+# original.  The copy stays sparse, so its zero runs (most of an image)
+# take no space in the run directory: zstd writes holes itself, and the
+# other formats go through cp --sparse=always.
+case "${_wic_image}" in
+	*.zst | *.xz | *.gz | *.bz2)
+		_raw_image="${_qemu_tmpdir}/${_wic_image##*/}"
+		_raw_image="${_raw_image%.*}"
+		echo "==> Decompressing ${_wic_image} to ${_raw_image}..."
+		# shellcheck disable=SC2216  # GNU cp opens /dev/stdin as a file, so it reads the pipe
+		case "${_wic_image}" in
+			*.zst) zstd -d -q -f -o "${_raw_image}" "${_wic_image}" ;;
+			*.xz) xz -d -c "${_wic_image}" | cp --sparse=always /dev/stdin "${_raw_image}" ;;
+			*.gz) gzip -d -c "${_wic_image}" | cp --sparse=always /dev/stdin "${_raw_image}" ;;
+			*.bz2) bzip2 -d -c "${_wic_image}" | cp --sparse=always /dev/stdin "${_raw_image}" ;;
+		esac
+		_wic_image="${_raw_image}"
+		;;
+esac
 
 # --tamper-uki boots a scratch copy whose UKI is corrupted, so the only
 # acceptable outcome is the firmware refusing to start it.  The copy is
@@ -197,9 +270,17 @@ fi
 
 # --- Prepare firmware VARS (writable copy) ---
 
-_vars_ext="${_ovmf_vars_template##*.}"
-_vars_copy="${_qemu_tmpdir}/OVMF_VARS.${_vars_ext}"
-cp "${_ovmf_vars_template}" "${_vars_copy}"
+if [[ "${_firmware}" == "u-boot" ]]; then
+	_fw_args=(-bios "${_uboot_bin}")
+else
+	_vars_ext="${_ovmf_vars_template##*.}"
+	_vars_copy="${_qemu_tmpdir}/OVMF_VARS.${_vars_ext}"
+	cp "${_ovmf_vars_template}" "${_vars_copy}"
+	_fw_args=(
+		-drive "if=pflash,format=$(_fw_format "${_ovmf_code}"),readonly=on,file=${_ovmf_code}"
+		-drive "if=pflash,format=$(_fw_format "${_vars_copy}"),file=${_vars_copy}"
+	)
+fi
 
 # --- Start swtpm (TPM 2.0 emulator) ---
 
@@ -263,6 +344,18 @@ else
 	_input_args=(-usb -device usb-tablet)
 fi
 
+# --extra-disk: a second virtio disk after the boot disk, so it is
+# virtio-blk device 1 to U-Boot (the boot disk is 0).  It stands in for
+# the board's SD card next to the pinned eMMC (boot_targets=virtio0 in
+# lamadist-qemu-arm64.env).  Snapshot: the image is never written.
+_extra_disk_args=()
+if [[ -n "${_extra_disk}" ]]; then
+	_extra_disk_args=(
+		-drive "file=${_extra_disk},format=raw,if=none,id=hd1,snapshot=on"
+		-device 'virtio-blk-pci,drive=hd1'
+	)
+fi
+
 # --no-tpm removes the TPM entirely: no swtpm, no chardev, no device.
 # The image's crypttab unlocks /var through the TPM alone, so this is
 # what a TPM-less or not-yet-ready first boot sees.
@@ -296,10 +389,10 @@ fi
 _qemu_args=(
 	"${_accel_args[@]}"
 	"${_machine_args[@]}"
-	-drive "if=pflash,format=$(_fw_format "${_ovmf_code}"),readonly=on,file=${_ovmf_code}"
-	-drive "if=pflash,format=$(_fw_format "${_vars_copy}"),file=${_vars_copy}"
+	"${_fw_args[@]}"
 	-drive "file=${_wic_image},format=raw,if=none,id=hd0"
 	"${_disk_args[@]}"
+	"${_extra_disk_args[@]}"
 	-netdev "${_netdev}"
 	# romfile= disables the PCI expansion ROM (the iPXE efi-virtio.rom
 	# option ROM used only for network boot).  The guest boots from

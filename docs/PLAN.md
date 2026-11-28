@@ -621,7 +621,8 @@ Boot enforcing (evidence: `.local/state/agents/installer-test/`):
   signed UKI plus the named unsigned enrollment inputs
 - [ ] Stage 5 (flows): headless manifest install + the full
   fail-closed abort matrix (SPEC 3.3), consumed-stick refusal
-- [ ] ARM port of the installer (deferred past M5: under ADR 0013
+- [ ] ARM port of the installer (deferred past M5 by owner decision
+  8, 2026-11-15; under ADR 0013
   the enrollment stage is replaced by the U-Boot preseed and
   ADR 0007's efivarfs `.auth` writes are unsupported on U-Boot; the
   stick's own boot path on Rockchip is undesigned, so the first ARM
@@ -751,7 +752,8 @@ Safe to start now (no gate, mechanical per review):
 - [x] kas stub fixes (d56c06f): rk1.kas.yml adds meta-rockchip,
   both Rockchip targets -> `lamadist-image-base`, orin-nx gains
   `target:` + explicit pins, authored-machine gaps annotated,
-  BBFILE_PRIORITY bump marked TODO
+  BBFILE_PRIORITY bump marked TODO (ADR 0013 check 11, 2026-11-15:
+  the bump resolves no collision and is removed with the leaf)
 - [x] Move DPS/dm-verity GUIDs to per-arch overrides in
   `lamadist-dmverity.inc` (TRANSLATED_TARGET_ARCH overrides
   x86-64/aarch64); deleted from intel.conf + orin kas; x86-64
@@ -793,7 +795,10 @@ Gated on the Post-M4 validation gate (implementation):
   no present benefit and lock in a pending-detection design before its
   motivating backend exists.  Do it with the first real second backend,
   behind an x86_64 `test-ota` cycle and a Fable review.
-- [ ] `soquartz.conf` (thin leaf per pattern: meta-rockchip SoC
+- [x] `soquartz-lamadist.conf` (built on earlier trees of the M5
+  SOQuartz change: U-Boot in window a, the full image in window d;
+  parsed and configured in window j; a build at the tip is pending)
+  (thin leaf per pattern: meta-rockchip SoC
   include + `lamadist-dmverity.inc` + `lamadist-boot-sdboot-uki.inc`,
   no `lamadist-tpm2.inc`, plus the ADR 0013 decision 10
   neutralisations) + a machine-scoped `u-boot` bbappend carrying the
@@ -810,19 +815,26 @@ Gated on the Post-M4 validation gate (implementation):
   mechanism checks (BOOTAA64.EFI launch, `+3` -> `+2-1` rename,
   tampered UKI refused, preseed write-protected, `SecureBoot=1` via
   efivarfs, non-EFI boot paths absent, env inert, DTB from medium
-  ignored, FAT soak)
-- [ ] Preseed generator: build-time `ubootefi.var` seed from the
+  ignored, FAT soak).  Check 11 is done (2026-11-15,
+  GO-WITH-AMENDMENTS, meta-rockchip wrynose 9d02575; ADR 0013
+  amended the same day); the remaining steps stay open
+- [x] Preseed generator (built on earlier trees: in the SOQuartz
+  U-Boot in window a and the `qemuarm64` payload in window i; the
+  payload booted with `SecureBoot` 1 in window e; a build at the tip
+  is pending): build-time `ubootefi.var` seed from the
   `files/sb-dev/` PK/KEK/db (the same material the x86_64
   `ovmf-vars` task enrolls; never committed), mechanism per
   ADR 0013 decision 3
-- [ ] Device tree inside the UKI (`ukify --devicetree`) in
+- [x] Device tree inside the UKI (built on an earlier tree: the
+  SOQuartz UKI of window d carried the `.dtb` section; a build at the
+  tip is pending) (`ukify --devicetree`) in
   `lamadist-uki.bbclass`, with `KERNEL_DEVICETREE` per board
 - [ ] No-TPM `/var` seam: machine-conditional crypttab,
   `lamadist-luks-var` without the hard `tpm2` requirement,
   TPM-dependent units conditioned on TPM presence; the crypttab
   fallback designed and tested against `vm --no-tpm` before the
   first board image (ADR 0012 decision 5, ADR 0013 decision 7)
-- [ ] `kas/bsp/soquartz.kas.yml`: add the missing meta-rockchip
+- [x] `kas/bsp/soquartz.kas.yml`: add the missing meta-rockchip
   branch pin (review decision 4) before ADR 0013 check 11
 - [ ] `rk1.conf` authored in meta-lamadist (no upstream rk1
   machine exists -- PLAN's earlier note corrected)
@@ -1023,18 +1035,32 @@ up.
 
 ### Review Policy (Fable reviewers)
 
-Per Lucas (2026-07-17):
+Per the owner (2026-07-17, amended 2026-11-18):
 
-- At most ONE `claude-fable-5` reviewer per milestone stage --
-  either a whole-body review or a targeted critical-aspect review,
-  the orchestrator's choice.
-- Every milestone SHOULD close with one Fable whole-body reviewer
-  at the fold, generalizing the M4-fold pattern.  Milestone
-  sections may schedule that pass explicitly (M4 fold, M5 research
-  kickoff, M3 pass 2); where a milestone does not, the fold review
-  still applies by default.
-- Fable sub-agents remain restricted to planning, architecture,
-  and review; effort capped at xhigh.  All other sub-agent work
+- The Fable review runs only as the last step before a pull request
+  (PR) is submitted for merge, after every other gate of that PR has
+  passed: builds, tests, windows, the PR body, and the known limits.
+  No Fable review runs earlier in a PR's work.
+- Correct every finding, including notes that change the PR's code,
+  text, or known limits.  A finding that will not be fixed needs an
+  owner ruling.
+- The corrected PR gets exactly one Fable re-review.  If it finds a
+  blocker or a false claim, submission stops for an owner ruling.
+  Otherwise correct its other findings and submit, with no third
+  review.
+- The reviewer is the `fable` alias, never a pinned version, at effort
+  xhigh or lower.  Check that the replies came from a Fable model; a
+  review answered by another model (a fallback or a model switch) does
+  not count.
+- This use of Fable is allowed even where a general rule bans or
+  limits Fable or the top quality band.
+- Which PRs need the review is unchanged: security-sensitive work
+  (SELinux, boot chain, crypto, TPM, Secure Boot) and each milestone's
+  closing PR.  Other PRs may have one at the coordinator's choice.
+- Interim review of security work before the PR stage goes to a
+  non-Fable reviewer, never the agent that wrote the work.
+- Fable sub-agents are otherwise restricted to planning and
+  architecture, with effort capped at xhigh.  All other sub-agent work
   routes to haiku/sonnet/opus per the global routing table.
 
 ### Durable State and Resume
@@ -1251,6 +1277,36 @@ Deferred until the milestones above are complete:
   server-vs-hawkBit design choice could warrant a design pass, but
   the build itself is ordinary implementation, not necessarily
   Fable.
+- Mount the ESP by a fixed PARTUUID (after M5, its own change).
+  fstab mounts /boot by `LABEL=msdos`, which any FAT volume can carry.
+  On a machine without a TPM the ESP holds the per-device /var key, so
+  a removable medium with that label, attached at boot, can receive a
+  new key and the RAUC slot state (docs/SECURITY.md, the /var
+  section).  Give the ESP a fixed PARTUUID in each WKS and mount it by
+  that.
+- AAVMF authenticated-write investigation.  In the N7 RED runs
+  (docs/validation/N7-WRITE-TEST.md), edk2 refused every signed write
+  to PK, KEK, and db with SECURITY_VIOLATION, though the signatures
+  verify offline against the enrolled certificates.  Until a run
+  shows a write that takes, no run shows the write test catching a
+  key change that persists.  The questions are:
+  - H1: the variable driver's runtime crypto (RSA-4096 and its fixed
+    memory pool) fails on these payloads.
+  - H2: a check in edk2-stable202408, in the time-based payload
+    verification or in the PKCS#7 verify, that the 202202 source
+    lacks.  Read the edk2-stable202408 source at those points, at the
+    runtime allocator's pool size, and at the build's
+    `PcdMaxAuthVariableSize`, and read the distribution's edk2 build
+    for overrides.
+  - An RSA-2048 control run on QEMU only: a throwaway PK and KEK, the
+    development db certificate kept so the signed probe still boots.
+    If the firmware accepts the signed KEK and PK writes, H1 holds;
+    if it refuses them, H2 holds.
+  - The S-db size limit: db is 9001 bytes and the S-db append adds
+    1367, over the 10240-byte `PcdMaxAuthVariableSize` of
+    edk2-stable202202 (the 202408 value is unchecked).  Either build
+    the R1 vars without the template's Microsoft db certificates, or
+    make S-db a signed replace of `db.esl` and `kek.esl`.
 
 ---
 

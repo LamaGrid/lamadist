@@ -40,6 +40,24 @@
 # only when both are set, so the build stays unsigned here.  Stage B
 # wires real values in via the machine's boot-backend include
 # (conf/machine/include/lamadist-boot-sdboot-uki.inc).
+#
+# Device tree (ADR 0013 decisions 1, 3, and 10).  A board whose
+# firmware does not supply a trustworthy device tree opts in with
+# LAMADIST_UKI_EMBED_DTB = "1" (SOQuartz does; intel and
+# qemuarm64-lamadist leave it off).  The board DTB then rides inside
+# the signed UKI as the .dtb section (ukify --devicetree), and
+# systemd-stub installs it before it starts the kernel, so the tree is
+# covered by the PE signature and nothing is read from the medium
+# (U-Boot's fdtfile stays empty).  KERNEL_DEVICETREE names the tree;
+# ukify --devicetree takes ONE file, so the FIRST entry is embedded
+# and the rest are ignored (meta-rockchip's NONFITDT picks the first
+# the same way).  The kernel deploys DTBs flat in DEPLOY_DIR_IMAGE, so
+# a "rockchip/" prefix is dropped.  The kernel's do_deploy already
+# precedes do_image_wic through the wic recrdeptask; the depends line
+# below states it for the opt-in so the DTB does not hang on that
+# side effect.
+
+LAMADIST_UKI_EMBED_DTB ?= "0"
 
 DEPENDS += "\
     os-release \
@@ -131,6 +149,18 @@ python lamadist_uki_build () {
         if not os.path.exists(microcode):
             bb.fatal("lamadist_uki_build: LAMADIST_UKI_INCLUDE_MICROCODE=1 "
                      "but %s is missing" % microcode)
+
+    # Board device tree, embedded as .dtb (see the header).  Only the
+    # first KERNEL_DEVICETREE entry: ukify keeps one --devicetree.
+    dtb = None
+    if d.getVar('LAMADIST_UKI_EMBED_DTB') == '1':
+        trees = (d.getVar('KERNEL_DEVICETREE') or '').split()
+        if not trees:
+            bb.fatal("lamadist_uki_build: LAMADIST_UKI_EMBED_DTB=1 "
+                     "but KERNEL_DEVICETREE is empty")
+        dtb = os.path.join(deploydir, os.path.basename(trees[0]))
+        if not os.path.exists(dtb):
+            bb.fatal("lamadist_uki_build: cannot find %s" % dtb)
 
     initramfs_image = d.getVar('INITRAMFS_IMAGE')
     initramfs_fstype = d.getVar('INITRAMFS_FSTYPES').split()[0]
@@ -262,6 +292,8 @@ python lamadist_uki_build () {
             ukify_cmd += " --initrd=%s" % microcode
         ukify_cmd += " --initrd=%s" % initramfs
         ukify_cmd += " --linux=%s" % kernel
+        if dtb:
+            ukify_cmd += " --devicetree=%s" % dtb
         if kernel_version:
             ukify_cmd += " --uname %s" % kernel_version
         ukify_cmd += " --cmdline='%s'" % cmdline
@@ -280,8 +312,11 @@ python lamadist_uki_build () {
 }
 
 do_image_wic[prefuncs] += "lamadist_uki_build"
+do_image_wic[depends] += "${@'virtual/kernel:do_deploy' if d.getVar('LAMADIST_UKI_EMBED_DTB') == '1' else ''}"
 do_image_wic[vardeps] += "\
     APPEND \
+    KERNEL_DEVICETREE \
+    LAMADIST_UKI_EMBED_DTB \
     LAMADIST_UKI_INITRAMFS_MIN_BYTES \
     LAMADIST_UKI_SLOTS \
     UKIFY_CMD \
