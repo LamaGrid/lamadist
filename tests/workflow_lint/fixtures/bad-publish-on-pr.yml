@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+# Must fail the trigger lint: a job that names the publishing
+# environment outright is reachable from pull_request.
+---
+name: bad-publish-on-pr
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: yocto-publish
+    steps:
+      - run: echo build

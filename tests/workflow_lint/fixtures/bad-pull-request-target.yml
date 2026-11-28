@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+# Must fail the trigger lint: pull_request_target runs with secrets
+# in the base repository's context for code a fork controls.
+---
+name: bad-pull-request-target
+on:
+  pull_request_target:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo build
